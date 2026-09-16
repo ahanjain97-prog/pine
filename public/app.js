@@ -1089,6 +1089,7 @@ async function renderImpect(main) {
   main.innerHTML = `<div class="page" style="max-width:1200px">
     <div class="page-h"><div><h1>Impect</h1><div class="sub">Import your Impect Scouting short lists, or browse every player in your Impect competitions and add them to PINE.</div></div></div>
     <section class="panel" id="sl-panel"><header class="panel-h"><h2>Scouting short lists</h2></header><div class="loading sm">Loading short lists…</div></section>
+    <section class="panel" id="tm-match"><header class="panel-h"><h2>Transfermarkt matching</h2></header><div class="loading sm">Loading…</div></section>
     <section class="panel">
       <header class="panel-h"><h2>Browse Impect players</h2></header>
       <div class="filters">
@@ -1102,6 +1103,7 @@ async function renderImpect(main) {
   </div>`;
   const root = main.firstElementChild;
   loadShortLists(root);
+  loadTmMatch(root);
 
   try {
     const { iterations } = await api("GET", "/api/impect/iterations");
@@ -1206,6 +1208,63 @@ async function loadShortLists(root) {
   });
 }
 
+/* ---------- database backups (staff page) ---------- */
+async function loadBackups(root) {
+  const el = $("#bk-list", root);
+  if (!el) return;
+  try {
+    const { snapshots } = await api("GET", "/api/backups");
+    el.className = "";
+    el.innerHTML = snapshots.length
+      ? `<table class="grid"><thead><tr><th>Snapshot</th><th>Size</th><th>Written</th></tr></thead><tbody>${snapshots
+          .map((b) => `<tr style="cursor:default"><td>${esc(b.name)}</td><td>${(b.bytes / 1024).toFixed(0)} KB</td><td class="muted">${esc(relTime(b.at))}</td></tr>`)
+          .join("")}</tbody></table>`
+      : `<p class="empty">No snapshots yet; the first is written when the server starts.</p>`;
+  } catch (e) {
+    el.className = "";
+    el.innerHTML = `<div class="banner err sm">${esc(e.message)}</div>`;
+  }
+}
+
+/* ---------- bulk transfermarkt matching (impect page) ---------- */
+let tmMatchTimer = null;
+async function loadTmMatch(root) {
+  const el = $("#tm-match", root);
+  if (!el) return;
+  const head = `<header class="panel-h"><h2>Transfermarkt matching</h2></header>`;
+  const draw = (d) => {
+    const pct = d.total ? Math.round((d.done / d.total) * 100) : 0;
+    const counts = `<span class="match ok">${d.linked} linked</span><span class="match">${d.unsure} need a look</span><span class="match">${d.no_match} no match</span>${d.failed ? `<span class="match">${d.failed} failed</span>` : ""}`;
+    el.innerHTML = `${head}
+      <p class="hint" style="margin:-4px 0 10px"><b>${d.unlinked}</b> player${d.unlinked === 1 ? "" : "s"} have no Transfermarkt profile, mostly Impect imports.
+        Matching searches Transfermarkt by name and links only when the date of birth agrees, so nothing is guessed.
+        It runs about one player every five seconds and keeps going if you leave this page.</p>
+      ${d.running
+        ? `<div class="prog" title="${d.done} of ${d.total}"><span style="width:${pct}%"></span></div>
+           <div class="row" style="margin-top:8px"><span class="muted sm">${d.done} of ${d.total}${d.current ? ` · checking ${esc(d.current)}` : ""}</span><span class="spacer"></span>${counts}</div>`
+        : `<div class="row">${d.unlinked ? `<button type="button" class="btn primary sm" id="tm-start">Match ${d.unlinked} players to Transfermarkt</button>` : `<span class="muted sm">Every player is linked.</span>`}
+           ${d.total ? `<span class="spacer"></span>${counts}` : ""}</div>
+           ${d.stopped_reason ? `<div class="banner warn sm" style="margin-top:8px">${esc(d.stopped_reason)}</div>` : ""}`}
+      ${d.results?.length
+        ? `<div class="match-results">${[...d.results].reverse().map((r) => `<div class="mr mr-${r.outcome}"><a href="#/player/${r.id}">${esc(r.player)}</a> <span class="muted">${esc(r.detail)}</span></div>`).join("")}</div>`
+        : ""}`;
+    $("#tm-start", el)?.addEventListener("click", async (e) => {
+      e.target.disabled = true;
+      try { draw({ ...(await api("POST", "/api/tm/match-all", {})), unlinked: d.unlinked }); poll(); } catch (err) { oops(err); e.target.disabled = false; }
+    });
+  };
+  const poll = async () => {
+    clearTimeout(tmMatchTimer);
+    try {
+      const d = await api("GET", "/api/tm/match-all");
+      draw(d);
+      if (d.running) tmMatchTimer = setTimeout(poll, 3000);
+      else if (d.finished_at) await reloadPlayers();
+    } catch {}
+  };
+  poll();
+}
+
 /* ---------- activity + staff ---------- */
 function describe(a, onPlayerPage = false) {
   let d = {};
@@ -1256,8 +1315,14 @@ async function renderStaff(main) {
     </tbody></table></div>
     <section class="panel" style="margin-top:14px"><header class="panel-h"><h2>Add a staff member</h2></header>
       <form id="add-user" class="row"><input name="name" placeholder="Name" required aria-label="Name"><input name="email" type="email" placeholder="Email" aria-label="Email"><button class="btn primary" type="submit">Add</button></form></section>
+    <section class="panel" style="margin-top:14px" id="bk-panel">
+      <header class="panel-h"><h2>Database backup</h2><a class="btn sm primary" href="/api/backup" download>Download now</a></header>
+      <p class="hint">A snapshot is written on the server every day and the last 14 are kept. Download one any time; it opens in any SQLite tool.</p>
+      <div id="bk-list" class="loading sm">Loading…</div>
+    </section>
   </div>`;
   const root = main.firstElementChild;
+  loadBackups(root);
   root.addEventListener("click", async (e) => {
     const b = e.target.closest("[data-save-user]");
     if (!b) return;

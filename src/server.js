@@ -19,6 +19,8 @@ import {
   shortLists as impectShortLists, shortListPlayerMeta,
 } from "./lib/impect.js";
 import { playerKpiCard } from "./lib/impect_kpi.js";
+import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.js";
+import { runBulkMatch, matchState } from "./lib/tm_match.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 if (existsSync(join(ROOT, ".env"))) process.loadEnvFile(join(ROOT, ".env"));
@@ -32,6 +34,8 @@ if (!existsSync(DB_FILE) && existsSync(SEED_DB)) {
   console.log(`Seeded ${DB_FILE} from ${SEED_DB}`);
 }
 const db = openDb(DB_FILE);
+const BACKUP_DIR = join(dirname(DB_FILE), "backups");
+startDailyBackups(db, BACKUP_DIR);
 const PHYS_CACHE = join(ROOT, "data", "physical_cache.json");
 
 class HttpError extends Error {
@@ -148,6 +152,16 @@ async function autoLink(playerId) {
     }
   } catch (e) { console.warn("impect auto-link failed:", e.message); }
   return out;
+}
+
+// Write a fetched Transfermarkt profile onto a player (used by manual sync and the bulk matcher).
+async function applyTmProfile(playerId, tm, userId, via) {
+  updatePlayer(playerId, {
+    ...pick(tm, TM_FIELDS), citizenship: tm.citizenship, other_positions: tm.other_positions,
+    tm_synced_at: new Date().toISOString(),
+  });
+  logActivity(db, userId, playerId, "linked_tm", { tm_id: tm.tm_id, ...(via ? { via } : {}) });
+  await autoLink(playerId);
 }
 
 const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => obj[k] !== undefined).map((k) => [k, obj[k]]));
@@ -336,10 +350,8 @@ app.post("/api/players/:id/refresh-tm", async (c) => {
   const dup = db.get("SELECT id, name FROM players WHERE tm_id = ? AND id <> ?", parsed.id, p.id);
   if (dup) fail(409, `That Transfermarkt profile belongs to ${dup.name}`, { player_id: dup.id });
   const tm = await fetchTmPlayer(url);
-  updatePlayer(p.id, { ...pick(tm, TM_FIELDS), citizenship: tm.citizenship, other_positions: tm.other_positions, tm_synced_at: new Date().toISOString() });
-  logActivity(db, user.id, p.id, p.tm_id ? "synced_tm" : "linked_tm", { tm_id: tm.tm_id });
-  const linked = await autoLink(p.id);
-  return c.json({ player: getPlayer(p.id), linked });
+  await applyTmProfile(p.id, tm, user.id, null);
+  return c.json({ player: getPlayer(p.id) });
 });
 
 // Transfermarkt search for players added without a link (e.g. Impect imports), ranked by age/club/country agreement.
@@ -487,6 +499,40 @@ app.put("/api/players/:id/impect", async (c) => {
   logActivity(db, user.id, p.id, "linked_impect", { impect_id: impect_id ?? null });
   return c.json({ player: getPlayer(p.id) });
 });
+/* ---------- backups ---------- */
+app.get("/api/backups", (c) => c.json({ snapshots: listSnapshots(BACKUP_DIR), dir: BACKUP_DIR }));
+app.get("/api/backup", (c) => {
+  const buf = snapshotBuffer(db, BACKUP_DIR);
+  logActivity(db, c.get("user").id, null, "downloaded_backup", { bytes: buf.length });
+  return new Response(buf, {
+    headers: {
+      "Content-Type": "application/x-sqlite3",
+      "Content-Disposition": `attachment; filename="pine-${new Date().toISOString().slice(0, 10)}.sqlite"`,
+      "Content-Length": String(buf.length),
+    },
+  });
+});
+
+/* ---------- bulk transfermarkt matching ---------- */
+const unlinkedPlayers = () =>
+  db.all("SELECT id, name, birthdate, club, citizenship FROM players WHERE tm_id IS NULL ORDER BY name COLLATE NOCASE")
+    .map((p) => ({ ...p, citizenship: JSON.parse(p.citizenship || "[]"), age: ageFrom(p.birthdate) }));
+
+app.get("/api/tm/match-all", (c) => c.json({ ...matchState(), unlinked: unlinkedPlayers().length }));
+app.post("/api/tm/match-all", async (c) => {
+  const user = c.get("user");
+  const { limit = null } = await c.req.json().catch(() => ({}));
+  const state = await runBulkMatch({
+    players: unlinkedPlayers(),
+    teamOverlap,
+    isTaken: (tmId, playerId) => Boolean(db.get("SELECT id FROM players WHERE tm_id = ? AND id <> ?", String(tmId), playerId)),
+    onLink: (player, profile) => applyTmProfile(player.id, profile, user.id, "bulk match"),
+    limit: limit ? Number(limit) : null,
+  });
+  logActivity(db, user.id, null, "started_tm_match", { players: state.total });
+  return c.json({ ...state, unlinked: unlinkedPlayers().length });
+});
+
 app.get("/api/impect/shortlists", async (c) => {
   const lists = await impectShortLists();
   const inPine = new Set(db.all("SELECT impect_id FROM players WHERE impect_id IS NOT NULL").map((r) => r.impect_id));
