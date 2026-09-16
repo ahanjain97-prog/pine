@@ -73,9 +73,13 @@ export function parseTmProfile(html, tmId) {
   if (!out.citizenship.length && info["Citizenship"]) out.citizenship = [text(info["Citizenship"])];
   out.citizenship = [...new Set(out.citizenship)];
   out.foot = text(info["Foot"]) || null;
-  // Long agency names are truncated in the page text; the full name is in the title attribute.
-  const agentTitle = String(info["Player agent"] || "").match(/title="([^"]+)"/);
-  out.agent = agentTitle ? decode(agentTitle[1]) : text(info["Player agent"]) || null;
+  // The agency cell can hold a link, a truncated name whose full form is in a span title, and a
+  // "verified" badge image. Take the agency name and never the badge.
+  const agentCell = String(info["Player agent"] || "");
+  const agentSpan = agentCell.match(/<span[^>]*class="cp"[^>]*title="([^"]+)"/);
+  const agentLink = agentCell.match(/<a[^>]*>([\s\S]*?)<\/a>/);
+  const agentName = agentSpan ? decode(agentSpan[1]) : agentLink ? text(agentLink[1]) : text(agentCell.replace(/<img[^>]*>/g, ""));
+  out.agent = agentName && !/^verified$/i.test(agentName) ? agentName : null;
   out.joined = parseTmDate(text(info["Joined"]));
   out.contract_expires = parseTmDate(text(info["Contract expires"]));
   out.loan_from = text(info["On loan from"]) || null;

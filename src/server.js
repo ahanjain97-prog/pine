@@ -18,6 +18,7 @@ import {
   impectConfigured, iterations as impectIterations, searchImpect, getImpectPlayer, matchImpect,
   shortLists as impectShortLists, shortListPlayerMeta,
 } from "./lib/impect.js";
+import { playerKpiCard } from "./lib/impect_kpi.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 if (existsSync(join(ROOT, ".env"))) process.loadEnvFile(join(ROOT, ".env"));
@@ -542,6 +543,16 @@ app.post("/api/impect/shortlists/:id/import", async (c) => {
   logActivity(db, user.id, null, "imported_list", out);
   for (const id of fresh) await autoLink(id);
   return c.json(out);
+});
+
+// Impect KPI category percentiles, computed live against this season's competition cohort.
+app.get("/api/players/:id/impect-kpis", async (c) => {
+  const p = getPlayer(c.req.param("id"));
+  if (!p.impect_id) fail(400, "Link this player to Impect first");
+  return c.json(await playerKpiCard(p.impect_id, {
+    iterationId: c.req.query("iteration") || null,
+    minShare: c.req.query("min_share") ? Number(c.req.query("min_share")) : undefined,
+  }));
 });
 
 app.get("/api/players/:id/impect-candidates", async (c) => {

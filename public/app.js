@@ -711,7 +711,7 @@ async function renderPlayer(main, idArg) {
           ${fact("Joined", fmtDate(p.joined))}
           ${fact("On loan from", p.loan_from)}
           ${fact("Market value", p.market_value_display)}
-          ${fact("Agent", p.agent)}
+          ${fact("Agent", p.agent ? esc(p.agent) : `<span class="muted">Not listed${p.tm_url ? " on Transfermarkt" : ""}</span>`, true)}
           ${fact("National team", p.national_team)}
           ${fact("Birthplace", p.birthplace)}
         </dl>
@@ -741,6 +741,7 @@ async function renderPlayer(main, idArg) {
           <textarea id="summary" rows="3" data-draft data-orig="${esc(p.summary || "")}" placeholder="Overall summary, fit, next steps…">${esc(p.summary || "")}</textarea>
           <div class="row end" style="margin-top:6px"><button type="button" class="btn sm" id="save-summary">Save summary</button></div>
         </section>
+        ${p.impect_id ? `<section class="panel" id="kpi-panel"><header class="panel-h"><h2>Impect KPI profile</h2></header><div class="loading sm">Loading…</div></section>` : ""}
         <section class="panel"><header class="panel-h"><h2>Staff evaluations</h2></header><div class="evals">${d.staff.map(evalHTML).join("")}</div></section>
       </div>
       <div>
@@ -754,9 +755,57 @@ async function renderPlayer(main, idArg) {
   </div>`;
   const root = main.firstElementChild;
   wirePlayer(root, d);
+  if (p.impect_id) loadKpiPanel(root, p);
   if (!p.tm_url) loadTmPanel(root, p);
   loadPhysicalPanel(root, p);
   loadImpectPanel(root, p);
+}
+
+/* ---------- impect KPI profile ---------- */
+function kpiComponent(m) {
+  if (m.percentile == null) {
+    return `<div class="bar"><span class="bl" title="${esc(m.definition || m.label)}">${esc(m.label)} <span class="raw">no data</span></span><span class="track"></span><span class="bv">–</span></div>`;
+  }
+  const label = `${m.label}${m.inverted ? " ↓" : ""}`;
+  return bar(label, Math.round(m.percentile), m.value);
+}
+
+function kpiCategory(c) {
+  const pct = c.percentile == null ? null : Math.round(c.percentile);
+  return `<details class="phys">
+    <summary><div style="min-width:0"><b>${esc(c.name)}</b><div class="muted sm">${c.components.length} KPIs</div></div>
+      <span class="pct-pill" style="--c:${pct == null ? "var(--none)" : band(pct)}" title="Percentile in this cohort">${pct == null ? "–" : pct}</span></summary>
+    <div class="inner"><div class="bars">${c.components.map(kpiComponent).join("")}</div></div>
+  </details>`;
+}
+
+function loadKpiPanel(root, p) {
+  const el = $("#kpi-panel", root);
+  const head = (extra = "") => `<header class="panel-h"><h2>Impect KPI profile</h2>${extra}</header>`;
+  const draw = async (iterationId) => {
+    el.innerHTML = `${head()}<div class="loading sm">Scoring against the league cohort…</div>`;
+    let d;
+    try { d = await api("GET", `/api/players/${p.id}/impect-kpis${iterationId ? `?iteration=${iterationId}` : ""}`); } catch (e) {
+      el.innerHTML = `${head()}<div class="banner err sm">${esc(e.message)}</div>`;
+      return;
+    }
+    const picker = (d.available_iterations || []).length > 1
+      ? `<select id="kpi-it" aria-label="Season">${d.available_iterations.map((i) => `<option value="${i.id}" ${d.iteration?.id === i.id ? "selected" : ""}>${esc(i.competition)} ${esc(i.season)}</option>`).join("")}</select>`
+      : "";
+    if (d.empty) {
+      el.innerHTML = `${head(picker)}<p class="empty">${esc(d.reason)}</p>`;
+    } else {
+      el.innerHTML = `${head(picker)}
+        <p class="hint" style="margin:-4px 0 10px">${esc(d.position_label)} · ${esc(d.squad || "")} · ${d.minutes.toLocaleString()} min (${d.match_share} match shares).
+          Percentile against <b>${d.peer_count}</b> ${esc(d.position_label.toLowerCase())}s in ${esc(d.iteration.competition)} ${esc(d.iteration.season)} with ${d.min_share_used} + match shares.</p>
+        ${d.categories.map(kpiCategory).join("")}
+        <p class="sm muted" style="margin:8px 0 0">Equal-weight, direction-adjusted KPI z-scores within this cohort; each KPI belongs to one category.
+          A high percentile on a volume KPI means “more”, not necessarily “better”; ↓ marks KPIs where lower is favourable.
+          Recomputed from Impect at most every 12 hours.</p>`;
+    }
+    $("#kpi-it", el)?.addEventListener("change", (e) => draw(e.target.value));
+  };
+  draw();
 }
 
 /* ---------- transfermarkt suggestions (players added without a link) ---------- */
