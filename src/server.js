@@ -5,7 +5,7 @@ import { getCookie, setCookie } from "hono/cookie";
 import { basicAuth } from "hono/basic-auth";
 import { HTTPException } from "hono/http-exception";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative } from "node:path";
 
@@ -602,7 +602,28 @@ app.get("/api/activity", (c) =>
 );
 
 /* ---------- static app ---------- */
-app.use("/*", serveStatic({ root: relative(process.cwd(), join(ROOT, "public")) || "." }));
+// The page is never cached and points at versioned asset URLs, so a deploy can't leave a browser
+// holding new JS with old CSS. Versioned assets are then cached hard.
+const PUBLIC_DIR = join(ROOT, "public");
+const ASSET_VERSION = createHash("sha1")
+  .update(readFileSync(join(PUBLIC_DIR, "app.js")))
+  .update(readFileSync(join(PUBLIC_DIR, "styles.css")))
+  .digest("hex")
+  .slice(0, 8);
+const INDEX_HTML = readFileSync(join(PUBLIC_DIR, "index.html"), "utf8")
+  .replace('href="/styles.css"', `href="/styles.css?v=${ASSET_VERSION}"`)
+  .replace('src="/app.js"', `src="/app.js?v=${ASSET_VERSION}"`);
+
+app.use("/*", async (c, next) => {
+  await next();
+  if (!c.res) return;
+  const headers = new Headers(c.res.headers);
+  headers.set("Cache-Control", c.req.query("v") === undefined ? "no-cache" : "public, max-age=31536000, immutable");
+  c.res = new Response(c.res.body, { status: c.res.status, headers });
+});
+app.get("/", (c) => c.html(INDEX_HTML));
+app.get("/index.html", (c) => c.html(INDEX_HTML));
+app.use("/*", serveStatic({ root: relative(process.cwd(), PUBLIC_DIR) || "." }));
 
 const port = Number(process.env.PORT) || 8787;
 serve({ fetch: app.fetch, port }, () => console.log(`PINE running on http://localhost:${port}`));
