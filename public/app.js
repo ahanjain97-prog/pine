@@ -770,38 +770,14 @@ function kpiComponent(m) {
   return bar(label, Math.round(m.percentile), m.value);
 }
 
-// Percentile "pizza": one numbered slice per category, slice length = percentile, colour = band.
-function kpiPizza(cats, size = 320) {
-  const cx = size / 2, cy = size / 2, rMax = size / 2 - 4, rMin = rMax * 0.17;
-  const step = (2 * Math.PI) / cats.length;
-  const pt = (a, r) => [(cx + r * Math.cos(a)).toFixed(1), (cy + r * Math.sin(a)).toFixed(1)];
-  const wedge = (i, r) => {
-    const a0 = -Math.PI / 2 + i * step + 0.014, a1 = a0 + step - 0.028;
-    const [x0, y0] = pt(a0, rMin), [x1, y1] = pt(a0, r), [x2, y2] = pt(a1, r), [x3, y3] = pt(a1, rMin);
-    return `M${x0} ${y0} L${x1} ${y1} A${r} ${r} 0 0 1 ${x2} ${y2} L${x3} ${y3} A${rMin} ${rMin} 0 0 0 ${x0} ${y0} Z`;
-  };
-  const scale = (pct) => rMin + (rMax - rMin) * (pct / 100);
-  const rings = [25, 50, 75, 100].map((p) =>
-    `<circle cx="${cx}" cy="${cy}" r="${scale(p).toFixed(1)}" fill="none" stroke="var(--line-2)" stroke-width="1"${p < 100 ? ' stroke-dasharray="2 4"' : ""}/>`).join("");
-  const parts = cats.map((c, i) => {
-    const pct = c.percentile == null ? null : c.percentile;
-    const track = `<path d="${wedge(i, rMax)}" fill="var(--surface-2)" stroke="var(--line)" stroke-width=".5"/>`;
-    const fill = pct == null ? "" : `<path d="${wedge(i, Math.max(scale(pct), rMin + 3))}" fill="${band(pct)}"><title>${esc(c.name)}: ${Math.round(pct)}</title></path>`;
-    const [tx, ty] = pt(-Math.PI / 2 + i * step + step / 2, pct == null ? rMin + 14 : Math.max(scale(pct) - 13, rMin + 13));
-    const num = `<text x="${tx}" y="${ty}" text-anchor="middle" dominant-baseline="central" font-size="11" font-weight="700" fill="#fff" style="paint-order:stroke;stroke:rgba(0,0,0,.3);stroke-width:2.5px">${i + 1}</text>`;
-    return track + fill + num;
-  }).join("");
-  return `<svg class="pizza" viewBox="0 0 ${size} ${size}" role="img" aria-label="Category percentile chart">${parts}${rings}</svg>`;
-}
-
-function kpiCategory(c, i) {
+function kpiCategory(c) {
   const pct = c.percentile == null ? null : Math.round(c.percentile);
+  const parts = [...c.components].sort((x, y) => (y.percentile ?? -1) - (x.percentile ?? -1));
   return `<li><details>
-    <summary><span class="kpi-num" style="background:${pct == null ? "var(--none)" : band(pct)}">${i + 1}</span>
-      <span class="kpi-name">${esc(c.name)}</span>
+    <summary><span class="kpi-name">${esc(c.name)}</span>
       <span class="kpi-bar"><span style="width:${pct ?? 0}%;background:${pct == null ? "var(--none)" : band(pct)}"></span></span>
-      <b>${pct == null ? "–" : pct}</b></summary>
-    <div class="bars">${c.components.map(kpiComponent).join("")}</div>
+      <b>${pct == null ? "\u2013" : pct}</b></summary>
+    <div class="bars">${parts.map(kpiComponent).join("")}</div>
   </details></li>`;
 }
 
@@ -824,12 +800,7 @@ function loadKpiPanel(root, p) {
       el.innerHTML = `${head(picker)}
         <p class="hint" style="margin:-4px 0 10px">${esc(d.position_label)} · ${esc(d.squad || "")} · ${d.minutes.toLocaleString()} min (${d.match_share} match shares).
           Percentile against <b>${d.peer_count}</b> ${esc(d.position_label.toLowerCase())}s in ${esc(d.iteration.competition)} ${esc(d.iteration.season)} with ${d.min_share_used} + match shares.</p>
-        <div class="kpi-wrap">
-          <div class="kpi-chart">${kpiPizza(d.categories)}
-            <div class="kpi-scale"><span><i style="background:var(--b0)"></i>0–20</span><span><i style="background:var(--b2)"></i>40–60</span><span><i style="background:var(--b4)"></i>80–100</span></div>
-          </div>
-          <ol class="kpi-list">${d.categories.map(kpiCategory).join("")}</ol>
-        </div>
+        <ol class="kpi-list">${[...d.categories].sort((x, y) => (y.percentile ?? -1) - (x.percentile ?? -1)).map(kpiCategory).join("")}</ol>
         <p class="sm muted" style="margin:8px 0 0">Equal-weight, direction-adjusted KPI z-scores within this cohort; each KPI belongs to one category.
           A high percentile on a volume KPI means “more”, not necessarily “better”; ↓ marks KPIs where lower is favourable.
           Recomputed from Impect at most every 12 hours.</p>`;
