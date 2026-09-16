@@ -92,12 +92,12 @@ CREATE TABLE IF NOT EXISTS activity(
 `;
 
 const STAFF = [
-  ["Ray", null, 0],
-  ["Ahan", "ahanjain97@gmail.com", 1],
-  ["Ford", null, 0],
-  ["Bobby", null, 0],
-  ["Alex", null, 0],
-  ["Yuta", null, 0],
+  ["Ray", 0],
+  ["Ahan", 1],
+  ["Ford", 0],
+  ["Bobby", 0],
+  ["Alex", 0],
+  ["Yuta", 0],
 ];
 
 // Thin wrapper so call sites don't depend on the driver (eases a later move to D1/Postgres).
@@ -123,8 +123,9 @@ export function openDb(file) {
       }
     },
   };
-  STAFF.forEach(([name, email, admin], i) =>
-    db.run("INSERT OR IGNORE INTO users(name, email, is_admin, sort) VALUES (?,?,?,?)", name, email, admin, i)
+  STAFF.forEach(([name, admin], i) =>
+    db.run("INSERT OR IGNORE INTO users(name, email, is_admin, sort) VALUES (?,?,?,?)",
+      name, admin ? process.env.PINE_ADMIN_EMAIL || null : null, admin, i)
   );
   return db;
 }

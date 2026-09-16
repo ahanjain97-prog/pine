@@ -23,6 +23,7 @@ running PINE (and filled in automatically while `PINE_DEV_SHOW_CODE=1`).
 |---|---|
 | `IMPECT_USERNAME`, `IMPECT_PASSWORD` | Impect account used for the Customer API and Scouting short lists |
 | `PINE_SITE_PASSWORD` | One shared password in front of the whole site (browser prompt; username can be anything, e.g. `pine`). Delete the line to remove it. |
+| `PINE_ADMIN_EMAIL` | Email for the seeded admin account, used only when the database is first created. |
 | `PINE_AUTH=off` | Currently on: no sign-in; pick who you are from the name menu in the top bar. Delete this line to require email sign-in again. |
 | `PINE_DEV_SHOW_CODE=1` | Local only: returns the sign-in code to the browser. **Remove before hosting.** |
 | `RESEND_API_KEY`, `MAIL_FROM` | Email sign-in codes via [Resend](https://resend.com) instead of printing them |
@@ -72,7 +73,7 @@ data/pine.db             The database; back this file up
 
 ## Hosting (Railway, live)
 
-**Live:** https://pine-production-4995.up.railway.app, behind `PINE_SITE_PASSWORD`, with sign-in off (`PINE_AUTH=off`).
+Deployed on Railway behind `PINE_SITE_PASSWORD`, with sign-in off (`PINE_AUTH=off`). The live address is kept out of this repo.
 
 - Railway project `pine`, service `pine`, environment `production`. This folder is linked, so the Railway CLI works from `~/pine`.
 - The database lives on the `pine-volume` disk mounted at `/app/data` (500 MB). Deploys never touch it.
