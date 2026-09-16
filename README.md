@@ -14,8 +14,9 @@ npm install
 npm start            # http://localhost:8787
 ```
 
-Sign in with a staff email. Until email delivery is set up, the 6-digit code is printed in the terminal
-running PINE (and filled in automatically while `PINE_DEV_SHOW_CODE=1`).
+With `PINE_AUTH=off` (the current setting) there is no sign-in: pick who you are from the name menu in the
+top bar. With sign-in enabled instead, each person enters their staff email and a 6-digit code, which is
+printed in the terminal running PINE until email delivery is configured.
 
 ## Configuration (`.env`, never committed)
 
@@ -96,10 +97,3 @@ cd ~/pine && npm run tunnel   # terminal 2: prints the https://….trycloudflare
 ```
 
 To stop both: `lsof -ti tcp:8787 | xargs kill; pkill -f "bin/cloudflared tunnel"`.
-
-## Hosting (not done yet)
-
-The app is a single Node process with a SQLite file, so the lowest-effort hosts are ones with a persistent
-disk: Railway, Fly.io or Render (about $5–7/month). Cloudflare Workers + D1 is free but needs the
-database layer ported (the `db.js` wrapper keeps that contained). Before going live: remove
-`PINE_DEV_SHOW_CODE`, set `APP_URL`, add Resend for sign-in emails, and add each staff member's email.
