@@ -1,0 +1,11 @@
+.env
+node_modules/
+*.db
+*.db-*
+.wrangler/
+.DS_Store
+bin/
+data/
+.railway/
+seed/*.sqlite
+seed/snapshot_counts.json

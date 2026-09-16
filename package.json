@@ -1,0 +1,22 @@
+{
+  "name": "pine",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node --disable-warning=ExperimentalWarning src/server.js",
+    "tunnel": "bin/cloudflared tunnel --no-autoupdate --url http://localhost:8787"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "type": "module",
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "hono": "^4.13.8"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}
