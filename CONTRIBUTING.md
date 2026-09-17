@@ -47,10 +47,11 @@ dependency.
 
 ## How deploys work
 
-Railway is connected to this repo: **merging into `main` deploys it**, usually live within a minute or two.
-The live database sits on a Railway volume and is never replaced by a deploy. A deploy restarts the app,
-so avoid merging while a Transfermarkt bulk match is running. A maintainer can still deploy a local
-working tree with `npx @railway/cli up`.
+Merging into `main` does **not** deploy by itself. A deploy uploads a checkout of `main` to Railway with
+`npx @railway/cli up`, run either by a maintainer or by anyone holding a Railway project token
+(`RAILWAY_TOKEN=… npx @railway/cli up --service pine`). The live database sits on a Railway volume and is
+never replaced by a deploy. A deploy restarts the app, so avoid deploying while a Transfermarkt bulk match
+is running.
 
 ## Access
 

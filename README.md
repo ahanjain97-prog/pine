@@ -109,7 +109,8 @@ Deployed on Railway behind `PINE_SITE_PASSWORD`, with sign-in off (`PINE_AUTH=of
 - Railway project `pine`, service `pine`, environment `production`. This folder is linked, so the Railway CLI works from `~/pine`.
 - The database lives on the `pine-volume` disk mounted at `/app/data` (500 MB). Deploys never touch it.
 - Settings (Impect login, passwords, `APP_URL`) are Railway variables; the local `.env` is not uploaded.
-- Deploys are automatic: pushing to `main` on GitHub builds and releases. Manual override: `npx @railway/cli up --detach`.
+- Deploy code changes: `cd ~/pine && npx @railway/cli up --detach` (uploads the working tree). Push-to-deploy from
+  GitHub needs Railway's GitHub App installed on the repo; without it Railway builds a stale commit and ignores pushes.
 - Startup logs: `npx @railway/cli service logs --deployment --lines 50`
 - Change a setting: `npx @railway/cli variable set KEY=value`
 - Custom domain later: `npx @railway/cli domain pine.example.com` prints the DNS record to add.
