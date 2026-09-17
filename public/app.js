@@ -624,6 +624,39 @@ function openEditPlayer(p) {
   });
 }
 
+const TM_FIELD_LABELS = {
+  name: "Name", birthdate: "Date of birth", birthplace: "Birthplace", height_cm: "Height", foot: "Foot",
+  position: "Position", club: "Club", league: "League", joined: "Joined", contract_expires: "Contract expires",
+  loan_from: "On loan from", agent: "Agent", market_value_display: "Market value", national_team: "National team",
+  photo_url: "Photo URL",
+};
+const tmValue = (value) => value == null || value === "" ? "Not listed" : String(value);
+
+function openTmConflicts(playerId, conflicts) {
+  const m = modal(`<header class="m-h"><h2>Manual details preserved</h2><button type="button" class="icon-btn" data-close aria-label="Close">×</button></header>
+    <p class="hint">Transfermarkt has different values for these manually edited fields. Select any values you want to restore from Transfermarkt.</p>
+    <form id="tm-conflicts"><div class="tm-conflicts">${conflicts.map((c) => `<label class="tm-conflict">
+      <input type="checkbox" name="field" value="${esc(c.field)}">
+      <span><b>${esc(TM_FIELD_LABELS[c.field] || c.field)}</b><small>Manual: ${esc(tmValue(c.current))}</small><small>Transfermarkt: ${esc(tmValue(c.transfermarkt))}</small></span>
+    </label>`).join("")}</div>
+    <div class="m-actions"><button type="button" class="btn ghost" data-close>Keep manual values</button><button class="btn primary" type="submit">Use selected Transfermarkt values</button></div></form>`);
+  $("#tm-conflicts", m).addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fields = new FormData(e.target).getAll("field");
+    if (!fields.length) return toast("Select at least one field", true);
+    const btn = $("button[type=submit]", e.target);
+    btn.disabled = true;
+    btn.textContent = "Updating…";
+    try {
+      const result = await api("POST", `/api/players/${playerId}/refresh-tm`, { accept_fields: fields });
+      closeModal();
+      toast("Selected fields restored from Transfermarkt");
+      await afterMutation();
+      if (result.tm_conflicts?.length) openTmConflicts(playerId, result.tm_conflicts);
+    } catch (err) { btn.disabled = false; btn.textContent = "Use selected Transfermarkt values"; oops(err); }
+  });
+}
+
 /* ---------- database table ---------- */
 const COLS = [
   { k: "name", l: "Player", sort: (p) => p.name.toLowerCase() },
@@ -948,9 +981,11 @@ function wirePlayer(root, d) {
       if (t.id === "sync-tm") {
         t.disabled = true;
         t.textContent = "Syncing…";
-        await api("POST", `/api/players/${p.id}/refresh-tm`, {});
+        const result = await api("POST", `/api/players/${p.id}/refresh-tm`, {});
         toast("Synced from Transfermarkt");
-        return await afterMutation();
+        await afterMutation();
+        if (result.tm_conflicts?.length) openTmConflicts(p.id, result.tm_conflicts);
+        return;
       }
       if (t.id === "edit-p") return openEditPlayer(p);
       if (t.id === "del-p") {

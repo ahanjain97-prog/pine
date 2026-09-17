@@ -13,7 +13,7 @@ import { openDb, logActivity } from "./db.js";
 import { checkPassword, createSetupLink, setupLinkUser, useSetupLink, startSession, logout, currentUser } from "./auth.js";
 import { POSITIONS, ROLES, DECISIONS, SPLIT_ROLES, IMPECT_POSITION_LABEL, suggestPosition, suggestListRole, resolveRole } from "./roles.js";
 import { fetchTmPlayer, parseTmUrl, searchTmPlayers } from "./lib/transfermarkt.js";
-import { TM_FIELDS, manualTmOverrides, tmSyncFields } from "./lib/tm_sync.js";
+import { TM_FIELDS, manualTmOverrides, releaseTmOverrides, tmConflicts, tmSyncFields } from "./lib/tm_sync.js";
 import { loadPhysical, matchPhysical, resolveAutoLinks, searchPhysical, rowsByKeys, teamOverlap, meta as physMeta } from "./lib/physical.js";
 import {
   impectConfigured, iterations as impectIterations, searchImpect, getImpectPlayer, matchImpect,
@@ -187,10 +187,15 @@ setTimeout(() => relinkPhysical().catch((e) => console.warn("physical re-link fa
 setInterval(() => relinkPhysical().catch((e) => console.warn("physical re-link failed:", e.message)), 6 * 60 * 60 * 1000);
 
 // Write a fetched Transfermarkt profile onto a player (used by manual sync and the bulk matcher).
-async function applyTmProfile(playerId, tm, userId, via) {
-  updatePlayer(playerId, tmSyncFields(getPlayer(playerId), tm));
+async function applyTmProfile(playerId, tm, userId, via, acceptFields = []) {
+  const current = getPlayer(playerId);
+  const tm_overrides = releaseTmOverrides(current.tm_overrides, acceptFields);
+  const player = { ...current, tm_overrides };
+  const conflicts = tmConflicts(player, tm);
+  updatePlayer(playerId, { ...tmSyncFields(player, tm), tm_overrides });
   logActivity(db, userId, playerId, "linked_tm", { tm_id: tm.tm_id, ...(via ? { via } : {}) });
   await autoLink(playerId);
+  return conflicts;
 }
 
 const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => obj[k] !== undefined).map((k) => [k, obj[k]]));
@@ -398,13 +403,14 @@ app.delete("/api/players/:id", (c) => {
 app.post("/api/players/:id/refresh-tm", async (c) => {
   const user = c.get("user");
   const p = getPlayer(c.req.param("id"));
-  const url = (await c.req.json().catch(() => ({}))).url || p.tm_url;
+  const body = await c.req.json().catch(() => ({}));
+  const url = body.url || p.tm_url;
   const parsed = parseTmUrl(url) || fail(400, "Add a Transfermarkt link first");
   const dup = db.get("SELECT id, name FROM players WHERE tm_id = ? AND id <> ?", parsed.id, p.id);
   if (dup) fail(409, `That Transfermarkt profile belongs to ${dup.name}`, { player_id: dup.id });
   const tm = await fetchTmPlayer(url);
-  await applyTmProfile(p.id, tm, user.id, null);
-  return c.json({ player: getPlayer(p.id) });
+  const conflicts = await applyTmProfile(p.id, tm, user.id, null, Array.isArray(body.accept_fields) ? body.accept_fields : []);
+  return c.json({ player: getPlayer(p.id), tm_conflicts: conflicts });
 });
 
 // Transfermarkt search for players added without a link (e.g. Impect imports), ranked by age/club/country agreement.

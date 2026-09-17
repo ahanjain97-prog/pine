@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { manualTmOverrides, tmSyncFields } from "../src/lib/tm_sync.js";
+import { manualTmOverrides, releaseTmOverrides, tmConflicts, tmSyncFields } from "../src/lib/tm_sync.js";
 
 test("manual Transfermarkt field changes become overrides", () => {
   const player = { agent: null, league: "USL1", tm_overrides: [] };
@@ -39,4 +39,17 @@ test("clearing a field manually remains an override", () => {
 test("unchanged submitted values do not become overrides", () => {
   const player = { agent: "Same Agent", league: "USL1", tm_overrides: [] };
   assert.deepEqual(manualTmOverrides(player, { agent: "Same Agent", league: "USL1" }), []);
+});
+
+test("sync reports differing manual values", () => {
+  const player = { agent: "fake agent", league: "new league", tm_overrides: ["agent", "league", "league_code"] };
+  const profile = { agent: null, league: "USL1" };
+  assert.deepEqual(tmConflicts(player, profile), [
+    { field: "league", current: "new league", transfermarkt: "USL1" },
+    { field: "agent", current: "fake agent", transfermarkt: null },
+  ]);
+});
+
+test("releasing one override also releases its related metadata", () => {
+  assert.deepEqual(releaseTmOverrides(["agent", "league", "league_code"], ["league"]), ["agent"]);
 });
