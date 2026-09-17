@@ -47,7 +47,8 @@ async function getToken(force = false) {
   }
 }
 
-export async function impectGet(path, { ttl = TTL_MS } = {}) {
+// store: false skips the 12-hour response cache, for large raw payloads callers reduce and cache themselves.
+export async function impectGet(path, { ttl = TTL_MS, store = true } = {}) {
   const hit = cache.get(path);
   if (hit && Date.now() - hit.at < ttl) return hit.data;
   let force = false;
@@ -60,7 +61,7 @@ export async function impectGet(path, { ttl = TTL_MS } = {}) {
     if (!res.ok) throw new Error(`Impect ${path} failed (${res.status})`);
     const j = await res.json();
     const data = j && typeof j === "object" && "data" in j ? j.data : j;
-    cache.set(path, { at: Date.now(), data });
+    if (store) cache.set(path, { at: Date.now(), data });
     return data;
   }
   throw new Error(`Impect ${path} failed after retries`);
@@ -91,7 +92,7 @@ export async function playerPool() {
     const order = [...its].sort((a, b) => String(a.season).localeCompare(String(b.season)) || (a.type === "Cup" ? 0 : 1) - (b.type === "Cup" ? 0 : 1));
     for (const it of order) {
       const [players, squads] = await Promise.all([
-        impectGet(`/v5/customerapi/iterations/${it.id}/players`),
+        impectGet(`/v5/customerapi/iterations/${it.id}/players`, { store: false }),
         impectGet(`/v5/customerapi/iterations/${it.id}/squads`),
       ]);
       for (const s of squads) squadName.set(s.id, s.name);

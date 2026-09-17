@@ -785,10 +785,14 @@ function kpiCategory(c) {
 function loadKpiPanel(root, p) {
   const el = $("#kpi-panel", root);
   const head = (extra = "") => `<header class="panel-h"><h2>Impect KPI profile</h2>${extra}</header>`;
-  const draw = async (iterationId) => {
+  const draw = async (iterationId, position) => {
     el.innerHTML = `${head()}<div class="loading sm">Scoring against the pooled positional benchmark…</div>`;
     let d;
-    try { d = await api("GET", `/api/players/${p.id}/impect-kpis${iterationId ? `?iteration=${iterationId}` : ""}`); } catch (e) {
+    const qs = new URLSearchParams();
+    if (iterationId) qs.set("iteration", iterationId);
+    if (position) qs.set("position", position);
+    const q = qs.toString();
+    try { d = await api("GET", `/api/players/${p.id}/impect-kpis${q ? `?${q}` : ""}`); } catch (e) {
       el.innerHTML = `${head()}<div class="banner err sm">${esc(e.message)}</div>`;
       return;
     }
@@ -801,15 +805,19 @@ function loadKpiPanel(root, p) {
       el.innerHTML = `${head(picker)}
         <p class="hint" style="margin:-4px 0 10px">${esc(d.position_label)} · ${esc(d.squad || "")} · ${d.minutes.toLocaleString()} min (${d.match_share} match shares).
           Pooled benchmark: <b>${d.peer_count}</b> ${esc(d.position_label.toLowerCase())}s across ${esc(d.benchmark_competitions.join(" + "))}, ${esc(d.iteration.season)}, with ${d.min_share_used}+ match shares at this position. Each KPI is standardised within its own league before pooling.</p>
+        ${(d.positions || []).length > 1 ? `<div class="kpi-positions" role="group" aria-label="Position benchmarked">${d.positions.map((o) =>
+          `<button type="button" class="${o.group === d.position ? "on" : ""}${o.eligible ? "" : " thin"}" data-kpi-pos="${esc(o.group)}" aria-pressed="${o.group === d.position}"
+            title="${esc(o.impect_positions.map((x) => `${x.name.replace(/_/g, " ").toLowerCase()} ${x.match_share}`).join(", "))}${o.eligible ? "" : " (below the minimum)"}">${esc(o.label)} <span>${o.match_share}</span></button>`).join("")}</div>` : ""}
         ${!d.eligible ? `<p class="banner">Insufficient sample: ${d.match_share} of ${d.min_share_used} required match shares at this position. Percentiles are withheld; expand categories to inspect raw values.</p>` : ""}
         ${d.missing_benchmark_competitions?.length ? `<p class="sm muted">Unavailable for this season: ${esc(d.missing_benchmark_competitions.join(", "))}.</p>` : ""}
         <ol class="kpi-list">${[...d.categories].sort((a, b) => (b.percentile ?? -1) - (a.percentile ?? -1)).map(kpiCategory).join("")}</ol>
         <p class="sm muted" style="margin:8px 0 0">Bars show pooled percentiles, highest to lowest; expand a category for its metrics and valid peer count. Equal-weight, direction-adjusted KPI z-scores fitted only on qualified peers; each KPI belongs to one category.
           A high percentile on a volume KPI means “more”, not necessarily “better”; ↓ marks KPIs where lower is favourable.
-          Raw comparisons do not adjust for league strength. Transfers count once in the reference, using their largest qualified league sample.
+          Transfers count once in the reference, using their largest qualified league sample.
           Oldest reference fetch: ${esc(new Date(d.cohort_built_at).toLocaleString())}. Cached for up to 12 hours.</p>`;
     }
-    $("#kpi-it", el)?.addEventListener("change", (e) => draw(e.target.value));
+    $("#kpi-it", el)?.addEventListener("change", (e) => draw(e.target.value, null));
+    el.querySelectorAll("[data-kpi-pos]").forEach((b) => b.addEventListener("click", () => draw(d.iteration?.id, b.dataset.kpiPos)));
   };
   draw();
 }

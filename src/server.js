@@ -597,6 +597,7 @@ app.get("/api/players/:id/impect-kpis", async (c) => {
   if (!p.impect_id) fail(400, "Link this player to Impect first");
   return c.json(await playerKpiCard(p.impect_id, {
     iterationId: c.req.query("iteration") || null,
+    position: c.req.query("position") || null,
     minShare: c.req.query("min_share") ? Number(c.req.query("min_share")) : undefined,
   }));
 });

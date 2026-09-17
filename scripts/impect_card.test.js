@@ -31,6 +31,8 @@ test('live card assembly pools three same-season leagues and withholds a cameo t
           [kpi ? 'kpis' : 'playerScores']: metrics.filter((m) => m.metric.startsWith(kpi ? 'kpi__' : 'score__')).map((m) => ({
             [kpi ? 'kpiId' : 'playerScoreId']: m.id, value: id === 999 ? 10000 : i + it * 20,
           }))}));
+        // Player 111 also logs a small striker stint, to exercise the position list and selection.
+        if (it === 1) data.push({ ...data.find((r) => r.playerId === 111), position: 'CENTER_FORWARD', matchShare: 2, playDuration: 10800 });
       } else throw Error(`Unexpected fixture URL: ${path}`);
     }
     return Response.json(data);
@@ -53,6 +55,12 @@ test('live card assembly pools three same-season leagues and withholds a cameo t
     assert.equal(qualified.league_adjusted, true);
     assert.ok(qualified.categories[0].percentile > 90);
     assert.equal(qualified.categories[0].peer_count, 36);
+    assert.equal(qualified.position, 'W');
+    assert.deepEqual(qualified.positions.map((o) => [o.group, o.match_share, o.eligible]), [['W', 10, true], ['ST', 2, false]]);
+    const asStriker = await playerKpiCard(111, {iterationId: 1, position: 'ST'});
+    assert.equal(asStriker.position, 'ST');
+    assert.equal(asStriker.eligible, false);
+    assert.ok(asStriker.categories.every((c) => c.percentile === null));
   } finally {
     globalThis.fetch = oldFetch;
     if (oldUser === undefined) delete process.env.IMPECT_USERNAME; else process.env.IMPECT_USERNAME = oldUser;

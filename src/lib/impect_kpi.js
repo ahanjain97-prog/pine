@@ -59,8 +59,9 @@ const cohorts = new Map(); // iterationId -> { at, data } | { promise }
 
 async function fetchSquad(iterationId, squad, defs) {
   const [kpiRows, scoreRows] = await Promise.all([
-    impectGet(`/v5/customerapi/iterations/${iterationId}/squads/${squad.id}/player-kpis`),
-    impectGet(`/v5/customerapi/iterations/${iterationId}/squads/${squad.id}/player-scores`),
+    // Raw rows carry every Impect KPI; only the reduced cohort is cached (raw caching exhausted the heap).
+    impectGet(`/v5/customerapi/iterations/${iterationId}/squads/${squad.id}/player-kpis`, { store: false }),
+    impectGet(`/v5/customerapi/iterations/${iterationId}/squads/${squad.id}/player-scores`, { store: false }),
   ]);
   const scoreByKey = new Map(scoreRows.map((r) => [`${r.playerId}|${r.position}`, r]));
   return kpiRows.map((r) => {
@@ -98,11 +99,12 @@ async function buildCohort(iterationId) {
       const key = `${r.playerId}|${group}`;
       let p = byKey.get(key);
       if (!p) {
-        p = { playerId: r.playerId, group, matchShare: 0, playDuration: 0, squadShares: new Map(), sums: new Map(), weights: new Map() };
+        p = { playerId: r.playerId, group, matchShare: 0, playDuration: 0, exact: {}, squadShares: new Map(), sums: new Map(), weights: new Map() };
         byKey.set(key, p);
       }
       p.matchShare += r.matchShare;
       p.playDuration += r.playDuration;
+      p.exact[r.position] = (p.exact[r.position] || 0) + r.matchShare;
       p.squadShares.set(r.squadName, (p.squadShares.get(r.squadName) || 0) + r.matchShare);
       for (const [m, v] of Object.entries(r.metrics)) {
         if (!Number.isFinite(v)) continue;
@@ -150,7 +152,7 @@ async function cohort(iterationId) {
 const round = (v, n = 2) => (v == null || !Number.isFinite(v) ? null : Math.round(v * 10 ** n) / 10 ** n);
 
 /* ---------- one player's card ---------- */
-export async function playerKpiCard(impectId, { iterationId = null, minShare = MIN_MATCH_SHARE } = {}) {
+export async function playerKpiCard(impectId, { iterationId = null, minShare = MIN_MATCH_SHARE, position = null } = {}) {
   const id = Number(impectId);
   const [pool, its, defs] = await Promise.all([getImpectPlayer(id), impectIterations(), definitions()]);
   const byId = new Map(its.map((i) => [i.id, i]));
@@ -162,11 +164,11 @@ export async function playerKpiCard(impectId, { iterationId = null, minShare = M
 
   for (const it of wanted.slice(0, 3)) {
     const co = await cohort(it.id);
-    let row = null;
-    for (const list of co.byGroup.values()) {
-      for (const p of list) if (p.playerId === id && (!row || p.matchShare > row.matchShare)) row = p;
-    }
-    if (!row) continue;
+    // Every position group the player logged this season, most-played first; benchmark the chosen one.
+    const mine = [...co.byGroup.values()].flatMap((list) => list.filter((p) => p.playerId === id))
+      .sort((a, b) => b.matchShare - a.matchShare);
+    if (!mine.length) continue;
+    const row = mine.find((p) => p.group === String(position || "").toUpperCase()) || mine[0];
 
     const floor = fixedFloor(minShare, MIN_MATCH_SHARE);
     const cats = CATEGORIES[row.group] || {};
@@ -198,6 +200,11 @@ export async function playerKpiCard(impectId, { iterationId = null, minShare = M
       available_iterations: available,
       position: row.group,
       position_label: POSITION_LABEL[row.group] || row.group,
+      positions: mine.map((p) => ({
+        group: p.group, label: POSITION_LABEL[p.group] || p.group,
+        match_share: round(p.matchShare), minutes: Math.round(p.playDuration / 60), eligible: p.matchShare >= floor,
+        impect_positions: Object.entries(p.exact || {}).sort((a, b) => b[1] - a[1]).map(([name, s]) => ({ name, match_share: round(s) })),
+      })),
       squad: row.squad,
       match_share: round(row.matchShare),
       minutes: Math.round(row.playDuration / 60),
