@@ -5,7 +5,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node --disable-warning=ExperimentalWarning src/server.js",
-    "tunnel": "bin/cloudflared tunnel --no-autoupdate --url http://localhost:8787"
+    "tunnel": "bin/cloudflared tunnel --no-autoupdate --url http://localhost:8787",
+    "check": "node scripts/check.mjs"
   },
   "keywords": [],
   "author": "",

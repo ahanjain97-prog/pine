@@ -3,9 +3,10 @@
 # Run by hand, or daily via scripts/com.pine.backup.plist.
 set -euo pipefail
 
-APP_URL="${PINE_URL:-https://pine-production-4995.up.railway.app}"
-DEST="${PINE_BACKUP_DIR:-$HOME/pine-backups}"
 ENV_FILE="${PINE_ENV:-$HOME/pine/.env}"
+APP_URL="${PINE_URL:-$(grep '^PINE_URL=' "$ENV_FILE" 2>/dev/null | cut -d= -f2-)}"
+DEST="${PINE_BACKUP_DIR:-$HOME/pine-backups}"
+[ -n "$APP_URL" ] || { echo "set PINE_URL (in $ENV_FILE or the environment)" >&2; exit 1; }
 KEEP=30
 
 PW="$(grep '^PINE_SITE_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)"

@@ -9,10 +9,14 @@ Transfermarkt profile, Impect link, physical data, a comment section for each st
 Needs Node 22.13+ (uses the built-in `node:sqlite`).
 
 ```bash
-cd ~/pine
+git clone https://github.com/ahanjain97-prog/pine.git
+cd pine
 npm install
-npm start            # http://localhost:8787
+cp .env.example .env   # fill in only what you need; never commit it
+npm start              # http://localhost:8787
 ```
+
+Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 With `PINE_AUTH=off` (the current setting) there is no sign-in: pick who you are from the name menu in the
 top bar. With sign-in enabled instead, each person enters their staff email and a 6-digit code, which is
@@ -61,15 +65,21 @@ printed in the terminal running PINE until email delivery is configured.
 ## Layout
 
 ```
-src/server.js            Hono app + all /api routes, serves public/
-src/db.js                SQLite schema, staff seed, activity log
-src/auth.js              Email one-time codes + session cookies
-src/roles.js             Positions/roles, Impect list-name -> role hints
-src/lib/transfermarkt.js Profile + search scraping
-src/lib/impect.js        Impect login, player pool, matching, Scouting short lists
-src/lib/physical.js      Physical data loading + matching
-public/                  index.html, app.js (no build step), styles.css
-data/pine.db             The database; back this file up
+src/server.js                  Hono app, all /api routes, serves public/
+src/db.js                      SQLite schema, staff seed, activity log
+src/auth.js                    Email one-time codes + session cookies
+src/roles.js                   Positions/roles, Impect list-name -> role hints
+src/lib/transfermarkt.js       Profile + search scraping
+src/lib/tm_match.js            Bulk Transfermarkt matching (confirms by date of birth)
+src/lib/impect.js              Impect login, player pool, matching, Scouting short lists
+src/lib/impect_kpi.js          Live KPI category percentiles per player
+src/lib/impect_categories.js   KPI category definitions (generated from the metric-stability study)
+src/lib/physical.js            Physical data loading + matching
+src/lib/backup.js              Daily database snapshots + download
+public/                        index.html, app.js (no build step), styles.css
+scripts/check.mjs              npm run check: syntax-check every file
+scripts/pull-backup.sh         Pull a database snapshot to a Mac (daily via com.pine.backup.plist)
+data/pine.db                   The local database (never committed)
 ```
 
 ## Hosting (Railway, live)
