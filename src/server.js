@@ -13,6 +13,7 @@ import { openDb, logActivity } from "./db.js";
 import { requestCode, verifyCode, logout, currentUser } from "./auth.js";
 import { POSITIONS, ROLES, DECISIONS, SPLIT_ROLES, IMPECT_POSITION_LABEL, suggestPosition, suggestListRole, resolveRole } from "./roles.js";
 import { fetchTmPlayer, parseTmUrl, searchTmPlayers } from "./lib/transfermarkt.js";
+import { TM_FIELDS, manualTmOverrides, releaseTmOverrides, tmConflicts, tmSyncFields } from "./lib/tm_sync.js";
 import { loadPhysical, matchPhysical, searchPhysical, rowsByKeys, teamOverlap, meta as physMeta } from "./lib/physical.js";
 import {
   impectConfigured, iterations as impectIterations, searchImpect, getImpectPlayer, matchImpect,
@@ -47,16 +48,11 @@ class HttpError extends Error {
 }
 const fail = (status, message, extra) => { throw new HttpError(status, message, extra); };
 
-const TM_FIELDS = [
-  "name", "birthdate", "birthplace", "height_cm", "foot", "position", "club", "club_tm_id", "club_logo_url",
-  "league", "league_code", "joined", "contract_expires", "loan_from", "loan_contract_expires", "agent",
-  "market_value_eur", "market_value_display", "national_team", "photo_url", "shirt_number", "tm_id", "tm_url",
-];
 const EDITABLE = [
   "name", "birthdate", "birthplace", "height_cm", "foot", "position", "club", "league", "joined", "contract_expires",
   "loan_from", "agent", "market_value_display", "national_team", "photo_url", "summary",
 ];
-const JSON_COLS = ["citizenship", "other_positions", "phys_keys"];
+const JSON_COLS = ["citizenship", "other_positions", "phys_keys", "tm_overrides"];
 
 function ageFrom(birthdate) {
   if (!birthdate) return null;
@@ -155,13 +151,15 @@ async function autoLink(playerId) {
 }
 
 // Write a fetched Transfermarkt profile onto a player (used by manual sync and the bulk matcher).
-async function applyTmProfile(playerId, tm, userId, via) {
-  updatePlayer(playerId, {
-    ...pick(tm, TM_FIELDS), citizenship: tm.citizenship, other_positions: tm.other_positions,
-    tm_synced_at: new Date().toISOString(),
-  });
+async function applyTmProfile(playerId, tm, userId, via, acceptFields = []) {
+  const current = getPlayer(playerId);
+  const tm_overrides = releaseTmOverrides(current.tm_overrides, acceptFields);
+  const player = { ...current, tm_overrides };
+  const conflicts = tmConflicts(player, tm);
+  updatePlayer(playerId, { ...tmSyncFields(player, tm), tm_overrides });
   logActivity(db, userId, playerId, "linked_tm", { tm_id: tm.tm_id, ...(via ? { via } : {}) });
   await autoLink(playerId);
+  return conflicts;
 }
 
 const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => obj[k] !== undefined).map((k) => [k, obj[k]]));
@@ -324,8 +322,10 @@ app.patch("/api/players/:id", async (c) => {
   for (const k of Object.keys(fields)) if (typeof fields[k] === "string" && !fields[k].trim()) fields[k] = null;
   if (fields.height_cm != null) fields.height_cm = Number(fields.height_cm) || null;
   if ("name" in fields && !String(fields.name || "").trim()) fail(400, "Name is required");
+  const edited = Object.keys(fields);
+  fields.tm_overrides = manualTmOverrides(p, fields);
   updatePlayer(p.id, fields);
-  logActivity(db, user.id, p.id, "edited_player", { fields: Object.keys(fields) });
+  logActivity(db, user.id, p.id, "edited_player", { fields: edited });
   return c.json({ player: getPlayer(p.id) });
 });
 
@@ -345,13 +345,14 @@ app.delete("/api/players/:id", (c) => {
 app.post("/api/players/:id/refresh-tm", async (c) => {
   const user = c.get("user");
   const p = getPlayer(c.req.param("id"));
-  const url = (await c.req.json().catch(() => ({}))).url || p.tm_url;
+  const body = await c.req.json().catch(() => ({}));
+  const url = body.url || p.tm_url;
   const parsed = parseTmUrl(url) || fail(400, "Add a Transfermarkt link first");
   const dup = db.get("SELECT id, name FROM players WHERE tm_id = ? AND id <> ?", parsed.id, p.id);
   if (dup) fail(409, `That Transfermarkt profile belongs to ${dup.name}`, { player_id: dup.id });
   const tm = await fetchTmPlayer(url);
-  await applyTmProfile(p.id, tm, user.id, null);
-  return c.json({ player: getPlayer(p.id) });
+  const conflicts = await applyTmProfile(p.id, tm, user.id, null, Array.isArray(body.accept_fields) ? body.accept_fields : []);
+  return c.json({ player: getPlayer(p.id), tm_conflicts: conflicts });
 });
 
 // Transfermarkt search for players added without a link (e.g. Impect imports), ranked by age/club/country agreement.
