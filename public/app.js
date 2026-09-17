@@ -597,7 +597,7 @@ const tmValue = (value) => value == null || value === "" ? "Not listed" : String
 
 function openTmConflicts(playerId, conflicts) {
   const m = modal(`<header class="m-h"><h2>Manual details preserved</h2><button type="button" class="icon-btn" data-close aria-label="Close">×</button></header>
-    <p class="hint">Transfermarkt has different values for these manually edited fields. Select any values you want to restore from Transfermarkt.</p>
+    <p class="hint">Select any values you want to restore from Transfermarkt. Unchecked fields will keep their manual values.</p>
     <form id="tm-conflicts"><div class="tm-conflicts">${conflicts.map((c) => `<label class="tm-conflict">
       <input type="checkbox" name="field" value="${esc(c.field)}">
       <span><b>${esc(TM_FIELD_LABELS[c.field] || c.field)}</b><small>Manual: ${esc(tmValue(c.current))}</small><small>Transfermarkt: ${esc(tmValue(c.transfermarkt))}</small></span>
@@ -611,11 +611,10 @@ function openTmConflicts(playerId, conflicts) {
     btn.disabled = true;
     btn.textContent = "Updating…";
     try {
-      const result = await api("POST", `/api/players/${playerId}/refresh-tm`, { accept_fields: fields });
+      await api("POST", `/api/players/${playerId}/refresh-tm`, { accept_fields: fields });
       closeModal();
       toast("Selected fields restored from Transfermarkt");
       await afterMutation();
-      if (result.tm_conflicts?.length) openTmConflicts(playerId, result.tm_conflicts);
     } catch (err) { btn.disabled = false; btn.textContent = "Use selected Transfermarkt values"; oops(err); }
   });
 }
