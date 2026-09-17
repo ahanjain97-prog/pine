@@ -47,10 +47,10 @@ dependency.
 
 ## How deploys work
 
-Merging into `main` does **not** deploy anything. A maintainer deploys to Railway from an up-to-date
-checkout of `main` with `npx @railway/cli up`. The live database sits on a Railway volume and is
-never replaced by a deploy. A deploy restarts the app, so avoid deploying while a Transfermarkt
-bulk match is running.
+Railway is connected to this repo: **merging into `main` deploys it**, usually live within a minute or two.
+The live database sits on a Railway volume and is never replaced by a deploy. A deploy restarts the app,
+so avoid merging while a Transfermarkt bulk match is running. A maintainer can still deploy a local
+working tree with `npx @railway/cli up`.
 
 ## Access
 
