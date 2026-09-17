@@ -47,11 +47,11 @@ dependency.
 
 ## How deploys work
 
-Merging into `main` deploys it. GitHub Actions runs `npm run check` and `npm test`, then uploads the
-checkout to Railway using the `RAILWAY_TOKEN` repository secret; follow it in the repo's **Actions** tab.
-The live database sits on a Railway volume and is never replaced by a deploy. A deploy restarts the app, so
-avoid merging while a Transfermarkt bulk match is running. A maintainer can still deploy a local working
-tree with `npx @railway/cli up`.
+Merging into `main` deploys it: Railway is connected to this repo and releases the new commit, usually live
+a minute or two later. GitHub Actions runs the checks on every push and pull request. The live database sits
+on a Railway volume and is never replaced by a deploy. A deploy restarts the app, so avoid merging while a
+Transfermarkt bulk match is running. A maintainer can also deploy a working tree with `npx @railway/cli up`,
+or with a Railway project token: `RAILWAY_TOKEN=… npx @railway/cli up --service pine`.
 
 ## Access
 
