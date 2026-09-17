@@ -800,7 +800,7 @@ function loadKpiPanel(root, p) {
     } else {
       el.innerHTML = `${head(picker)}
         <p class="hint" style="margin:-4px 0 10px">${esc(d.position_label)} · ${esc(d.squad || "")} · ${d.minutes.toLocaleString()} min (${d.match_share} match shares).
-          Pooled benchmark: <b>${d.peer_count}</b> ${esc(d.position_label.toLowerCase())}s across ${esc(d.benchmark_competitions.join(" + "))}, ${esc(d.iteration.season)}, with ${d.min_share_used}+ match shares at this position.</p>
+          Pooled benchmark: <b>${d.peer_count}</b> ${esc(d.position_label.toLowerCase())}s across ${esc(d.benchmark_competitions.join(" + "))}, ${esc(d.iteration.season)}, with ${d.min_share_used}+ match shares at this position. Each KPI is standardised within its own league before pooling.</p>
         ${!d.eligible ? `<p class="banner">Insufficient sample: ${d.match_share} of ${d.min_share_used} required match shares at this position. Percentiles are withheld; expand categories to inspect raw values.</p>` : ""}
         ${d.missing_benchmark_competitions?.length ? `<p class="sm muted">Unavailable for this season: ${esc(d.missing_benchmark_competitions.join(", "))}.</p>` : ""}
         <ol class="kpi-list">${[...d.categories].sort((a, b) => (b.percentile ?? -1) - (a.percentile ?? -1)).map(kpiCategory).join("")}</ol>

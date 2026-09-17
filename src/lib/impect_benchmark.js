@@ -36,29 +36,42 @@ export function percentile(value, reference) {
   return 100 * (a.filter((v) => v < value).length + .5 * a.filter((v) => v === value).length) / a.length;
 }
 
-export function benchmark(target, rows, categories, meta, floor = 5) {
+// byLeague: standardise every KPI within the row's own league (row.league) before pooling, so
+// league-wide differences in raw output don't tilt pooled ranks. Component percentiles then rank
+// those league-standardised values. Without it, one fit covers the whole pool (the original method).
+export function benchmark(target, rows, categories, meta, floor = 5, { byLeague = false } = {}) {
   const peers = qualifiedReference(rows, floor);
   const eligible = target.matchShare >= floor;
   const metrics = [...new Set(Object.values(categories).flat())];
-  const fitted = new Map(metrics.map((m) => [m, fit(peers.map((p) => p.values[m]))]));
-  const sign = (m) => meta.get(m)?.inverted ? -1 : 1;
+  const groupOf = (p) => (byLeague ? String(p.league ?? "") : "");
+
+  const fits = new Map();
+  for (const key of new Set(peers.map(groupOf))) {
+    const members = peers.filter((p) => groupOf(p) === key);
+    fits.set(key, new Map(metrics.map((m) => [m, fit(members.map((p) => p.values[m]))])));
+  }
+  const sign = (m) => (meta.get(m)?.inverted ? -1 : 1);
+  const z = (p, m) => {
+    const v = fits.get(groupOf(p))?.get(m)?.(p.values[m]);
+    return Number.isFinite(v) ? v * sign(m) : null;
+  };
   const score = (p, ms) => {
-    const v = ms.map((m) => {
-      const z = fitted.get(m)?.(p.values[m]);
-      return Number.isFinite(z) ? z * sign(m) : null;
-    }).filter(Number.isFinite);
+    const v = ms.map((m) => z(p, m)).filter(Number.isFinite);
     return v.length >= Math.ceil(ms.length / 2) ? v.reduce((a, b) => a + b, 0) / v.length : null;
   };
+  const oriented = (p, m) =>
+    byLeague ? z(p, m) : Number.isFinite(p.values[m]) ? p.values[m] * sign(m) : null;
+
   return {
-    peers: peers.length, eligible,
+    peers: peers.length, eligible, league_adjusted: byLeague,
     categories: Object.entries(categories).map(([name, ms]) => {
       const ref = peers.map((p) => score(p, ms)).filter(Number.isFinite);
       const value = eligible ? score(target, ms) : null;
       return { name, score: value, percentile: percentile(value, ref), peer_count: ref.length,
         components: ms.map((m) => {
-          const ref = peers.map((p) => p.values[m]).filter(Number.isFinite).map((v) => v * sign(m));
+          const ref = peers.map((p) => oriented(p, m)).filter(Number.isFinite);
           return { metric: m, ...(meta.get(m) || {}), value: target.values[m] ?? null,
-            percentile: eligible ? percentile(Number.isFinite(target.values[m]) ? target.values[m] * sign(m) : null, ref) : null,
+            percentile: eligible ? percentile(oriented(target, m), ref) : null,
             peer_count: ref.length };
         }) };
     }),

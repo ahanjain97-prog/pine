@@ -177,7 +177,10 @@ export async function playerKpiCard(impectId, { iterationId = null, minShare = M
     // silently shrink the pool if an available league fails to load.
     if (!refs.some((i) => i.id === it.id)) continue;
     const cohorts = await mapLimit(refs, 2, (i) => cohort(i.id));
-    const pooled = benchmark(row, cohorts.flatMap((c) => c.byGroup.get(row.group) || []), cats, defs.meta, floor);
+    // League-adjusted pooling: tag reference rows with their league so each KPI is standardised
+    // within its own league before the three leagues are ranked together.
+    const pooledRows = cohorts.flatMap((c) => (c.byGroup.get(row.group) || []).map((p) => ({ ...p, league: c.iterationId })));
+    const pooled = benchmark({ ...row, league: it.id }, pooledRows, cats, defs.meta, floor, { byLeague: true });
     const league = benchmark(row, co.byGroup.get(row.group), cats, defs.meta, floor);
     const categories = pooled.categories.map((c, i) => ({
       ...c, percentile: round(c.percentile, 1), score: round(c.score, 3),
@@ -201,6 +204,7 @@ export async function playerKpiCard(impectId, { iterationId = null, minShare = M
       peer_count: pooled.peers,
       league_peer_count: league.peers,
       eligible: pooled.eligible,
+      league_adjusted: pooled.league_adjusted,
       benchmark_competitions: refs.map((i) => i.competition),
       missing_benchmark_competitions: BENCHMARK_LEAGUES.filter((name) => !refs.some((i) => i.competition === name)),
       reference_sources: refs.map((i, n) => ({ competition: i.competition, iteration_id: i.id,

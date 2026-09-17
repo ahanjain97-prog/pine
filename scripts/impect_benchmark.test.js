@@ -51,3 +51,27 @@ test('transfers enter reference once, using largest qualified league sample', ()
   assert.equal(ref.length, 20);
   assert.equal(ref.find((p) => p.playerId === 0), transfer);
 });
+
+test('league-adjusted pooling removes a league-wide shift', () => {
+  const cats2 = { Passing: ['pass'] };
+  const meta2 = new Map([['pass', { inverted: false }]]);
+  const a = Array.from({ length: 20 }, (_, i) => ({ playerId: i, league: 'A', matchShare: 10, values: { pass: i } }));
+  const b = Array.from({ length: 20 }, (_, i) => ({ playerId: 100 + i, league: 'B', matchShare: 10, values: { pass: i + 50 } }));
+  const all = [...a, ...b];
+  const pct = (t, opts) => benchmark(t, all, cats2, meta2, 5, opts).categories[0].percentile;
+  assert.ok(pct(b[0]) > pct(a[19]), 'unadjusted: the whole higher-output league outranks the other');
+  assert.equal(pct(a[7], { byLeague: true }), pct(b[7], { byLeague: true }), 'adjusted: same within-league rank, same percentile');
+  const mean = (list, opts) => list.reduce((s, t) => s + pct(t, opts), 0) / list.length;
+  assert.ok(Math.abs(mean(a, { byLeague: true }) - 50) < 1.5);
+  assert.ok(Math.abs(mean(b, { byLeague: true }) - 50) < 1.5);
+  const comp = (t) => benchmark(t, all, cats2, meta2, 5, { byLeague: true }).categories[0].components[0].percentile;
+  assert.equal(comp(a[12]), comp(b[12]), 'component percentiles are league-adjusted too');
+});
+
+test('without byLeague the original single-fit result is unchanged', () => {
+  const t = rows[10];
+  const plain = benchmark(t, rows, cats, meta);
+  const flagged = benchmark(t, rows.map((r, i) => ({ ...r, league: i % 2 ? 'X' : 'Y' })), cats, meta, 5, { byLeague: false });
+  assert.deepEqual(flagged.categories.map((c) => c.percentile), plain.categories.map((c) => c.percentile));
+  assert.equal(plain.league_adjusted, false);
+});

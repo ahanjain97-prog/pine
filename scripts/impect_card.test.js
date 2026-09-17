@@ -48,7 +48,10 @@ test('live card assembly pools three same-season leagues and withholds a cameo t
     const qualified = await playerKpiCard(111, {iterationId: 1});
     assert.equal(qualified.eligible, true);
     assert.ok(qualified.categories[0].league_percentile > 90);
-    assert.ok(qualified.categories[0].percentile < 40);
+    // The fixture leagues differ only by a constant shift in output; league-adjusted pooling removes it,
+    // so the top player in the lowest-output league also ranks near the top of the pooled benchmark.
+    assert.equal(qualified.league_adjusted, true);
+    assert.ok(qualified.categories[0].percentile > 90);
     assert.equal(qualified.categories[0].peer_count, 36);
   } finally {
     globalThis.fetch = oldFetch;
