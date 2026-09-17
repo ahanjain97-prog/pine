@@ -764,7 +764,7 @@ async function renderPlayer(main, idArg) {
 /* ---------- impect KPI profile ---------- */
 function kpiComponent(m) {
   if (m.percentile == null) {
-    return `<div class="bar"><span class="bl" title="${esc(m.definition || m.label)}">${esc(m.label)} <span class="raw">no data</span></span><span class="track"></span><span class="bv">–</span></div>`;
+    return `<div class="bar"><span class="bl" title="${esc(m.definition || m.label)}">${esc(m.label)} <span class="raw">${m.value == null ? "no data" : esc(String(m.value)) + " · percentile unavailable"}</span></span><span class="track"></span><span class="bv">–</span></div>`;
   }
   const label = `${m.label}${m.inverted ? " ↓" : ""}`;
   return bar(label, Math.round(m.percentile), m.value);
@@ -776,7 +776,8 @@ function kpiCategory(c) {
   return `<li><details>
     <summary><span class="kpi-name">${esc(c.name)}</span>
       <span class="kpi-bar"><span style="width:${pct ?? 0}%;background:${pct == null ? "var(--none)" : band(pct)}"></span></span>
-      <b>${pct == null ? "\u2013" : pct}</b></summary>
+      <b title="${esc(`Pooled: ${c.peer_count} valid peers`)}">${pct == null ? "\u2013" : pct}</b></summary>
+    <p class="sm muted">Pooled benchmark: ${c.peer_count} valid peers.</p>
     <div class="bars">${parts.map(kpiComponent).join("")}</div>
   </details></li>`;
 }
@@ -785,7 +786,7 @@ function loadKpiPanel(root, p) {
   const el = $("#kpi-panel", root);
   const head = (extra = "") => `<header class="panel-h"><h2>Impect KPI profile</h2>${extra}</header>`;
   const draw = async (iterationId) => {
-    el.innerHTML = `${head()}<div class="loading sm">Scoring against the league cohort…</div>`;
+    el.innerHTML = `${head()}<div class="loading sm">Scoring against the pooled positional benchmark…</div>`;
     let d;
     try { d = await api("GET", `/api/players/${p.id}/impect-kpis${iterationId ? `?iteration=${iterationId}` : ""}`); } catch (e) {
       el.innerHTML = `${head()}<div class="banner err sm">${esc(e.message)}</div>`;
@@ -799,11 +800,14 @@ function loadKpiPanel(root, p) {
     } else {
       el.innerHTML = `${head(picker)}
         <p class="hint" style="margin:-4px 0 10px">${esc(d.position_label)} · ${esc(d.squad || "")} · ${d.minutes.toLocaleString()} min (${d.match_share} match shares).
-          Percentile against <b>${d.peer_count}</b> ${esc(d.position_label.toLowerCase())}s in ${esc(d.iteration.competition)} ${esc(d.iteration.season)} with ${d.min_share_used} + match shares.</p>
-        <ol class="kpi-list">${[...d.categories].sort((x, y) => (y.percentile ?? -1) - (x.percentile ?? -1)).map(kpiCategory).join("")}</ol>
-        <p class="sm muted" style="margin:8px 0 0">Equal-weight, direction-adjusted KPI z-scores within this cohort; each KPI belongs to one category.
+          Pooled benchmark: <b>${d.peer_count}</b> ${esc(d.position_label.toLowerCase())}s across ${esc(d.benchmark_competitions.join(" + "))}, ${esc(d.iteration.season)}, with ${d.min_share_used}+ match shares at this position.</p>
+        ${!d.eligible ? `<p class="banner">Insufficient sample: ${d.match_share} of ${d.min_share_used} required match shares at this position. Percentiles are withheld; expand categories to inspect raw values.</p>` : ""}
+        ${d.missing_benchmark_competitions?.length ? `<p class="sm muted">Unavailable for this season: ${esc(d.missing_benchmark_competitions.join(", "))}.</p>` : ""}
+        <ol class="kpi-list">${[...d.categories].sort((a, b) => (b.percentile ?? -1) - (a.percentile ?? -1)).map(kpiCategory).join("")}</ol>
+        <p class="sm muted" style="margin:8px 0 0">Bars show pooled percentiles, highest to lowest; expand a category for its metrics and valid peer count. Equal-weight, direction-adjusted KPI z-scores fitted only on qualified peers; each KPI belongs to one category.
           A high percentile on a volume KPI means “more”, not necessarily “better”; ↓ marks KPIs where lower is favourable.
-          Recomputed from Impect at most every 12 hours.</p>`;
+          Raw comparisons do not adjust for league strength. Transfers count once in the reference, using their largest qualified league sample.
+          Oldest reference fetch: ${esc(new Date(d.cohort_built_at).toLocaleString())}. Cached for up to 12 hours.</p>`;
     }
     $("#kpi-it", el)?.addEventListener("change", (e) => draw(e.target.value));
   };

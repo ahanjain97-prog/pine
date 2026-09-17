@@ -22,6 +22,26 @@ With `PINE_AUTH=off` (the current setting) there is no sign-in: pick who you are
 top bar. With sign-in enabled instead, each person enters their staff email and a 6-digit code, which is
 printed in the terminal running PINE until email delivery is configured.
 
+## KPI benchmarks
+
+KPI bars rank players against qualified players at the same position and in the same season across
+USL Championship, MLS Next Pro and USL League One. The display shows only pooled percentiles,
+sorted highest to lowest with unavailable scores last. League percentiles remain in the API response.
+Both metric normalization and ranking use a fixed minimum of five match shares at that position.
+Players below that floor retain raw values but show **Insufficient sample**, with no percentiles.
+Requests can raise the floor, but cannot lower it below five.
+
+Categories retain the existing equal-weight, direction-adjusted, 1%-winsorized z-score definitions.
+Percentiles use midpoint empirical ranks (including midpoint ties). At least eight valid reference
+values are required. Category details show their actual valid peer counts. References count transfers
+once per position, using their largest qualified league sample; the selected player's displayed
+values remain those of the selected league season. Older seasons list unavailable leagues explicitly.
+An available league failing to load produces an error instead of silently changing the benchmark.
+Raw pooled percentiles do not adjust for league strength. Reference fetch times are shown; API data
+are cached for up to 12 hours.
+
+Run `npm test` for benchmark and mocked-API regression tests, and `npm run check` for syntax checks.
+
 ## Configuration (`.env`, never committed)
 
 | Variable | Purpose |

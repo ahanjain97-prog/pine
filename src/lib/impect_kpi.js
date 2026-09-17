@@ -1,13 +1,14 @@
 // Live Impect KPI category profiles.
 //
-// Reimplements impect_metric_stability/build_position_clusters.py + player_percentiles.py against the
-// live Customer API: match-share-weighted season values per player and position group, 1%-winsorized
-// z-scores within the iteration x position cohort, direction flipped for inverted metrics, equal-weight
-// category means needing at least half their components, and average-rank percentiles among peers above
-// a match-share floor. Verified to reproduce the study's saved cards exactly.
+// Match-share-weighted season values, pooled same-season positional references and a secondary
+// league reference. Both normalization and ranking use qualified players; low-sample targets
+// retain raw values but receive no percentiles. Scoring lives in impect_benchmark.js.
 
 import { impectGet, iterations as impectIterations, getImpectPlayer } from "./impect.js";
 import { CATEGORIES, POSITION_MAP, POSITION_LABEL, MIN_MATCH_SHARE, ALL_METRICS } from "./impect_categories.js";
+import { benchmark, fixedFloor } from "./impect_benchmark.js";
+
+const BENCHMARK_LEAGUES = ["USL Championship", "MLS Next Pro", "USL League One"];
 
 const TTL_MS = 12 * 60 * 60 * 1000;
 const METRICS = new Set(ALL_METRICS);
@@ -37,43 +38,6 @@ async function definitions() {
   for (const d of scores) add(`score__${d.name}`, d, scoreById, d.id);
   defsCache = { at: Date.now(), meta, kpiById, scoreById };
   return defsCache;
-}
-
-/* ---------- statistics (match pandas' behaviour) ---------- */
-const quantile = (sorted, q) => {
-  const pos = (sorted.length - 1) * q;
-  const lo = Math.floor(pos);
-  const hi = Math.ceil(pos);
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
-};
-
-function winsorizedZ(values) {
-  const valid = values.filter((v) => Number.isFinite(v));
-  if (valid.length < 8 || new Set(valid).size < 3) return values.map(() => null);
-  const sorted = [...valid].sort((a, b) => a - b);
-  const lo = quantile(sorted, 0.01);
-  const hi = quantile(sorted, 0.99);
-  const clipped = values.map((v) => (Number.isFinite(v) ? Math.min(Math.max(v, lo), hi) : null));
-  const present = clipped.filter((v) => v !== null);
-  const mean = present.reduce((a, b) => a + b, 0) / present.length;
-  const sd = Math.sqrt(present.reduce((a, b) => a + (b - mean) ** 2, 0) / (present.length - 1));
-  if (!Number.isFinite(sd) || sd === 0) return values.map(() => null);
-  return clipped.map((v) => (v === null ? null : (v - mean) / sd));
-}
-
-// Average-rank percentile (pandas rank(method="average", pct=True) * 100); nulls stay null.
-function rankPct(values) {
-  const ordered = values.map((v, i) => [v, i]).filter(([v]) => Number.isFinite(v)).sort((a, b) => a[0] - b[0]);
-  const out = values.map(() => null);
-  const n = ordered.length;
-  for (let i = 0; i < n; ) {
-    let j = i;
-    while (j + 1 < n && ordered[j + 1][0] === ordered[i][0]) j++;
-    const avgRank = (i + j + 2) / 2;
-    for (let k = i; k <= j; k++) out[ordered[k][1]] = (avgRank / n) * 100;
-    i = j + 1;
-  }
-  return out;
 }
 
 async function mapLimit(items, limit, fn) {
@@ -163,24 +127,6 @@ async function buildCohort(iterationId) {
     byGroup.get(p.group).push(p);
   }
 
-  // Category scores, computed across everyone in the iteration and position (no minutes floor here).
-  for (const [group, list] of byGroup) {
-    const cats = CATEGORIES[group];
-    if (!cats) continue;
-    const zByMetric = {};
-    for (const m of new Set(Object.values(cats).flat())) {
-      const sign = defs.meta.get(m)?.inverted ? -1 : 1;
-      const z = winsorizedZ(list.map((p) => (Number.isFinite(p.values[m]) ? p.values[m] : null)));
-      zByMetric[m] = z.map((v) => (v === null ? null : v * sign));
-    }
-    list.forEach((p, i) => {
-      p.categories = {};
-      for (const [cat, mets] of Object.entries(cats)) {
-        const vals = mets.map((m) => zByMetric[m][i]).filter((v) => v !== null);
-        p.categories[cat] = vals.length >= Math.ceil(mets.length / 2) ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-      }
-    });
-  }
   return { at: Date.now(), iterationId, byGroup };
 }
 
@@ -222,31 +168,27 @@ export async function playerKpiCard(impectId, { iterationId = null, minShare = M
     }
     if (!row) continue;
 
-    const floor = Math.min(Number(minShare) || MIN_MATCH_SHARE, row.matchShare);
-    const peers = co.byGroup.get(row.group).filter((p) => p.matchShare >= floor);
-    const me = peers.findIndex((p) => p.playerId === id);
+    const floor = fixedFloor(minShare, MIN_MATCH_SHARE);
     const cats = CATEGORIES[row.group] || {};
-    const categories = Object.entries(cats).map(([name, mets]) => {
-      const pct = rankPct(peers.map((p) => p.categories?.[name] ?? null));
-      return {
-        name,
-        score: round(row.categories?.[name], 3),
-        percentile: round(pct[me], 1),
-        components: mets.map((m) => {
-          const meta = defs.meta.get(m) || {};
-          const sign = meta.inverted ? -1 : 1;
-          const mp = rankPct(peers.map((p) => (Number.isFinite(p.values[m]) ? p.values[m] * sign : null)));
-          return {
-            metric: m,
-            label: meta.label || m,
-            definition: meta.definition,
-            inverted: Boolean(meta.inverted),
-            value: round(row.values[m], 3),
-            percentile: round(mp[me], 1),
-          };
-        }),
-      };
-    });
+    const refs = BENCHMARK_LEAGUES.map((name) => its.find((i) =>
+      i.competition === name && String(i.season) === String(it.season) && i.type !== "Cup"
+    )).filter(Boolean);
+    // Older seasons may not have all three leagues. Expose actual coverage; do not
+    // silently shrink the pool if an available league fails to load.
+    if (!refs.some((i) => i.id === it.id)) continue;
+    const cohorts = await mapLimit(refs, 2, (i) => cohort(i.id));
+    const pooled = benchmark(row, cohorts.flatMap((c) => c.byGroup.get(row.group) || []), cats, defs.meta, floor);
+    const league = benchmark(row, co.byGroup.get(row.group), cats, defs.meta, floor);
+    const categories = pooled.categories.map((c, i) => ({
+      ...c, percentile: round(c.percentile, 1), score: round(c.score, 3),
+      league_percentile: round(league.categories[i].percentile, 1),
+      league_peer_count: league.categories[i].peer_count,
+      components: c.components.map((m, j) => ({ ...m,
+        label: m.label || m.metric, value: round(m.value, 3), percentile: round(m.percentile, 1),
+        league_percentile: round(league.categories[i].components[j].percentile, 1),
+        league_peer_count: league.categories[i].components[j].peer_count,
+      })),
+    }));
 
     return {
       iteration: { id: it.id, competition: it.competition, season: it.season },
@@ -256,10 +198,16 @@ export async function playerKpiCard(impectId, { iterationId = null, minShare = M
       squad: row.squad,
       match_share: round(row.matchShare),
       minutes: Math.round(row.playDuration / 60),
-      peer_count: peers.length,
+      peer_count: pooled.peers,
+      league_peer_count: league.peers,
+      eligible: pooled.eligible,
+      benchmark_competitions: refs.map((i) => i.competition),
+      missing_benchmark_competitions: BENCHMARK_LEAGUES.filter((name) => !refs.some((i) => i.competition === name)),
+      reference_sources: refs.map((i, n) => ({ competition: i.competition, iteration_id: i.id,
+        fetched_at: new Date(cohorts[n].at).toISOString() })),
       min_share_used: round(floor),
       min_share_default: MIN_MATCH_SHARE,
-      cohort_built_at: new Date(co.at).toISOString(),
+      cohort_built_at: new Date(Math.min(...cohorts.map((c) => c.at))).toISOString(),
       categories,
     };
   }

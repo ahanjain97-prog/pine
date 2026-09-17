@@ -591,7 +591,7 @@ app.post("/api/impect/shortlists/:id/import", async (c) => {
   return c.json(out);
 });
 
-// Impect KPI category percentiles, computed live against this season's competition cohort.
+// Pooled and league KPI percentiles with a fixed qualification floor.
 app.get("/api/players/:id/impect-kpis", async (c) => {
   const p = getPlayer(c.req.param("id"));
   if (!p.impect_id) fail(400, "Link this player to Impect first");
