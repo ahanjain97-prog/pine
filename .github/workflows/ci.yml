@@ -1,0 +1,20 @@
+name: CI
+
+# Runs on every push and pull request. Railway deploys main on its own; switch on
+# "Wait for CI" in the service's Source settings to make a red run block the deploy.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
