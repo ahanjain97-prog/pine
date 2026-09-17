@@ -45,8 +45,9 @@ test('live card assembly pools three same-season leagues and withholds a cameo t
     assert.equal(low.eligible, false);
     assert.deepEqual(low.benchmark_competitions, comps);
     assert.equal(low.reference_sources.length, 3);
-    assert.ok(low.categories.every((c) => c.percentile === null && c.league_percentile === null));
-    assert.ok(low.categories[0].components.every((m) => m.value === 10000 && m.percentile === null));
+    // Below the floor the player is still scored against the qualified reference, flagged ineligible.
+    assert.ok(low.categories.every((c) => Number.isFinite(c.percentile) && Number.isFinite(c.league_percentile)));
+    assert.ok(low.categories[0].components.every((m) => m.value === 10000 && Number.isFinite(m.percentile)));
     const qualified = await playerKpiCard(111, {iterationId: 1});
     assert.equal(qualified.eligible, true);
     assert.ok(qualified.categories[0].league_percentile > 90);

@@ -66,12 +66,13 @@ export function benchmark(target, rows, categories, meta, floor = 5, { byLeague 
     peers: peers.length, eligible, league_adjusted: byLeague,
     categories: Object.entries(categories).map(([name, ms]) => {
       const ref = peers.map((p) => score(p, ms)).filter(Number.isFinite);
-      const value = eligible ? score(target, ms) : null;
+      // Targets below the floor are still scored against the qualified reference (eligible: false).
+      const value = score(target, ms);
       return { name, score: value, percentile: percentile(value, ref), peer_count: ref.length,
         components: ms.map((m) => {
           const ref = peers.map((p) => oriented(p, m)).filter(Number.isFinite);
           return { metric: m, ...(meta.get(m) || {}), value: target.values[m] ?? null,
-            percentile: eligible ? percentile(oriented(target, m), ref) : null,
+            percentile: percentile(oriented(target, m), ref),
             peer_count: ref.length };
         }) };
     }),

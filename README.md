@@ -28,7 +28,7 @@ KPI bars rank players against qualified players at the same position and in the 
 USL Championship, MLS Next Pro and USL League One. The display shows only pooled percentiles,
 sorted highest to lowest with unavailable scores last. League percentiles remain in the API response.
 Both metric normalization and ranking use a fixed minimum of five match shares at that position.
-Players below that floor retain raw values but show **Insufficient sample**, with no percentiles.
+Players below that floor are still scored against the qualified reference, with a small-sample warning. The KPI card can switch between every position group the player logged that season.
 Requests can raise the floor, but cannot lower it below five.
 
 Categories retain the existing equal-weight, direction-adjusted, 1%-winsorized z-score definitions.

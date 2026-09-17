@@ -11,14 +11,14 @@ test('floor cannot fall below five, including malformed query parameters', () =>
   for (const x of [undefined, null, 0, .67, -1, NaN, Infinity, 'bad']) assert.equal(fixedFloor(x), 5);
   assert.equal(fixedFloor(10), 10);
 });
-test('low exposure with extreme rates gets raw values and no category or component percentile', () => {
+test('low exposure is scored against the qualified reference but flagged ineligible', () => {
   const target = { playerId: 99, matchShare: .67, values: { pass: 1e9, loss: 0 } };
   const result = benchmark(target, [...rows, target], cats, meta);
   assert.equal(result.peers, 20);
   assert.equal(result.eligible, false);
-  assert.equal(result.categories[0].percentile, null);
-  assert.equal(result.categories[0].score, null);
-  for (const m of result.categories[0].components) assert.equal(m.percentile, null);
+  assert.ok(Number.isFinite(result.categories[0].percentile));
+  assert.ok(Number.isFinite(result.categories[0].score));
+  for (const m of result.categories[0].components) assert.ok(Number.isFinite(m.percentile));
   assert.equal(result.categories[0].components[0].value, 1e9);
 });
 test('ineligible extreme samples cannot affect qualified normalization or ranking', () => {

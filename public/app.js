@@ -808,7 +808,7 @@ function loadKpiPanel(root, p) {
         ${(d.positions || []).length > 1 ? `<div class="kpi-positions" role="group" aria-label="Position benchmarked">${d.positions.map((o) =>
           `<button type="button" class="${o.group === d.position ? "on" : ""}${o.eligible ? "" : " thin"}" data-kpi-pos="${esc(o.group)}" aria-pressed="${o.group === d.position}"
             title="${esc(o.impect_positions.map((x) => `${x.name.replace(/_/g, " ").toLowerCase()} ${x.match_share}`).join(", "))}${o.eligible ? "" : " (below the minimum)"}">${esc(o.label)} <span>${o.match_share}</span></button>`).join("")}</div>` : ""}
-        ${!d.eligible ? `<p class="banner">Insufficient sample: ${d.match_share} of ${d.min_share_used} required match shares at this position. Percentiles are withheld; expand categories to inspect raw values.</p>` : ""}
+        ${!d.eligible ? `<p class="banner warn">Small sample: ${d.match_share} match shares (${d.minutes.toLocaleString()} min) at this position, below the ${d.min_share_used} required for the reference group. Percentiles are shown but are less reliable.</p>` : ""}
         ${d.missing_benchmark_competitions?.length ? `<p class="sm muted">Unavailable for this season: ${esc(d.missing_benchmark_competitions.join(", "))}.</p>` : ""}
         <ol class="kpi-list">${[...d.categories].sort((a, b) => (b.percentile ?? -1) - (a.percentile ?? -1)).map(kpiCategory).join("")}</ol>
         <p class="sm muted" style="margin:8px 0 0">Bars show pooled percentiles, highest to lowest; expand a category for its metrics and valid peer count. Equal-weight, direction-adjusted KPI z-scores fitted only on qualified peers; each KPI belongs to one category.
