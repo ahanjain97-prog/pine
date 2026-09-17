@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS players(
   market_value_eur INTEGER, market_value_display TEXT, national_team TEXT,
   photo_url TEXT, shirt_number INTEGER,
   tm_id TEXT UNIQUE, tm_url TEXT, tm_synced_at TEXT,
+  tm_overrides TEXT NOT NULL DEFAULT '[]',
   impect_id INTEGER UNIQUE, impect_squad TEXT, impect_competition TEXT,
   phys_keys TEXT NOT NULL DEFAULT '[]',
   phys_confirmed INTEGER NOT NULL DEFAULT 0,
@@ -106,6 +107,9 @@ export function openDb(file) {
   const raw = new DatabaseSync(file);
   raw.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
   raw.exec(SCHEMA);
+  if (!raw.prepare("PRAGMA table_info(players)").all().some((c) => c.name === "tm_overrides")) {
+    raw.exec("ALTER TABLE players ADD COLUMN tm_overrides TEXT NOT NULL DEFAULT '[]'");
+  }
   const db = {
     raw,
     all: (sql, ...p) => raw.prepare(sql).all(...p),

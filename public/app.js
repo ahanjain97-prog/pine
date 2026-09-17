@@ -579,7 +579,7 @@ function openEditPlayer(p) {
   ];
   const m = modal(`<header class="m-h"><h2>Edit ${esc(p.name)}</h2><button type="button" class="icon-btn" data-close aria-label="Close">×</button></header>
     <form id="ep"><div class="form-grid">${F.map(([k, l, t]) => `<div><label class="lbl" for="ep-${k}">${l}</label><input id="ep-${k}" name="${k}" type="${t}" value="${esc(p[k] ?? "")}"></div>`).join("")}</div>
-    ${p.tm_id ? `<p class="hint" style="margin-top:10px">Syncing from Transfermarkt later will overwrite the Transfermarkt fields.</p>` : ""}
+    ${p.tm_id ? `<p class="hint" style="margin-top:10px">Manual changes are preserved when you sync from Transfermarkt later.</p>` : ""}
     <div class="m-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>`, { wide: true });
   $("#ep", m).addEventListener("submit", async (e) => {
     e.preventDefault();
