@@ -18,24 +18,36 @@ npm start              # http://localhost:8787
 
 Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-With `PINE_AUTH=off` (the current setting) there is no sign-in: pick who you are from the name menu in the
-top bar. With sign-in enabled instead, each person enters their staff email and a 6-digit code, which is
-printed in the terminal running PINE until email delivery is configured.
+PINE is invite-only. An administrator sends an email invitation from the Staff page, Clerk verifies the
+person's email and signs them in, and PINE records their work under their name and email.
 
 ## Configuration (`.env`, never committed)
 
 | Variable | Purpose |
 |---|---|
 | `IMPECT_USERNAME`, `IMPECT_PASSWORD` | Impect account used for the Customer API and Scouting short lists |
-| `PINE_SITE_PASSWORD` | One shared password in front of the whole site (browser prompt; username can be anything, e.g. `pine`). Delete the line to remove it. |
-| `PINE_ADMIN_EMAIL` | Email for the seeded admin account, used only when the database is first created. |
-| `PINE_AUTH=off` | Currently on: no sign-in; pick who you are from the name menu in the top bar. Delete this line to require email sign-in again. |
-| `PINE_DEV_SHOW_CODE=1` | Local only: returns the sign-in code to the browser. **Remove before hosting.** |
-| `RESEND_API_KEY`, `MAIL_FROM` | Email sign-in codes via [Resend](https://resend.com) instead of printing them |
-| `APP_URL` | Public URL once hosted (`https://…` turns on secure cookies) |
+| `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | Clerk instance keys; use development keys locally and production keys on Railway. `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is also accepted as the publishable-key name. |
+| `CLERK_AUTHORIZED_PARTIES` | Optional comma-separated trusted origins; defaults to `APP_URL` |
+| `PINE_ADMIN_EMAIL` | Bootstrap/fallback administrator email; an existing user's admin setting remains authoritative |
+| `APP_URL` | Public application URL, also used as Clerk's trusted origin |
 | `PORT` | Default 8787 |
 | `PINE_DB` | SQLite file, default `data/pine.db` |
 | `PHYS_DATA_URL` | Physical data JSON, default the player-physical-data site |
+| `PINE_BACKUP_TOKEN` | Long random bearer token used only by the unattended backup download script |
+
+## Clerk setup
+
+1. Create a Clerk application and set **Access mode** to **Invite-only**.
+2. Enable email verification codes or email links, require first and last name during sign-up, and disable
+   user-managed email changes.
+3. Set Clerk's home and fallback redirect URL to the PINE `APP_URL`; add and verify the production domain.
+4. Add the development keys to `.env`; add the production keys, `APP_URL`, and `PINE_ADMIN_EMAIL` to Railway.
+5. Send the initial `PINE_ADMIN_EMAIL` invitation once from the Clerk dashboard. Further invitations happen in PINE.
+6. Before the first production deploy, use the old Staff page to put the exact invited email on every
+   existing staff row. First login then connects Clerk to that row without changing its PINE id or history.
+
+The first user whose verified email matches `PINE_ADMIN_EMAIL` receives admin access. Later invitations,
+deactivation, and admin changes happen from PINE's Staff page.
 
 ## What's where
 
@@ -50,7 +62,7 @@ printed in the terminal running PINE until email delivery is configured.
   Impect are matched automatically by name + date of birth / club.
 - **Impect** (`#/impect`): import or sync Impect Scouting short lists (each list maps to a board role;
   centre-back lists split LCB/RCB by foot), or browse every player in our Impect competitions.
-- **Staff** (`#/staff`, admins): set each person's sign-in email, add staff.
+- **Staff** (`#/staff`, admins): invite staff, resend or revoke invitations, deactivate access and manage admins.
 
 ## Data sources
 
@@ -67,7 +79,7 @@ printed in the terminal running PINE until email delivery is configured.
 ```
 src/server.js                  Hono app, all /api routes, serves public/
 src/db.js                      SQLite schema, staff seed, activity log
-src/auth.js                    Email one-time codes + session cookies
+src/auth.js                    Clerk sessions, invitations and local-user linking
 src/roles.js                   Positions/roles, Impect list-name -> role hints
 src/lib/transfermarkt.js       Profile + search scraping
 src/lib/tm_match.js            Bulk Transfermarkt matching (confirms by date of birth)
@@ -84,7 +96,7 @@ data/pine.db                   The local database (never committed)
 
 ## Hosting (Railway, live)
 
-Deployed on Railway behind `PINE_SITE_PASSWORD`, with sign-in off (`PINE_AUTH=off`). The live address is kept out of this repo.
+Deployed on Railway with invite-only Clerk authentication. The live address is kept out of this repo.
 
 - Railway project `pine`, service `pine`, environment `production`. This folder is linked, so the Railway CLI works from `~/pine`.
 - The database lives on the `pine-volume` disk mounted at `/app/data` (500 MB). Deploys never touch it.

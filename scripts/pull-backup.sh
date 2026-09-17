@@ -9,15 +9,15 @@ DEST="${PINE_BACKUP_DIR:-$HOME/pine-backups}"
 [ -n "$APP_URL" ] || { echo "set PINE_URL (in $ENV_FILE or the environment)" >&2; exit 1; }
 KEEP=30
 
-PW="$(grep '^PINE_SITE_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)"
-[ -n "$PW" ] || { echo "no PINE_SITE_PASSWORD in $ENV_FILE" >&2; exit 1; }
+TOKEN="${PINE_BACKUP_TOKEN:-$(grep '^PINE_BACKUP_TOKEN=' "$ENV_FILE" 2>/dev/null | cut -d= -f2-)}"
+[ -n "$TOKEN" ] || { echo "set PINE_BACKUP_TOKEN (in $ENV_FILE or the environment)" >&2; exit 1; }
 
 mkdir -p "$DEST"
 STAMP="$(date +%Y-%m-%d)"
 TMP="$DEST/.pine-$STAMP.part"
 OUT="$DEST/pine-$STAMP.sqlite"
 
-curl -fsS --max-time 300 -u "pine:$PW" "$APP_URL/api/backup" -o "$TMP"
+curl -fsS --max-time 300 -H "Authorization: Bearer $TOKEN" "$APP_URL/api/backup" -o "$TMP"
 
 # A valid SQLite file starts with "SQLite format 3"; refuse to keep an error page.
 head -c 15 "$TMP" | grep -q "SQLite format" || { echo "downloaded file is not a database" >&2; rm -f "$TMP"; exit 1; }

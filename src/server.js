@@ -1,8 +1,6 @@
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { getCookie, setCookie } from "hono/cookie";
-import { basicAuth } from "hono/basic-auth";
 import { HTTPException } from "hono/http-exception";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -10,7 +8,11 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, relative } from "node:path";
 
 import { openDb, logActivity } from "./db.js";
-import { requestCode, verifyCode, logout, currentUser } from "./auth.js";
+import {
+  AuthError, authenticateUser, clerkConfigured, clerkErrorMessage, clerkPublicConfig,
+  createStaffInvitation, listStaffInvitations, resendStaffInvitation, revokeStaffInvitation,
+  setClerkUserActive, uniqueUserName, updateClerkName,
+} from "./auth.js";
 import { POSITIONS, ROLES, DECISIONS, SPLIT_ROLES, IMPECT_POSITION_LABEL, suggestPosition, suggestListRole, resolveRole } from "./roles.js";
 import { fetchTmPlayer, parseTmUrl, searchTmPlayers } from "./lib/transfermarkt.js";
 import { loadPhysical, matchPhysical, searchPhysical, rowsByKeys, teamOverlap, meta as physMeta } from "./lib/physical.js";
@@ -171,62 +173,33 @@ const app = new Hono();
 app.onError((err, c) => {
   // Middleware errors such as the password prompt's 401 carry their own response and headers.
   if (err instanceof HTTPException) return err.getResponse();
-  if (!(err instanceof HttpError)) console.error(err);
+  if (!(err instanceof HttpError) && !(err instanceof AuthError)) console.error(err);
   return c.json({ error: err.message || "Server error", ...(err.extra || {}) }, err.status || 500);
 });
 
-// PINE_SITE_PASSWORD puts one shared password (browser prompt, any username) in front of the whole site.
-if (process.env.PINE_SITE_PASSWORD) {
-  const want = createHash("sha256").update(process.env.PINE_SITE_PASSWORD).digest();
-  app.use("*", basicAuth({
-    realm: "PINE",
-    verifyUser: (_username, password) => timingSafeEqual(createHash("sha256").update(String(password)).digest(), want),
-  }));
-}
-
-// PINE_AUTH=off skips sign-in: people pick which staff member they are in the header (default: first admin).
-const AUTH_OFF = process.env.PINE_AUTH === "off";
-const ACT_AS_COOKIE = "pine_as";
-function actingUser(c) {
-  const cols = "id, name, email, is_admin";
-  const id = Number(getCookie(c, ACT_AS_COOKIE));
-  return (id && db.get(`SELECT ${cols} FROM users WHERE id = ?`, id))
-    || db.get(`SELECT ${cols} FROM users ORDER BY is_admin DESC, sort, id LIMIT 1`);
-}
-const resolveUser = (c) => (AUTH_OFF ? actingUser(c) : currentUser(db, c));
-
 // Auth gate + CSRF header for writes.
+function validBackupToken(c) {
+  if (c.req.method !== "GET" || c.req.path !== "/api/backup" || !process.env.PINE_BACKUP_TOKEN) return false;
+  const supplied = String(c.req.header("Authorization") || "").replace(/^Bearer\s+/i, "");
+  const want = createHash("sha256").update(process.env.PINE_BACKUP_TOKEN).digest();
+  const got = createHash("sha256").update(supplied).digest();
+  return timingSafeEqual(got, want);
+}
+
 app.use("/api/*", async (c, next) => {
   if (c.req.method !== "GET" && c.req.header("X-PINE") !== "1") return c.json({ error: "Bad request" }, 400);
-  if (c.req.path.startsWith("/api/auth/")) return next();
-  const user = resolveUser(c);
+  if (c.req.path === "/api/auth/config") return next();
+  if (validBackupToken(c)) return next();
+  const user = await authenticateUser(db, c.req.raw);
   if (!user) return c.json({ error: "Not signed in" }, 401);
   c.set("user", user);
   return next();
 });
 
 /* ---------- auth ---------- */
-app.post("/api/auth/request", async (c) => {
-  const { email } = await c.req.json();
-  return c.json(await requestCode(db, email));
-});
-app.post("/api/auth/verify", async (c) => {
-  const { email, code } = await c.req.json();
-  const user = verifyCode(db, c, email, code);
-  if (!user) return c.json({ error: "That code is wrong or expired" }, 401);
-  logActivity(db, user.id, null, "signed_in");
-  return c.json({ ok: true, user: { id: user.id, name: user.name } });
-});
-app.post("/api/auth/logout", (c) => { logout(db, c); return c.json({ ok: true }); });
-app.get("/api/auth/me", (c) => c.json({ user: resolveUser(c) || null }));
-app.post("/api/auth/act-as", async (c) => {
-  if (!AUTH_OFF) return c.json({ error: "Sign-in is enabled" }, 400);
-  const { user_id } = await c.req.json();
-  const user = db.get("SELECT id, name FROM users WHERE id = ?", Number(user_id));
-  if (!user) return c.json({ error: "Unknown staff member" }, 404);
-  setCookie(c, ACT_AS_COOKIE, String(user.id), { path: "/", sameSite: "Lax", maxAge: 365 * 24 * 3600 });
-  return c.json({ ok: true, user });
-});
+const publicUser = (u) => u && ({ id: u.id, name: u.name, email: u.email, is_admin: !!u.is_admin, status: u.status });
+app.get("/api/auth/config", (c) => c.json(clerkPublicConfig()));
+app.get("/api/auth/me", (c) => c.json({ user: publicUser(c.get("user")) }));
 
 /* ---------- config ---------- */
 app.get("/api/config", (c) =>
@@ -234,9 +207,9 @@ app.get("/api/config", (c) =>
     positions: POSITIONS,
     roles: ROLES,
     decisions: DECISIONS,
-    staff: db.all("SELECT id, name FROM users ORDER BY sort, id"),
-    me: c.get("user"),
-    auth: AUTH_OFF ? "off" : "email",
+    staff: db.all("SELECT id, name FROM users WHERE status = 'active' ORDER BY sort, id"),
+    me: publicUser(c.get("user")),
+    auth: "clerk",
     impect: impectConfigured(),
   })
 );
@@ -247,18 +220,25 @@ app.get("/api/players", (c) => c.json({ players: db.all(`${PLAYER_SELECT} ORDER 
 
 app.get("/api/players/:id", (c) => {
   const player = getPlayer(c.req.param("id"));
-  const staff = db.all("SELECT id, name FROM users ORDER BY sort, id").map((u) => {
+  const staff = db.all(
+    `SELECT id, name, status FROM users
+     WHERE status = 'active'
+       OR EXISTS (SELECT 1 FROM verdicts v WHERE v.player_id = ? AND v.user_id = users.id)
+       OR EXISTS (SELECT 1 FROM notes n WHERE n.player_id = ? AND n.user_id = users.id)
+     ORDER BY status = 'inactive', sort, id`, player.id, player.id
+  ).map((u) => {
     const v = db.get("SELECT verdict, updated_at FROM verdicts WHERE player_id = ? AND user_id = ?", player.id, u.id);
     return {
       user_id: u.id,
       name: u.name,
+      active: u.status === "active",
       verdict: v?.verdict || null,
       verdict_at: v?.updated_at || null,
       notes: db.all("SELECT id, context, body, created_at, updated_at FROM notes WHERE player_id = ? AND user_id = ? ORDER BY created_at DESC, id DESC", player.id, u.id),
     };
   });
   const activity = db.all(
-    `SELECT a.id, a.action, a.detail, a.created_at, u.name AS user FROM activity a LEFT JOIN users u ON u.id = a.user_id
+    `SELECT a.id, a.action, a.detail, a.created_at, u.name AS user, u.email AS user_email FROM activity a LEFT JOIN users u ON u.id = a.user_id
      WHERE a.player_id = ? ORDER BY a.id DESC LIMIT 40`, player.id);
   const lists = db.all("SELECT l.id, l.name, l.source FROM list_members m JOIN lists l ON l.id = m.list_id WHERE m.player_id = ?", player.id);
   const decision_by = player.decision_by ? db.get("SELECT name FROM users WHERE id = ?", player.decision_by)?.name : null;
@@ -503,7 +483,7 @@ app.put("/api/players/:id/impect", async (c) => {
 app.get("/api/backups", (c) => c.json({ snapshots: listSnapshots(BACKUP_DIR), dir: BACKUP_DIR }));
 app.get("/api/backup", (c) => {
   const buf = snapshotBuffer(db, BACKUP_DIR);
-  logActivity(db, c.get("user").id, null, "downloaded_backup", { bytes: buf.length });
+  logActivity(db, c.get("user")?.id, null, "downloaded_backup", { bytes: buf.length });
   return new Response(buf, {
     headers: {
       "Content-Type": "application/x-sqlite3",
@@ -607,41 +587,102 @@ app.get("/api/players/:id/impect-candidates", async (c) => {
 });
 
 /* ---------- staff + activity ---------- */
-app.get("/api/users", (c) => {
-  const user = c.get("user");
-  const cols = user.is_admin ? "id, name, email, is_admin" : "id, name, is_admin";
-  return c.json({ users: db.all(`SELECT ${cols} FROM users ORDER BY sort, id`) });
-});
-app.patch("/api/users/:id", async (c) => {
+const requireAdmin = (c) => {
   const user = c.get("user");
   if (!user.is_admin) fail(403, "Only admins can manage staff");
+  return user;
+};
+
+app.patch("/api/profile", async (c) => {
+  const user = c.get("user");
+  const { name } = await c.req.json();
+  const requested = String(name || "").trim();
+  if (!requested) fail(400, "Name is required");
+  const unique = uniqueUserName(db, requested, user.id);
+  try { await updateClerkName(user.clerk_user_id, unique); }
+  catch (e) { fail(502, clerkErrorMessage(e)); }
+  db.run("UPDATE users SET name = ? WHERE id = ?", unique, user.id);
+  logActivity(db, user.id, null, "edited_profile", { name: unique });
+  return c.json({ user: publicUser(db.get("SELECT id, name, email, is_admin, status FROM users WHERE id = ?", user.id)) });
+});
+
+app.get("/api/users", async (c) => {
+  const user = c.get("user");
+  const cols = user.is_admin
+    ? "id, name, email, is_admin, status, clerk_user_id IS NOT NULL AS connected"
+    : "id, name, is_admin, status";
+  const users = db.all(`SELECT ${cols} FROM users WHERE status = 'active' OR ? ORDER BY status = 'inactive', sort, id`, user.is_admin ? 1 : 0);
+  if (!user.is_admin) return c.json({ users });
+  try { return c.json({ users, invitations: await listStaffInvitations() }); }
+  catch (e) { fail(502, clerkErrorMessage(e)); }
+});
+
+app.patch("/api/users/:id", async (c) => {
+  const user = requireAdmin(c);
   const target = db.get("SELECT * FROM users WHERE id = ?", Number(c.req.param("id"))) || fail(404, "User not found");
-  const { email, is_admin } = await c.req.json();
+  const { email, is_admin, status } = await c.req.json();
+  if (status !== undefined && !["active", "inactive"].includes(status)) fail(400, "Invalid staff status");
   const e = email === undefined ? target.email : String(email || "").trim() || null;
   if (e && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) fail(400, "That email doesn't look right");
+  if (target.clerk_user_id && email !== undefined && e !== target.email) fail(400, "A connected account's email is managed in Clerk");
   if (target.id === user.id && is_admin === false) fail(400, "You can't remove your own admin access");
+  if (target.id === user.id && status === "inactive") fail(400, "You can't deactivate your own account");
+  const nextStatus = status ?? target.status;
+  if (nextStatus !== target.status) {
+    try { await setClerkUserActive(target.clerk_user_id, nextStatus === "active"); }
+    catch (err) { fail(502, clerkErrorMessage(err)); }
+  }
   try {
-    db.run("UPDATE users SET email = ?, is_admin = ? WHERE id = ?", e, is_admin === undefined ? target.is_admin : is_admin ? 1 : 0, target.id);
+    db.run(
+      "UPDATE users SET email = ?, is_admin = ?, status = ? WHERE id = ?",
+      e, is_admin === undefined ? target.is_admin : is_admin ? 1 : 0, nextStatus, target.id
+    );
   } catch { fail(409, "Another staff member already uses that email"); }
-  logActivity(db, user.id, null, "edited_staff", { name: target.name });
+  logActivity(db, user.id, null, "edited_staff", { name: target.name, status: nextStatus });
   return c.json({ ok: true });
 });
-app.post("/api/users", async (c) => {
-  const user = c.get("user");
-  if (!user.is_admin) fail(403, "Only admins can manage staff");
-  const { name, email } = await c.req.json();
-  if (!String(name || "").trim()) fail(400, "Name is required");
-  const sort = db.get("SELECT coalesce(max(sort), 0) + 1 AS s FROM users").s;
-  try {
-    db.run("INSERT INTO users(name, email, sort) VALUES (?,?,?)", String(name).trim(), String(email || "").trim() || null, sort);
-  } catch { fail(409, "That name or email is already on the staff list"); }
-  logActivity(db, user.id, null, "added_staff", { name });
+
+app.post("/api/invitations", async (c) => {
+  const user = requireAdmin(c);
+  const body = await c.req.json();
+  const email = String(body.email || "").trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) fail(400, "That email doesn't look right");
+  const existing = db.get("SELECT id, status, clerk_user_id FROM users WHERE email = ?", email);
+  if (existing?.clerk_user_id) fail(409, "That email already has a connected account");
+  if (existing?.status === "inactive") fail(409, "Reactivate that staff member before inviting them");
+  let localUserId = null;
+  if (body.user_id != null) {
+    const target = db.get("SELECT id, email, status, clerk_user_id FROM users WHERE id = ?", Number(body.user_id)) || fail(404, "Staff member not found");
+    if (target.clerk_user_id) fail(409, "That staff member already has a connected account");
+    if (target.status !== "active") fail(409, "Reactivate that staff member before inviting them");
+    if (String(target.email || "").toLowerCase() !== email) fail(400, "Save this email before sending the invitation");
+    localUserId = target.id;
+  }
+  try { await createStaffInvitation(email, { localUserId }); }
+  catch (e) { fail(409, clerkErrorMessage(e)); }
+  logActivity(db, user.id, null, "invited_staff", { email });
   return c.json({ ok: true }, 201);
+});
+
+app.post("/api/invitations/:id/resend", async (c) => {
+  const user = requireAdmin(c);
+  try { await resendStaffInvitation(c.req.param("id")); }
+  catch (e) { if (e instanceof AuthError) throw e; fail(502, clerkErrorMessage(e)); }
+  logActivity(db, user.id, null, "resent_staff_invitation");
+  return c.json({ ok: true });
+});
+
+app.delete("/api/invitations/:id", async (c) => {
+  const user = requireAdmin(c);
+  try { await revokeStaffInvitation(c.req.param("id")); }
+  catch (e) { if (e instanceof AuthError) throw e; fail(502, clerkErrorMessage(e)); }
+  logActivity(db, user.id, null, "revoked_staff_invitation");
+  return c.json({ ok: true });
 });
 app.get("/api/activity", (c) =>
   c.json({
     activity: db.all(
-      `SELECT a.id, a.action, a.detail, a.created_at, u.name AS user, a.player_id, p.name AS player
+      `SELECT a.id, a.action, a.detail, a.created_at, u.name AS user, u.email AS user_email, a.player_id, p.name AS player
        FROM activity a LEFT JOIN users u ON u.id = a.user_id LEFT JOIN players p ON p.id = a.player_id
        WHERE a.action <> 'signed_in' ORDER BY a.id DESC LIMIT ?`, Math.min(Number(c.req.query("limit")) || 60, 300)),
   })
@@ -672,4 +713,9 @@ app.get("/index.html", (c) => c.html(INDEX_HTML));
 app.use("/*", serveStatic({ root: relative(process.cwd(), PUBLIC_DIR) || "." }));
 
 const port = Number(process.env.PORT) || 8787;
+if (!clerkConfigured()) {
+  console.warn(
+    "PINE auth is not configured: set CLERK_PUBLISHABLE_KEY (or NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) and CLERK_SECRET_KEY",
+  );
+}
 serve({ fetch: app.fetch, port }, () => console.log(`PINE running on http://localhost:${port}`));

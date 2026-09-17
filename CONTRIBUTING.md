@@ -16,9 +16,9 @@ cp .env.example .env
 npm start            # http://localhost:8787
 ```
 
-That's enough to work on almost everything. A fresh local database is created on first start with
-the six staff members, and `PINE_AUTH=off` in `.env.example` means there is no sign-in: pick a name
-from the menu in the top bar. Add players by pasting any Transfermarkt link.
+Create a free Clerk development application, set it to invite-only, and put its development keys plus
+your email as `PINE_ADMIN_EMAIL` in `.env`. Create or invite that user in Clerk, then sign in; the first
+matching user becomes the local administrator. Add players by pasting any Transfermarkt link.
 
 Impect features (short lists, KPI profiles, player linking) need Impect credentials in `.env`. Without
 them those panels say Impect isn't configured; everything else works.
