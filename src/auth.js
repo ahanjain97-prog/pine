@@ -3,6 +3,10 @@ import { createClerkClient } from "@clerk/backend";
 const USER_COLS = "id, name, email, clerk_user_id, status, is_admin";
 let cachedClient = null;
 
+function publishableKey() {
+  return process.env.CLERK_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+}
+
 export class AuthError extends Error {
   constructor(status, message) {
     super(message);
@@ -11,13 +15,13 @@ export class AuthError extends Error {
 }
 
 export function clerkConfigured() {
-  return Boolean(process.env.CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY);
+  return Boolean(publishableKey() && process.env.CLERK_SECRET_KEY);
 }
 
 export function clerkPublicConfig() {
   return {
     configured: clerkConfigured(),
-    publishable_key: process.env.CLERK_PUBLISHABLE_KEY || null,
+    publishable_key: publishableKey() || null,
   };
 }
 
@@ -25,7 +29,7 @@ function clerk() {
   if (!clerkConfigured()) throw new AuthError(503, "Clerk is not configured yet");
   if (!cachedClient) {
     cachedClient = createClerkClient({
-      publishableKey: process.env.CLERK_PUBLISHABLE_KEY,
+      publishableKey: publishableKey(),
       secretKey: process.env.CLERK_SECRET_KEY,
     });
   }

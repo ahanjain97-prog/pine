@@ -26,7 +26,7 @@ person's email and signs them in, and PINE records their work under their name a
 | Variable | Purpose |
 |---|---|
 | `IMPECT_USERNAME`, `IMPECT_PASSWORD` | Impect account used for the Customer API and Scouting short lists |
-| `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | Clerk instance keys; use development keys locally and production keys on Railway |
+| `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | Clerk instance keys; use development keys locally and production keys on Railway. `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is also accepted as the publishable-key name. |
 | `CLERK_AUTHORIZED_PARTIES` | Optional comma-separated trusted origins; defaults to `APP_URL` |
 | `PINE_ADMIN_EMAIL` | Bootstrap/fallback administrator email; an existing user's admin setting remains authoritative |
 | `APP_URL` | Public application URL, also used as Clerk's trusted origin |

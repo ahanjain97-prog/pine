@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 
-import { AuthError, resolveClerkUser } from "../src/auth.js";
+import { AuthError, clerkPublicConfig, resolveClerkUser } from "../src/auth.js";
 import { openDb } from "../src/db.js";
 
 function clerkUser({ id, email, firstName = "New", lastName = "Scout", invited = true }) {
@@ -18,6 +18,28 @@ function clerkUser({ id, email, firstName = "New", lastName = "Scout", invited =
     publicMetadata: invited ? { pineInvited: true } : {},
   };
 }
+
+test("a Next.js-style publishable key name is accepted", () => {
+  const standard = process.env.CLERK_PUBLISHABLE_KEY;
+  const next = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  const secret = process.env.CLERK_SECRET_KEY;
+  delete process.env.CLERK_PUBLISHABLE_KEY;
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = "pk_test_example";
+  process.env.CLERK_SECRET_KEY = "sk_test_example";
+  try {
+    assert.deepEqual(clerkPublicConfig(), {
+      configured: true,
+      publishable_key: "pk_test_example",
+    });
+  } finally {
+    if (standard === undefined) delete process.env.CLERK_PUBLISHABLE_KEY;
+    else process.env.CLERK_PUBLISHABLE_KEY = standard;
+    if (next === undefined) delete process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+    else process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = next;
+    if (secret === undefined) delete process.env.CLERK_SECRET_KEY;
+    else process.env.CLERK_SECRET_KEY = secret;
+  }
+});
 
 test("an invited Clerk user is provisioned as local staff", () => {
   const db = openDb(":memory:");

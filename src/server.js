@@ -713,5 +713,9 @@ app.get("/index.html", (c) => c.html(INDEX_HTML));
 app.use("/*", serveStatic({ root: relative(process.cwd(), PUBLIC_DIR) || "." }));
 
 const port = Number(process.env.PORT) || 8787;
-if (!clerkConfigured()) console.warn("PINE auth is not configured: set CLERK_PUBLISHABLE_KEY and CLERK_SECRET_KEY");
+if (!clerkConfigured()) {
+  console.warn(
+    "PINE auth is not configured: set CLERK_PUBLISHABLE_KEY (or NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) and CLERK_SECRET_KEY",
+  );
+}
 serve({ fetch: app.fetch, port }, () => console.log(`PINE running on http://localhost:${port}`));
