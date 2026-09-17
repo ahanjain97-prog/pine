@@ -7,20 +7,11 @@ CREATE TABLE IF NOT EXISTS users(
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
   email TEXT UNIQUE COLLATE NOCASE,
+  clerk_user_id TEXT,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
   is_admin INTEGER NOT NULL DEFAULT 0,
   sort INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE TABLE IF NOT EXISTS login_codes(
-  email TEXT PRIMARY KEY COLLATE NOCASE,
-  code_hash TEXT NOT NULL,
-  expires_at INTEGER NOT NULL,
-  attempts INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS sessions(
-  token_hash TEXT PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  expires_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS players(
   id INTEGER PRIMARY KEY,
@@ -91,14 +82,12 @@ CREATE TABLE IF NOT EXISTS activity(
 );
 `;
 
-const STAFF = [
-  ["Ray", 0],
-  ["Ahan", 1],
-  ["Ford", 0],
-  ["Bobby", 0],
-  ["Alex", 0],
-  ["Yuta", 0],
-];
+function migrate(raw) {
+  const userCols = new Set(raw.prepare("PRAGMA table_info(users)").all().map((c) => c.name));
+  if (!userCols.has("clerk_user_id")) raw.exec("ALTER TABLE users ADD COLUMN clerk_user_id TEXT");
+  if (!userCols.has("status")) raw.exec("ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive'))");
+  raw.exec("CREATE UNIQUE INDEX IF NOT EXISTS users_clerk_user_id ON users(clerk_user_id) WHERE clerk_user_id IS NOT NULL");
+}
 
 // Thin wrapper so call sites don't depend on the driver (eases a later move to D1/Postgres).
 export function openDb(file) {
@@ -106,6 +95,7 @@ export function openDb(file) {
   const raw = new DatabaseSync(file);
   raw.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
   raw.exec(SCHEMA);
+  migrate(raw);
   const db = {
     raw,
     all: (sql, ...p) => raw.prepare(sql).all(...p),
@@ -123,10 +113,6 @@ export function openDb(file) {
       }
     },
   };
-  STAFF.forEach(([name, admin], i) =>
-    db.run("INSERT OR IGNORE INTO users(name, email, is_admin, sort) VALUES (?,?,?,?)",
-      name, admin ? process.env.PINE_ADMIN_EMAIL || null : null, admin, i)
-  );
   return db;
 }
 

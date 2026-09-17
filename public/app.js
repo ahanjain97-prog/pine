@@ -16,6 +16,8 @@ const S = {
   table: { q: "", decision: "all", position: "", league: "", sort: "updated_at", dir: -1 },
   impect: { iteration: "", q: "" },
 };
+let ClerkSDK = null;
+let clerkSignInNode = null;
 
 /* ---------- plumbing ---------- */
 async function api(method, path, body) {
@@ -155,53 +157,44 @@ async function poll() {
 }
 
 /* ---------- login ---------- */
+function unmountClerkSignIn() {
+  if (clerkSignInNode && ClerkSDK) {
+    try { ClerkSDK.unmountSignIn(clerkSignInNode); } catch {}
+  }
+  clerkSignInNode = null;
+}
+
 function showLogin(msg) {
   S.me = null;
   clearInterval(S.pollTimer);
   closeModal();
+  unmountClerkSignIn();
   $("#app").innerHTML = `<main class="login"><div class="login-card">
     <div class="brand-lg">${LOGO}<div><div class="wordmark">PINE</div><div class="tagline">Player Identification Network Evaluation</div></div></div>
-    <form id="login-email">
-      <label class="lbl" for="le">Staff email</label>
-      <input id="le" type="email" required autocomplete="email" placeholder="you@example.com">
-      <button class="btn primary" type="submit">Send sign-in code</button>
-    </form>
-    <form id="login-code" hidden>
-      <p class="hint">If <b id="lc-email"></b> is on the PINE staff list, a 6-digit code is on its way. <span id="lc-hint"></span></p>
-      <label class="lbl" for="lc">Code</label>
-      <input id="lc" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
-      <button class="btn primary" type="submit">Sign in</button>
-      <button class="btn link" type="button" id="lc-back">Use a different email</button>
-    </form>
-    <p class="err" id="login-err" hidden></p>
+    ${msg ? `<p class="err">${esc(msg)}</p>` : ""}
+    <div id="clerk-sign-in"></div>
+    <p class="hint login-hint">PINE is invite-only. Ask an administrator if you need access.</p>
   </div></main>`;
-  const ef = $("#login-email"), cf = $("#login-code"), err = $("#login-err");
-  const showErr = (m) => { err.textContent = m; err.hidden = false; };
-  let email = "";
-  ef.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    err.hidden = true;
-    email = $("#le").value.trim();
-    const btn = $("button", ef);
-    btn.disabled = true;
-    try {
-      const r = await api("POST", "/api/auth/request", { email });
-      ef.hidden = true;
-      cf.hidden = false;
-      $("#lc-email").textContent = email;
-      $("#lc-hint").textContent = r.delivery === "email" ? "Check your inbox." : "Email delivery isn't set up yet, so the code is printed in the terminal running PINE.";
-      if (r.dev_code) { $("#lc").value = r.dev_code; $("#lc-hint").textContent = "Local dev mode: the code has been filled in for you."; }
-      $("#lc").focus();
-    } catch (e2) { showErr(e2.message); } finally { btn.disabled = false; }
+  clerkSignInNode = $("#clerk-sign-in");
+  ClerkSDK?.mountSignIn(clerkSignInNode, {
+    forceRedirectUrl: `${location.origin}/`,
+    signUpForceRedirectUrl: `${location.origin}/`,
+    withSignUp: false,
+    appearance: { elements: { rootBox: { width: "100%" }, cardBox: { width: "100%", boxShadow: "none" }, card: { padding: 0 } } },
   });
-  cf.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    err.hidden = true;
-    try { await api("POST", "/api/auth/verify", { email, code: $("#lc").value }); boot(); } catch (e2) { showErr(e2.message); }
-  });
-  $("#lc-back").addEventListener("click", () => { cf.hidden = true; ef.hidden = false; err.hidden = true; });
-  if (msg) showErr(msg);
-  $("#le").focus();
+}
+
+function showAccessError(message) {
+  S.me = null;
+  clearInterval(S.pollTimer);
+  closeModal();
+  unmountClerkSignIn();
+  $("#app").innerHTML = `<main class="login"><div class="login-card">
+    <div class="brand-lg">${LOGO}<div><div class="wordmark">PINE</div><div class="tagline">Player Identification Network Evaluation</div></div></div>
+    <h2>Access unavailable</h2><p class="err">${esc(message)}</p>
+    <button class="btn primary" id="access-signout" type="button">Sign out</button>
+  </div></main>`;
+  $("#access-signout").addEventListener("click", () => ClerkSDK?.signOut({ redirectUrl: `${location.origin}/` }));
 }
 
 /* ---------- shell + routing ---------- */
@@ -219,28 +212,40 @@ function renderShell() {
     <div class="top-r">
       <div class="gsearch"><input id="gs" type="search" placeholder="Find a player  ( / )" autocomplete="off" aria-label="Find a player"><div class="gs-res" id="gs-res" hidden></div></div>
       <button class="btn primary" id="add-btn" type="button">+ Add player</button>
-      ${S.config.auth === "off"
-        ? `<label class="me" title="Notes, verdicts and changes are recorded under this name"><span class="avatar">${esc(S.me.name[0])}</span>
-            <select id="act-as" aria-label="Acting as">${S.config.staff.map((s) => `<option value="${s.id}" ${s.id === S.me.id ? "selected" : ""}>${esc(s.name)}</option>`).join("")}</select></label>`
-        : `<div class="me"><span class="avatar">${esc(S.me.name[0])}</span><span class="me-name">${esc(S.me.name)}</span><button class="btn ghost sm" id="logout" type="button">Sign out</button></div>`}
+      <button class="me profile-btn" id="profile-btn" type="button" title="Manage profile">
+        <span class="avatar">${esc(initials(S.me.name))}</span><span class="me-copy"><span class="me-name">${esc(S.me.name)}</span><span class="me-email">${esc(S.me.email || "")}</span></span>
+      </button>
     </div>
   </header>
   <div class="update-pill" id="upd" hidden><button class="btn sm" type="button">New changes from staff · refresh</button></div>
   <main id="main"></main>`;
   $("#add-btn").addEventListener("click", () => openAddPlayer());
-  $("#logout")?.addEventListener("click", async () => { try { await api("POST", "/api/auth/logout", {}); } catch {} showLogin(); });
-  $("#act-as")?.addEventListener("change", async (e) => {
-    try {
-      await api("POST", "/api/auth/act-as", { user_id: Number(e.target.value) });
-      S.me = (await api("GET", "/api/auth/me")).user;
-      S.config = await api("GET", "/api/config");
-      renderShell();
-      await render();
-      toast(`Now working as ${S.me.name}`);
-    } catch (err) { oops(err); }
-  });
+  $("#profile-btn").addEventListener("click", openProfile);
   $("#upd button").addEventListener("click", () => { $("#upd").hidden = true; refresh(); });
   wireGlobalSearch();
+}
+
+function openProfile() {
+  modal(`<form id="profile-form">
+    <div class="m-h"><h2>Your profile</h2><button type="button" class="icon-btn" data-close aria-label="Close">×</button></div>
+    <div class="form-grid"><label><span class="lbl">Name</span><input name="name" required value="${esc(S.me.name)}" autocomplete="name"></label>
+      <label><span class="lbl">Email</span><input type="email" value="${esc(S.me.email || "")}" disabled><span class="hint">Your sign-in email is managed by an administrator.</span></label></div>
+    <div class="m-actions"><button type="button" class="btn danger" id="profile-signout">Sign out</button><span class="spacer"></span><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Save profile</button></div>
+  </form>`);
+  $("#profile-signout").addEventListener("click", () => ClerkSDK?.signOut({ redirectUrl: `${location.origin}/` }));
+  $("#profile-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = $("button[type=submit]", e.target);
+    btn.disabled = true;
+    try {
+      S.me = (await api("PATCH", "/api/profile", { name: e.target.elements.name.value })).user;
+      S.config.me = S.me;
+      closeModal();
+      renderShell();
+      await render();
+      toast("Profile updated");
+    } catch (err) { oops(err); btn.disabled = false; }
+  });
 }
 
 function wireGlobalSearch() {
@@ -749,7 +754,7 @@ async function renderPlayer(main, idArg) {
         <section class="panel" id="phys-panel"><header class="panel-h"><h2>Physical data</h2></header><div class="loading sm">Loading…</div></section>
         <section class="panel" id="impect-panel"><header class="panel-h"><h2>Impect</h2></header><div class="loading sm">Loading…</div></section>
         ${d.lists.length ? `<section class="panel"><header class="panel-h"><h2>Lists</h2></header><div class="row">${d.lists.map((l) => `<span class="chip">${esc(l.name)}</span>`).join("")}</div></section>` : ""}
-        <section class="panel"><header class="panel-h"><h2>History</h2></header><ul class="feed">${d.activity.map((a) => `<li><span><b>${esc(a.user || "Someone")}</b> ${describe(a, true)}</span><span class="when" title="${esc(fmtDateTime(a.created_at))}">${esc(relTime(a.created_at))}</span></li>`).join("") || `<li class="empty">No history yet.</li>`}</ul></section>
+        <section class="panel"><header class="panel-h"><h2>History</h2></header><ul class="feed">${d.activity.map((a) => `<li><span><b>${esc(a.user || "Someone")}</b>${a.user_email ? `<span class="actor-email">${esc(a.user_email)}</span>` : ""} ${describe(a, true)}</span><span class="when" title="${esc(fmtDateTime(a.created_at))}">${esc(relTime(a.created_at))}</span></li>`).join("") || `<li class="empty">No history yet.</li>`}</ul></section>
       </div>
     </div>
   </div>`;
@@ -1290,6 +1295,10 @@ function describe(a, onPlayerPage = false) {
     case "imported_list": return `imported the Impect list “${esc(d.name)}” (${d.created ?? 0} new)`;
     case "edited_staff": return `updated staff member ${esc(d.name)}`;
     case "added_staff": return `added staff member ${esc(d.name)}`;
+    case "invited_staff": return `invited ${esc(d.email || "a staff member")}`;
+    case "resent_staff_invitation": return "resent a staff invitation";
+    case "revoked_staff_invitation": return "revoked a staff invitation";
+    case "edited_profile": return "updated their profile";
     default: return esc(String(a.action).replace(/_/g, " "));
   }
 }
@@ -1298,23 +1307,28 @@ async function renderActivity(main) {
   main.innerHTML = `<div class="page" style="max-width:900px"><div class="page-h"><h1>Activity</h1></div><section class="panel"><ul class="feed" id="feed"><li class="loading">Loading…</li></ul></section></div>`;
   try {
     const { activity } = await api("GET", "/api/activity?limit=250");
-    $("#feed").innerHTML = activity.map((a) => `<li><span class="avatar">${esc((a.user || "?")[0])}</span><span><b>${esc(a.user || "Someone")}</b> ${describe(a)}</span><span class="when" title="${esc(fmtDateTime(a.created_at))}">${esc(relTime(a.created_at))}</span></li>`).join("") || `<li class="empty">Nothing yet.</li>`;
+    $("#feed").innerHTML = activity.map((a) => `<li><span class="avatar">${esc((a.user || "?")[0])}</span><span><b>${esc(a.user || "Someone")}</b>${a.user_email ? `<span class="actor-email">${esc(a.user_email)}</span>` : ""} ${describe(a)}</span><span class="when" title="${esc(fmtDateTime(a.created_at))}">${esc(relTime(a.created_at))}</span></li>`).join("") || `<li class="empty">Nothing yet.</li>`;
   } catch (e) { $("#feed").innerHTML = `<li class="empty">${esc(e.message)}</li>`; }
 }
 
 async function renderStaff(main) {
   if (!S.me.is_admin) { location.hash = "#/board"; return; }
-  const { users } = await api("GET", "/api/users");
+  const { users, invitations = [] } = await api("GET", "/api/users");
   main.innerHTML = `<div class="page" style="max-width:900px">
-    <div class="page-h"><div><h1>Staff</h1><div class="sub">People sign in with the email set here. Everyone on this list gets their own evaluation section on every player.</div></div></div>
-    <div class="table-wrap"><table class="grid"><thead><tr><th>Name</th><th>Sign-in email</th><th>Admin</th><th></th></tr></thead><tbody>
+    <div class="page-h"><div><h1>Staff</h1><div class="sub">Invite people by email. Their name is collected when they accept, and every change is recorded under their account.</div></div></div>
+    <section class="panel"><header class="panel-h"><h2>Invite someone</h2></header>
+      <form id="invite-user" class="row"><input name="email" type="email" placeholder="name@example.com" required aria-label="Email"><button class="btn primary" type="submit">Send invitation</button></form></section>
+    <div class="table-wrap" style="margin-top:14px"><table class="grid"><thead><tr><th>Name</th><th>Email</th><th>Status</th><th>Admin</th><th></th></tr></thead><tbody>
       ${users.map((u) => `<tr data-uid="${u.id}" style="cursor:default"><td><b>${esc(u.name)}</b></td>
-        <td><input type="email" value="${esc(u.email || "")}" placeholder="Add an email to let ${esc(u.name)} sign in" style="width:300px" aria-label="${esc(u.name)} email"></td>
+        <td>${u.connected ? `<span>${esc(u.email || "")}</span>` : `<input type="email" value="${esc(u.email || "")}" placeholder="Add email before inviting" style="width:260px" aria-label="${esc(u.name)} email">`}</td>
+        <td><span class="chip">${u.status === "active" ? (u.connected ? "Active" : "Not connected") : "Inactive"}</span></td>
         <td><input type="checkbox" ${u.is_admin ? "checked" : ""} ${u.id === S.me.id ? "disabled" : ""} aria-label="${esc(u.name)} is admin"></td>
-        <td><button type="button" class="btn sm" data-save-user>Save</button></td></tr>`).join("")}
+        <td><div class="row">${!u.connected && u.status === "active" ? `<button type="button" class="btn sm primary" data-invite-user>Invite</button>` : ""}
+          <button type="button" class="btn sm" data-save-user>Save</button>
+          ${u.id !== S.me.id ? `<button type="button" class="btn sm ${u.status === "active" ? "danger" : ""}" data-user-status="${u.status === "active" ? "inactive" : "active"}">${u.status === "active" ? "Deactivate" : "Reactivate"}</button>` : ""}</div></td></tr>`).join("")}
     </tbody></table></div>
-    <section class="panel" style="margin-top:14px"><header class="panel-h"><h2>Add a staff member</h2></header>
-      <form id="add-user" class="row"><input name="name" placeholder="Name" required aria-label="Name"><input name="email" type="email" placeholder="Email" aria-label="Email"><button class="btn primary" type="submit">Add</button></form></section>
+    ${invitations.length ? `<section class="panel" style="margin-top:14px"><header class="panel-h"><h2>Invitations</h2></header>
+      <div class="table-wrap"><table class="grid"><thead><tr><th>Email</th><th>Status</th><th>Sent</th><th></th></tr></thead><tbody>${invitations.map((i) => `<tr data-invite-id="${esc(i.id)}" style="cursor:default"><td>${esc(i.email)}</td><td><span class="chip">${esc(cap(i.status))}</span></td><td>${esc(fmtDateTime(i.created_at))}</td><td><div class="row"><button class="btn sm" type="button" data-resend-invite>Resend</button>${i.status === "pending" ? `<button class="btn sm danger" type="button" data-revoke-invite>Revoke</button>` : ""}</div></td></tr>`).join("")}</tbody></table></div></section>` : ""}
     <section class="panel" style="margin-top:14px" id="bk-panel">
       <header class="panel-h"><h2>Database backup</h2><a class="btn sm primary" href="/api/backup" download>Download now</a></header>
       <p class="hint">A snapshot is written on the server every day and the last 14 are kept. Download one any time; it opens in any SQLite tool.</p>
@@ -1324,28 +1338,59 @@ async function renderStaff(main) {
   const root = main.firstElementChild;
   loadBackups(root);
   root.addEventListener("click", async (e) => {
-    const b = e.target.closest("[data-save-user]");
-    if (!b) return;
-    const tr = b.closest("tr");
+    const save = e.target.closest("[data-save-user]");
+    const inviteUser = e.target.closest("[data-invite-user]");
+    const status = e.target.closest("[data-user-status]");
+    const resend = e.target.closest("[data-resend-invite]");
+    const revoke = e.target.closest("[data-revoke-invite]");
+    if (!save && !inviteUser && !status && !resend && !revoke) return;
+    const button = save || inviteUser || status || resend || revoke;
+    button.disabled = true;
     try {
-      await api("PATCH", `/api/users/${tr.dataset.uid}`, { email: $("input[type=email]", tr).value, is_admin: $("input[type=checkbox]", tr).checked });
-      toast("Staff member saved");
-    } catch (err) { oops(err); }
-  });
-  $("#add-user", root).addEventListener("submit", async (e) => {
-    e.preventDefault();
-    try {
-      await api("POST", "/api/users", Object.fromEntries(new FormData(e.target)));
-      S.config = await api("GET", "/api/config");
-      toast("Staff member added");
+      if (save) {
+        const tr = save.closest("tr");
+        await api("PATCH", `/api/users/${tr.dataset.uid}`, {
+          ...($("input[type=email]", tr) ? { email: $("input[type=email]", tr).value } : {}),
+          is_admin: $("input[type=checkbox]", tr).checked,
+        });
+        toast("Staff member saved");
+      } else if (inviteUser) {
+        const tr = inviteUser.closest("tr");
+        const email = $("input[type=email]", tr)?.value;
+        if (!email) throw new Error("Add an email address first");
+        await api("PATCH", `/api/users/${tr.dataset.uid}`, { email, is_admin: $("input[type=checkbox]", tr).checked });
+        await api("POST", "/api/invitations", { email, user_id: Number(tr.dataset.uid) });
+        toast("Invitation sent");
+      } else if (status) {
+        await api("PATCH", `/api/users/${status.closest("tr").dataset.uid}`, { status: status.dataset.userStatus });
+        toast(status.dataset.userStatus === "active" ? "Staff member reactivated" : "Staff member deactivated");
+      } else if (resend) {
+        await api("POST", `/api/invitations/${resend.closest("tr").dataset.inviteId}/resend`, {});
+        toast("Invitation resent");
+      } else if (revoke) {
+        await api("DELETE", `/api/invitations/${revoke.closest("tr").dataset.inviteId}`);
+        toast("Invitation revoked");
+      }
       await renderStaff(main);
-    } catch (err) { oops(err); }
+    } catch (err) { oops(err); button.disabled = false; }
+  });
+  $("#invite-user", root).addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = $("button", e.target);
+    btn.disabled = true;
+    try {
+      await api("POST", "/api/invitations", { email: e.target.elements.email.value });
+      toast("Invitation sent");
+      await renderStaff(main);
+    } catch (err) { oops(err); btn.disabled = false; }
   });
 }
 
 /* ---------- boot ---------- */
 async function boot() {
-  try { S.me = (await api("GET", "/api/auth/me")).user; } catch { return showLogin(); }
+  unmountClerkSignIn();
+  try { S.me = (await api("GET", "/api/auth/me")).user; }
+  catch (e) { return e.status === 401 ? showLogin() : showAccessError(e.message); }
   try {
     S.config = await api("GET", "/api/config");
     await reloadPlayers();
@@ -1358,6 +1403,40 @@ async function boot() {
   await render();
   clearInterval(S.pollTimer);
   S.pollTimer = setInterval(poll, 15000);
+}
+
+function loadScript(src, attrs = {}) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.crossOrigin = "anonymous";
+    Object.entries(attrs).forEach(([key, value]) => script.setAttribute(key, value));
+    script.onload = resolve;
+    script.onerror = () => reject(new Error("Could not load the sign-in service"));
+    document.head.appendChild(script);
+  });
+}
+
+async function initAuth() {
+  try {
+    const res = await fetch("/api/auth/config", { credentials: "same-origin" });
+    const config = await res.json();
+    if (!config.configured || !config.publishable_key) {
+      $("#app").innerHTML = `<main class="login"><div class="login-card"><div class="brand-lg">${LOGO}<div><div class="wordmark">PINE</div></div></div><h2>Setup required</h2><p class="err">Add the Clerk publishable and secret keys before starting PINE.</p></div></main>`;
+      return;
+    }
+    const clerkDomain = atob(config.publishable_key.split("_")[2]).slice(0, -1);
+    await loadScript(`https://${clerkDomain}/npm/@clerk/ui@1/dist/ui.browser.js`);
+    await loadScript(`https://${clerkDomain}/npm/@clerk/clerk-js@6/dist/clerk.browser.js`, {
+      "data-clerk-publishable-key": config.publishable_key,
+    });
+    ClerkSDK = window.Clerk;
+    await ClerkSDK.load({ ui: { ClerkUI: window.__internal_ClerkUICtor } });
+    await boot();
+  } catch (e) {
+    $("#app").innerHTML = `<main class="login"><div class="login-card"><div class="brand-lg">${LOGO}<div><div class="wordmark">PINE</div></div></div><h2>Sign-in unavailable</h2><p class="err">${esc(e.message)}</p></div></main>`;
+  }
 }
 
 window.addEventListener("hashchange", () => { closeModal(); render().then(() => scrollTo(0, 0)); });
@@ -1384,4 +1463,4 @@ document.addEventListener("error", (e) => {
   }
 }, true);
 
-boot();
+initAuth();

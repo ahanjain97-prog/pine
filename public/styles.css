@@ -115,10 +115,12 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .gs-res a { display: flex; gap: 9px; align-items: center; padding: 7px 10px; color: var(--ink); text-decoration: none; }
 .gs-res a:hover, .gs-res a.hl { background: var(--surface-2); }
 .me { display: flex; align-items: center; gap: 7px; }
+.profile-btn { border: 0; background: transparent; color: #fff; padding: 3px 5px; border-radius: 8px; cursor: pointer; text-align: left; }
+.profile-btn:hover { background: rgba(255, 255, 255, .1); }
+.me-copy { display: flex; flex-direction: column; min-width: 0; }
 .avatar { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 12px; background: var(--pine); color: #fff; flex: none; }
 .me-name { font-weight: 600; font-size: 13px; }
-#act-as { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .22); color: #fff; font-weight: 600; padding: 5px 8px; }
-#act-as option { color: #13201A; background: #fff; }
+.me-email { color: rgba(255, 255, 255, .6); font-size: 10.5px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
 .update-pill { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 70; }
 .update-pill .btn { box-shadow: var(--shadow); }
 
@@ -269,6 +271,7 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
 .feed li { display: flex; gap: 9px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; align-items: flex-start; }
 .feed li:last-child { border-bottom: 0; }
 .feed .when { margin-left: auto; color: var(--muted); font-size: 11.5px; white-space: nowrap; padding-left: 8px; }
+.actor-email { color: var(--muted); font-size: 11px; margin-left: 5px; }
 
 /* ---------- modal ---------- */
 .modal-bg { position: fixed; inset: 0; background: rgba(8, 14, 11, .5); z-index: 100; display: grid; place-items: start center; padding: 6vh 16px 16px; overflow-y: auto; }
@@ -318,6 +321,7 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
 .login { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px;
   background: radial-gradient(1200px 600px at 50% -10%, color-mix(in srgb, var(--navy-2) 35%, transparent), transparent), var(--bg); }
 .login-card { width: min(400px, 100%); background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 28px; }
+.login-card h2 { margin-top: 22px; }
 .login-card form { display: flex; flex-direction: column; gap: 10px; margin-top: 22px; }
 .login-card input { font-size: 15px; padding: 10px 12px; }
 .login-card .btn.primary { justify-content: center; padding: 10px; font-size: 14px; }
@@ -325,6 +329,8 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
 .brand-lg svg { width: 44px; height: 44px; }
 .brand-lg .wordmark { font-size: 40px; color: var(--ink); }
 .brand-lg .tagline { color: var(--muted); max-width: none; font-size: 12.5px; }
+.login-hint { margin-top: 14px; text-align: center; }
+#clerk-sign-in { margin-top: 22px; }
 .err { color: var(--fail); font-size: 13px; margin: 10px 0 0; }
 .hint { color: var(--muted); font-size: 12.5px; margin: 0; }
 #lc { letter-spacing: .4em; font-size: 22px; text-align: center; font-variant-numeric: tabular-nums; }
