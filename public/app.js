@@ -55,6 +55,9 @@ function toDate(s) {
 }
 const fmtDate = (s) => toDate(s)?.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) || "";
 const fmtDateTime = (s) => toDate(s)?.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) || "";
+// KPI values arrive rounded to three decimals. Preserve that precision so small but real
+// pXT/score values such as 0.011 are not presented as 0.0.
+const fmtKpiNum = (x) => (x == null ? "" : (+x).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 3 }));
 function relTime(s) {
   const d = toDate(s);
   if (!d) return "";
@@ -767,7 +770,10 @@ function kpiComponent(m) {
     return `<div class="bar"><span class="bl" title="${esc(m.definition || m.label)}">${esc(m.label)} <span class="raw">${m.value == null ? "no data" : esc(String(m.value)) + " · percentile unavailable"}</span></span><span class="track"></span><span class="bv">–</span></div>`;
   }
   const label = `${m.label}${m.inverted ? " ↓" : ""}`;
-  return bar(label, Math.round(m.percentile), m.value);
+  return bar(label, Math.round(m.percentile), m.value, {
+    format: fmtKpiNum,
+    title: [label, m.meaning].filter(Boolean).join(" — "),
+  });
 }
 
 function kpiCategory(c) {
@@ -811,7 +817,7 @@ function loadKpiPanel(root, p) {
         ${!d.eligible ? `<p class="banner warn">Small sample: ${d.match_share} match shares (${d.minutes.toLocaleString()} min) at this position, below the ${d.min_share_used} required for the reference group. Percentiles are shown but are less reliable.</p>` : ""}
         ${d.missing_benchmark_competitions?.length ? `<p class="sm muted">Unavailable for this season: ${esc(d.missing_benchmark_competitions.join(", "))}.</p>` : ""}
         <ol class="kpi-list">${[...d.categories].sort((a, b) => (b.percentile ?? -1) - (a.percentile ?? -1)).map(kpiCategory).join("")}</ol>
-        <p class="sm muted" style="margin:8px 0 0">Bars show pooled percentiles, highest to lowest; expand a category for its metrics and valid peer count. Equal-weight, direction-adjusted KPI z-scores fitted only on qualified peers; each KPI belongs to one category.
+        <p class="sm muted" style="margin:8px 0 0">Bars show pooled percentiles, highest to lowest; expand a category for its metrics and valid peer count. Raw volume and threat values are Impect rates per match share; ratios and scores are shown as supplied. Equal-weight, direction-adjusted KPI z-scores fitted only on qualified peers; each KPI belongs to one category.
           A high percentile on a volume KPI means “more”, not necessarily “better”; ↓ marks KPIs where lower is favourable.
           Transfers count once in the reference, using their largest qualified league sample.
           Oldest reference fetch: ${esc(new Date(d.cohort_built_at).toLocaleString())}. Cached for up to 12 hours.</p>`;
@@ -984,8 +990,8 @@ function editNote(root, d, id) {
 }
 
 /* ---------- physical panel ---------- */
-function bar(label, pct, raw) {
-  return `<div class="bar"><span class="bl" title="${esc(label)}">${esc(label)}${raw != null ? ` <span class="raw">${fmtNum(raw)}</span>` : ""}</span>
+function bar(label, pct, raw, { format = fmtNum, title = label } = {}) {
+  return `<div class="bar"><span class="bl" title="${esc(title)}">${esc(label)}${raw != null ? ` <span class="raw">${format(raw)}</span>` : ""}</span>
     <span class="track"><span class="fill" style="width:${Math.max(2, pct)}%;--c:${band(pct)}"></span></span><span class="bv">${pct}</span></div>`;
 }
 

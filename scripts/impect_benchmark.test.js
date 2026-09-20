@@ -1,6 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { benchmark, fixedFloor, percentile, qualifiedReference } from '../src/lib/impect_benchmark.js';
+import { CATEGORIES } from '../src/lib/impect_categories.js';
+
+test('each position assigns every component to only one non-empty category', () => {
+  for (const [position, categories] of Object.entries(CATEGORIES)) {
+    assert.ok(Object.keys(categories).length > 0, `${position} has no categories`);
+    const metrics = Object.values(categories).flat();
+    assert.ok(Object.values(categories).every((components) => components.length > 0), `${position} has an empty category`);
+    assert.equal(new Set(metrics).size, metrics.length, `${position} repeats a component across categories`);
+  }
+});
 
 const cats = { Passing: ['pass', 'loss'] };
 const meta = new Map([['pass', { inverted: false }], ['loss', { inverted: true }]]);

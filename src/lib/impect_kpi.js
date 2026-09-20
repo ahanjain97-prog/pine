@@ -12,6 +12,12 @@ const BENCHMARK_LEAGUES = ["USL Championship", "MLS Next Pro", "USL League One"]
 
 const TTL_MS = 12 * 60 * 60 * 1000;
 const METRICS = new Set(ALL_METRICS);
+const DISPLAY_OVERRIDES = {
+  // Impect's API labels make these look like counts, but PXT_DRIBBLE is a goal-threat value.
+  // Calling 0.011 "Dribbles" is especially confusing once displayed beside count KPIs.
+  kpi__PXT_DRIBBLE: "Dribble goal threat (pXT)",
+  kpi__PXT_DRIBBLE_PRO: "Progressive dribble goal threat (pXT)",
+};
 
 /* ---------- metric definitions (labels, meanings, direction) ---------- */
 let defsCache = null;
@@ -28,7 +34,7 @@ async function definitions() {
     if (!METRICS.has(metric)) return;
     index.set(id, metric);
     meta.set(metric, {
-      label: d.details?.label || d.name,
+      label: DISPLAY_OVERRIDES[metric] || d.details?.label || d.name,
       definition: d.details?.definition || null,
       meaning: d.details?.meaning || null,
       inverted: Boolean(d.inverted),
