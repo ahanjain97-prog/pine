@@ -311,10 +311,11 @@ function posBox(pos) {
   const total = new Set(pos.roles.flatMap(([c]) => playersInRole(c).map((p) => p.id))).size;
   return `<section class="pos" style="grid-area:${pos.area}">
     <header class="pos-h"><span class="pos-code">${pos.code}</span><span class="pos-label">${esc(pos.label)}</span><span class="pos-n">${total}</span></header>
-    <div class="lanes">${pos.roles.map(([code, label], i) => {
+    <div class="lanes">${pos.roles.map(([code, label]) => {
       const list = playersInRole(code);
+      const num = roleInfo(code).num;
       return `<div class="lane">
-        <div class="lane-h"><span class="lane-t" title="${esc(pos.code)} #${i + 1}: ${esc(label)}"><b>#${i + 1}</b>${esc(label)}</span><span class="lane-n">${list.length}</span>
+        <div class="lane-h"><span class="lane-t" title="${esc(pos.code)} #${num}: ${esc(label)}"><b>#${num}</b>${esc(label)}</span><span class="lane-n">${list.length}</span>
           <button type="button" class="icon-btn" data-add-role="${code}" title="Add a player to ${esc(label)}" aria-label="Add a player to ${esc(pos.code)} ${esc(label)}">+</button></div>
         <div class="lane-body" data-role="${code}">${list.map((p) => boardCard(p, code)).join("") || `<div class="lane-empty">Drop players here</div>`}</div>
       </div>`;

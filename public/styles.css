@@ -141,7 +141,8 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .pitch { position: relative; min-width: 1120px; border-radius: 16px; padding: 22px;
   background: repeating-linear-gradient(180deg, var(--pitch-a) 0 70px, var(--pitch-b) 70px 140px);
   display: grid; gap: 14px; align-items: start;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  /* Outer columns hold the wingers and full-backs, so they get extra width. */
+  grid-template-columns: minmax(0, 1.3fr) repeat(4, minmax(0, 1fr)) minmax(0, 1.3fr);
   grid-template-areas:
     ".   fwd fwd fwd fwd ."
     "lw  am  am  am  am  rw"
