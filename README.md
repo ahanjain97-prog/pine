@@ -54,6 +54,7 @@ Run `npm test` for benchmark and mocked-API regression tests, and `npm run check
 | `PINE_SITE_PASSWORD` | One shared password in front of the whole site (browser prompt; username can be anything, e.g. `pine`). Redundant once everyone has their own sign-in; delete it then. |
 | `PINE_ADMIN_EMAIL` | Email for the seeded admin account, used only when the database is first created. |
 | `PINE_AUTH=off` | No sign-in; pick who you are from the name menu in the top bar. For local development. Delete it to require sign-in. |
+| `PINE_BACKUP_TOKEN` | Key that `scripts/pull-backup.sh` downloads snapshots with (set the same value on the deployment and in the Mac's `.env`). It opens `/api/backup` only. |
 | `APP_URL` | Public URL once hosted. Sign-in links use it, and `https://…` makes the sign-in cookie secure-only. |
 | `PORT` | Default 8787 |
 | `PINE_DB` | SQLite file, default `data/pine.db` |
@@ -107,7 +108,8 @@ data/pine.db                   The local database (never committed)
 
 ## Hosting (Railway, live)
 
-Deployed on Railway behind `PINE_SITE_PASSWORD`, with sign-in off (`PINE_AUTH=off`). The live address is kept out of this repo.
+Deployed on Railway with sign-in on (email + password, set up through links from the Staff page) and no shared site
+password. The live address is kept out of this repo.
 
 - Railway project `pine`, service `pine`, environment `production`. This folder is linked, so the Railway CLI works from `~/pine`.
 - The database lives on the `pine-volume` disk mounted at `/app/data` (500 MB). Deploys never touch it.

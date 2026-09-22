@@ -195,10 +195,21 @@ function actingUser(c) {
 }
 const resolveUser = (c) => (AUTH_OFF ? actingUser(c) : currentUser(db, c));
 
+// scripts/pull-backup.sh fetches snapshots with PINE_BACKUP_TOKEN (sent as X-PINE-Backup-Token)
+// instead of a staff sign-in. It opens /api/backup and nothing else.
+const BACKUP_TOKEN = process.env.PINE_BACKUP_TOKEN || "";
+function backupTokenOk(c) {
+  const got = c.req.header("X-PINE-Backup-Token");
+  if (!BACKUP_TOKEN || !got) return false;
+  const digest = (s) => createHash("sha256").update(s).digest();
+  return timingSafeEqual(digest(got), digest(BACKUP_TOKEN));
+}
+
 // Auth gate + CSRF header for writes.
 app.use("/api/*", async (c, next) => {
   if (c.req.method !== "GET" && c.req.header("X-PINE") !== "1") return c.json({ error: "Bad request" }, 400);
   if (c.req.path.startsWith("/api/auth/")) return next();
+  if (c.req.method === "GET" && c.req.path === "/api/backup" && backupTokenOk(c)) { c.set("user", null); return next(); }
   const user = resolveUser(c);
   if (!user) return c.json({ error: "Not signed in" }, 401);
   c.set("user", user);
@@ -514,7 +525,8 @@ app.put("/api/players/:id/impect", async (c) => {
 app.get("/api/backups", (c) => c.json({ snapshots: listSnapshots(BACKUP_DIR), dir: BACKUP_DIR }));
 app.get("/api/backup", (c) => {
   const buf = snapshotBuffer(db, BACKUP_DIR);
-  logActivity(db, c.get("user").id, null, "downloaded_backup", { bytes: buf.length });
+  const user = c.get("user");
+  logActivity(db, user?.id, null, "downloaded_backup", { bytes: buf.length, ...(user ? {} : { via: "backup script" }) });
   return new Response(buf, {
     headers: {
       "Content-Type": "application/x-sqlite3",
