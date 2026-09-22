@@ -22,6 +22,7 @@ import {
 import { playerKpiCard } from "./lib/impect_kpi.js";
 import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
+import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 if (existsSync(join(ROOT, ".env"))) process.loadEnvFile(join(ROOT, ".env"));
@@ -199,6 +200,9 @@ async function applyTmProfile(playerId, tm, userId, via, acceptFields = []) {
 }
 
 const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => obj[k] !== undefined).map((k) => [k, obj[k]]));
+// Public base URL for links we hand out (sign-in links, share links). APP_URL wins so links
+// minted behind a proxy still point at the real host.
+const siteOrigin = (c) => String(process.env.APP_URL || new URL(c.req.url).origin).replace(/\/+$/, "");
 
 const app = new Hono();
 
@@ -688,7 +692,7 @@ app.post("/api/users/:id/setup-link", (c) => {
   const target = db.get("SELECT id, name, email FROM users WHERE id = ?", Number(c.req.param("id"))) || fail(404, "User not found");
   if (!target.email) fail(400, `Add an email for ${target.name} first; they sign in with it`);
   const { token, expires_at } = createSetupLink(db, target.id);
-  const origin = String(process.env.APP_URL || new URL(c.req.url).origin).replace(/\/+$/, "");
+  const origin = siteOrigin(c);
   logActivity(db, user.id, null, "created_signin_link", { name: target.name });
   return c.json({ url: `${origin}/#/welcome/${token}`, expires_at, name: target.name, email: target.email, site: origin });
 });
@@ -747,8 +751,23 @@ app.use("/*", async (c, next) => {
   headers.set("Cache-Control", c.req.query("v") === undefined ? "no-cache" : "public, max-age=31536000, immutable");
   c.res = new Response(c.res.body, { status: c.res.status, headers });
 });
-app.get("/", (c) => c.html(INDEX_HTML));
-app.get("/index.html", (c) => c.html(INDEX_HTML));
+const page = (c, preview, extraHead = "") => c.html(INDEX_HTML.replace("<!--og-->", `${ogTags(preview)}${extraHead}`));
+
+app.get("/", (c) => page(c, sitePreview(siteOrigin(c))));
+app.get("/index.html", (c) => page(c, sitePreview(siteOrigin(c))));
+// The shareable form of a player link: fills in that player's preview tags, then swaps the URL
+// back to the hash route so the app boots straight onto the profile. See src/lib/share.js.
+app.get("/p/:id", (c) => {
+  const id = Number(c.req.param("id"));
+  const row = Number.isInteger(id) && id > 0
+    ? db.get("SELECT id, name, birthdate, position, club, league, photo_url FROM players WHERE id = ?", id)
+    : null;
+  const origin = siteOrigin(c);
+  // An unknown id still hands off to the app, which shows its own "Player not found" once signed in.
+  const target = Number.isInteger(id) && id > 0 ? `/#/player/${id}` : "/#/board";
+  const hop = `<script>history.replaceState(null, "", ${JSON.stringify(target)});</script>`;
+  return page(c, row ? playerPreview({ ...row, age: ageFrom(row.birthdate) }, origin) : sitePreview(origin), hop);
+});
 app.use("/*", serveStatic({ root: relative(process.cwd(), PUBLIC_DIR) || "." }));
 
 const port = Number(process.env.PORT) || 8787;
