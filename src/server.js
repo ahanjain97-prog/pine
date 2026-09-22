@@ -122,6 +122,15 @@ function moveOnBoard(playerId, fromRole, toRole, index) {
     db.run("DELETE FROM board_entries WHERE role = ?", toRole);
     ids.forEach((pid, i) => db.run("INSERT INTO board_entries(player_id, role, rank) VALUES (?,?,?)", pid, toRole, i));
   });
+  return spotIn(playerId, toRole);
+}
+
+// 0-based position of a player within a role (ranks can have gaps), or null if they aren't in it.
+function spotIn(playerId, role) {
+  const r = db.get(
+    "SELECT (SELECT count(*) FROM board_entries o WHERE o.role = b.role AND o.rank < b.rank) AS spot FROM board_entries b WHERE b.player_id = ? AND b.role = ?",
+    playerId, role);
+  return r ? r.spot : null;
 }
 
 function compactRanks(role) {
@@ -456,9 +465,13 @@ app.post("/api/board/move", async (c) => {
   const user = c.get("user");
   const { player_id, from_role, to_role, index } = await c.req.json();
   const p = getPlayer(player_id);
-  moveOnBoard(p.id, from_role || null, to_role, index);
+  const fromSpot = from_role ? spotIn(p.id, from_role) : null;
+  const spot = moveOnBoard(p.id, from_role || null, to_role, index);
   if (from_role && from_role !== to_role) compactRanks(from_role);
-  logActivity(db, user.id, p.id, "moved_on_board", { from: from_role || null, to: to_role, index });
+  // Dropping a card back where it was changes nothing, so it isn't logged.
+  if (from_role !== to_role || fromSpot !== spot) {
+    logActivity(db, user.id, p.id, "moved_on_board", { from: from_role || null, to: to_role, spot, from_spot: fromSpot });
+  }
   return c.json({ ok: true });
 });
 app.post("/api/players/:id/roles", async (c) => {

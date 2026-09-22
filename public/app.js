@@ -786,7 +786,7 @@ async function renderPlayer(main, idArg) {
         <section class="panel" id="phys-panel"><header class="panel-h"><h2>Physical data</h2></header><div class="loading sm">Loading…</div></section>
         <section class="panel" id="impect-panel"><header class="panel-h"><h2>Impect</h2></header><div class="loading sm">Loading…</div></section>
         ${d.lists.length ? `<section class="panel"><header class="panel-h"><h2>Lists</h2></header><div class="row">${d.lists.map((l) => `<span class="chip">${esc(l.name)}</span>`).join("")}</div></section>` : ""}
-        <section class="panel"><header class="panel-h"><h2>History</h2></header><ul class="feed">${d.activity.map((a) => `<li><span><b>${esc(a.user || "Someone")}</b> ${describe(a, true)}</span><span class="when" title="${esc(fmtDateTime(a.created_at))}">${esc(relTime(a.created_at))}</span></li>`).join("") || `<li class="empty">No history yet.</li>`}</ul></section>
+        <section class="panel"><header class="panel-h"><h2>History</h2></header><ul class="feed">${d.activity.map((a) => `<li><span><b>${esc(actor(a))}</b> ${describe(a, true)}</span><span class="when" title="${esc(fmtDateTime(a.created_at))}">${esc(relTime(a.created_at))}</span></li>`).join("") || `<li class="empty">No history yet.</li>`}</ul></section>
       </div>
     </div>
   </div>`;
@@ -1318,6 +1318,9 @@ async function loadTmMatch(root) {
 }
 
 /* ---------- activity + staff ---------- */
+// Who did it. The backup script downloads with its own key, not as a staff member.
+const actor = (a) => a.user || (a.action === "downloaded_backup" && /backup script/.test(a.detail || "") ? "Backup script" : "Someone");
+
 function describe(a, onPlayerPage = false) {
   let d = {};
   try { d = a.detail ? JSON.parse(a.detail) : {}; } catch {}
@@ -1330,7 +1333,15 @@ function describe(a, onPlayerPage = false) {
     case "added_note": return `added a note on ${who}`;
     case "edited_note": return `edited a note on ${who}`;
     case "deleted_note": return `deleted a note on ${who}`;
-    case "moved_on_board": return `moved ${who} to ${esc(roleLabel(d.to))}${d.from && d.from !== d.to ? ` from ${esc(roleShort(d.from))}` : ""}`;
+    case "moved_on_board": {
+      // Older entries only have the requested index; newer ones record the spot before and after (0-based).
+      const spot = d.spot ?? d.index;
+      const role = esc(roleLabel(d.to));
+      if (d.from === d.to && d.from_spot != null && spot != null) {
+        return `moved ${who} ${spot < d.from_spot ? "up" : "down"} from spot ${d.from_spot + 1} to spot ${spot + 1} in ${role}`;
+      }
+      return `moved ${who} to ${spot != null ? `spot ${spot + 1} in ` : ""}${role}${d.from && d.from !== d.to ? ` from ${esc(roleShort(d.from))}` : ""}`;
+    }
     case "added_role": return `added ${who} to ${esc(roleLabel(d.role))}`;
     case "removed_role": return `removed ${who} from ${esc(roleLabel(d.role))}`;
     case "synced_tm": return `synced ${who} from Transfermarkt`;
@@ -1340,6 +1351,7 @@ function describe(a, onPlayerPage = false) {
     case "edited_player": return `edited details for ${who}`;
     case "deleted_player": return `deleted ${esc(d.name || "a player")}`;
     case "imported_list": return `imported the Impect list “${esc(d.name)}” (${d.created ?? 0} new)`;
+    case "downloaded_backup": return d.via ? "saved its daily copy of the database" : "downloaded a copy of the database";
     case "edited_staff": return `updated staff member ${esc(d.name)}`;
     case "added_staff": return `added staff member ${esc(d.name)}`;
     case "created_signin_link": return `created a sign-in link for ${esc(d.name)}`;
@@ -1352,7 +1364,7 @@ async function renderActivity(main) {
   main.innerHTML = `<div class="page" style="max-width:900px"><div class="page-h"><h1>Activity</h1></div><section class="panel"><ul class="feed" id="feed"><li class="loading">Loading…</li></ul></section></div>`;
   try {
     const { activity } = await api("GET", "/api/activity?limit=250");
-    $("#feed").innerHTML = activity.map((a) => `<li><span class="avatar">${esc((a.user || "?")[0])}</span><span><b>${esc(a.user || "Someone")}</b> ${describe(a)}</span><span class="when" title="${esc(fmtDateTime(a.created_at))}">${esc(relTime(a.created_at))}</span></li>`).join("") || `<li class="empty">Nothing yet.</li>`;
+    $("#feed").innerHTML = activity.map((a) => `<li><span class="avatar">${esc(actor(a)[0])}</span><span><b>${esc(actor(a))}</b> ${describe(a)}</span><span class="when" title="${esc(fmtDateTime(a.created_at))}">${esc(relTime(a.created_at))}</span></li>`).join("") || `<li class="empty">Nothing yet.</li>`;
   } catch (e) { $("#feed").innerHTML = `<li class="empty">${esc(e.message)}</li>`; }
 }
 
