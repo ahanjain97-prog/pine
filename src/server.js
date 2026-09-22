@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, relative } from "node:path";
 
 import { openDb, logActivity } from "./db.js";
-import { requestCode, verifyCode, logout, currentUser } from "./auth.js";
+import { checkPassword, createSetupLink, setupLinkUser, useSetupLink, startSession, logout, currentUser } from "./auth.js";
 import { POSITIONS, ROLES, DECISIONS, SPLIT_ROLES, IMPECT_POSITION_LABEL, suggestPosition, suggestListRole, resolveRole } from "./roles.js";
 import { fetchTmPlayer, parseTmUrl, searchTmPlayers } from "./lib/transfermarkt.js";
 import { loadPhysical, matchPhysical, searchPhysical, rowsByKeys, teamOverlap, meta as physMeta } from "./lib/physical.js";
@@ -206,15 +206,26 @@ app.use("/api/*", async (c, next) => {
 });
 
 /* ---------- auth ---------- */
-app.post("/api/auth/request", async (c) => {
-  const { email } = await c.req.json();
-  return c.json(await requestCode(db, email));
-});
-app.post("/api/auth/verify", async (c) => {
-  const { email, code } = await c.req.json();
-  const user = verifyCode(db, c, email, code);
-  if (!user) return c.json({ error: "That code is wrong or expired" }, 401);
+app.post("/api/auth/login", async (c) => {
+  const { email, password } = await c.req.json();
+  const { user, error } = checkPassword(db, email, password);
+  if (!user) return c.json({ error }, 401);
+  startSession(db, c, user);
   logActivity(db, user.id, null, "signed_in");
+  return c.json({ ok: true, user: { id: user.id, name: user.name } });
+});
+// Setup links (made by an admin on the Staff page): look one up, then use it to choose a password.
+app.get("/api/auth/setup/:token", (c) => {
+  const user = setupLinkUser(db, c.req.param("token"));
+  if (!user) return c.json({ error: "This link has expired or was already used. Ask an admin for a new one." }, 404);
+  return c.json({ user: { name: user.name, email: user.email } });
+});
+app.post("/api/auth/setup", async (c) => {
+  const { token, password } = await c.req.json();
+  const { user, error } = useSetupLink(db, token, password);
+  if (!user) return c.json({ error }, 400);
+  startSession(db, c, user);
+  logActivity(db, user.id, null, "set_password");
   return c.json({ ok: true, user: { id: user.id, name: user.name } });
 });
 app.post("/api/auth/logout", (c) => { logout(db, c); return c.json({ ok: true }); });
@@ -610,8 +621,22 @@ app.get("/api/players/:id/impect-candidates", async (c) => {
 /* ---------- staff + activity ---------- */
 app.get("/api/users", (c) => {
   const user = c.get("user");
-  const cols = user.is_admin ? "id, name, email, is_admin" : "id, name, is_admin";
+  const cols = user.is_admin
+    ? `id, name, email, is_admin, password_hash IS NOT NULL AS has_password,
+       (SELECT max(expires_at) FROM setup_links l WHERE l.user_id = users.id AND l.expires_at > ${Date.now()}) AS link_expires_at`
+    : "id, name, is_admin";
   return c.json({ users: db.all(`SELECT ${cols} FROM users ORDER BY sort, id`) });
+});
+// A one-time link that lets this person choose a password (or reset a forgotten one). Admin sends it themselves.
+app.post("/api/users/:id/setup-link", (c) => {
+  const user = c.get("user");
+  if (!user.is_admin) fail(403, "Only admins can create sign-in links");
+  const target = db.get("SELECT id, name, email FROM users WHERE id = ?", Number(c.req.param("id"))) || fail(404, "User not found");
+  if (!target.email) fail(400, `Add an email for ${target.name} first; they sign in with it`);
+  const { token, expires_at } = createSetupLink(db, target.id);
+  const origin = String(process.env.APP_URL || new URL(c.req.url).origin).replace(/\/+$/, "");
+  logActivity(db, user.id, null, "created_signin_link", { name: target.name });
+  return c.json({ url: `${origin}/#/welcome/${token}`, expires_at });
 });
 app.patch("/api/users/:id", async (c) => {
   const user = c.get("user");

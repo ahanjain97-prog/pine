@@ -11,11 +11,10 @@ CREATE TABLE IF NOT EXISTS users(
   sort INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE TABLE IF NOT EXISTS login_codes(
-  email TEXT PRIMARY KEY COLLATE NOCASE,
-  code_hash TEXT NOT NULL,
-  expires_at INTEGER NOT NULL,
-  attempts INTEGER NOT NULL DEFAULT 0
+CREATE TABLE IF NOT EXISTS setup_links(
+  token_hash TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sessions(
   token_hash TEXT PRIMARY KEY,
@@ -106,6 +105,10 @@ export function openDb(file) {
   const raw = new DatabaseSync(file);
   raw.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
   raw.exec(SCHEMA);
+  // Columns added after the first release.
+  const userCols = raw.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  if (!userCols.includes("password_hash")) raw.exec("ALTER TABLE users ADD COLUMN password_hash TEXT");
+  raw.exec("DROP TABLE IF EXISTS login_codes"); // old email-code sign-in
   const db = {
     raw,
     all: (sql, ...p) => raw.prepare(sql).all(...p),

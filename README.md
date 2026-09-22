@@ -18,9 +18,13 @@ npm start              # http://localhost:8787
 
 Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-With `PINE_AUTH=off` (the current setting) there is no sign-in: pick who you are from the name menu in the
-top bar. With sign-in enabled instead, each person enters their staff email and a 6-digit code, which is
-printed in the terminal running PINE until email delivery is configured.
+Sign-in is email + password. Nobody signs up: an admin opens **Staff**, clicks **Copy sign-in link** next to a
+person and sends it to them (text, WhatsApp, email). The link opens a page where they choose a password; after
+that they sign in with their email and that password and stay signed in for 180 days on that device. A link works
+once and expires after 7 days; a forgotten password is fixed the same way, with a new link. Any signed-in staff
+member can edit the big board, add players and write in their own evaluation section; admins can also delete
+players and manage the staff list. With `PINE_AUTH=off` (local development) there is no sign-in: pick who you
+are from the name menu in the top bar.
 
 ## KPI benchmarks
 
@@ -47,12 +51,10 @@ Run `npm test` for benchmark and mocked-API regression tests, and `npm run check
 | Variable | Purpose |
 |---|---|
 | `IMPECT_USERNAME`, `IMPECT_PASSWORD` | Impect account used for the Customer API and Scouting short lists |
-| `PINE_SITE_PASSWORD` | One shared password in front of the whole site (browser prompt; username can be anything, e.g. `pine`). Delete the line to remove it. |
+| `PINE_SITE_PASSWORD` | One shared password in front of the whole site (browser prompt; username can be anything, e.g. `pine`). Redundant once everyone has their own sign-in; delete it then. |
 | `PINE_ADMIN_EMAIL` | Email for the seeded admin account, used only when the database is first created. |
-| `PINE_AUTH=off` | Currently on: no sign-in; pick who you are from the name menu in the top bar. Delete this line to require email sign-in again. |
-| `PINE_DEV_SHOW_CODE=1` | Local only: returns the sign-in code to the browser. **Remove before hosting.** |
-| `RESEND_API_KEY`, `MAIL_FROM` | Email sign-in codes via [Resend](https://resend.com) instead of printing them |
-| `APP_URL` | Public URL once hosted (`https://…` turns on secure cookies) |
+| `PINE_AUTH=off` | No sign-in; pick who you are from the name menu in the top bar. For local development. Delete it to require sign-in. |
+| `APP_URL` | Public URL once hosted. Sign-in links use it, and `https://…` makes the sign-in cookie secure-only. |
 | `PORT` | Default 8787 |
 | `PINE_DB` | SQLite file, default `data/pine.db` |
 | `PHYS_DATA_URL` | Physical data JSON, default the player-physical-data site |
@@ -87,7 +89,7 @@ Run `npm test` for benchmark and mocked-API regression tests, and `npm run check
 ```
 src/server.js                  Hono app, all /api routes, serves public/
 src/db.js                      SQLite schema, staff seed, activity log
-src/auth.js                    Email one-time codes + session cookies
+src/auth.js                    Password sign-in, one-time setup links, session cookies
 src/roles.js                   Positions/roles, Impect list-name -> role hints
 src/lib/transfermarkt.js       Profile + search scraping
 src/lib/tm_match.js            Bulk Transfermarkt matching (confirms by date of birth)

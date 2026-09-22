@@ -158,54 +158,75 @@ async function poll() {
 }
 
 /* ---------- login ---------- */
-function showLogin(msg) {
+function loginCard(inner) {
   S.me = null;
   clearInterval(S.pollTimer);
   closeModal();
   $("#app").innerHTML = `<main class="login"><div class="login-card">
     <div class="brand-lg">${LOGO}<div><div class="wordmark">PINE</div><div class="tagline">Player Identification Network Evaluation</div></div></div>
-    <form id="login-email">
-      <label class="lbl" for="le">Staff email</label>
-      <input id="le" type="email" required autocomplete="email" placeholder="you@example.com">
-      <button class="btn primary" type="submit">Send sign-in code</button>
-    </form>
-    <form id="login-code" hidden>
-      <p class="hint">If <b id="lc-email"></b> is on the PINE staff list, a 6-digit code is on its way. <span id="lc-hint"></span></p>
-      <label class="lbl" for="lc">Code</label>
-      <input id="lc" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
-      <button class="btn primary" type="submit">Sign in</button>
-      <button class="btn link" type="button" id="lc-back">Use a different email</button>
-    </form>
+    ${inner}
     <p class="err" id="login-err" hidden></p>
   </div></main>`;
-  const ef = $("#login-email"), cf = $("#login-code"), err = $("#login-err");
-  const showErr = (m) => { err.textContent = m; err.hidden = false; };
-  let email = "";
-  ef.addEventListener("submit", async (e) => {
+  const err = $("#login-err");
+  return (m) => { err.textContent = m; err.hidden = !m; };
+}
+
+function showLogin(msg) {
+  const showErr = loginCard(`<form id="login">
+      <label class="lbl" for="le">Staff email</label>
+      <input id="le" type="email" required autocomplete="username" placeholder="you@example.com">
+      <label class="lbl" for="lp">Password</label>
+      <input id="lp" type="password" required autocomplete="current-password">
+      <button class="btn primary" type="submit">Sign in</button>
+      <p class="hint">First time, or forgot your password? Ask an admin for your sign-in link.</p>
+    </form>`);
+  $("#login").addEventListener("submit", async (e) => {
     e.preventDefault();
-    err.hidden = true;
-    email = $("#le").value.trim();
-    const btn = $("button", ef);
+    showErr("");
+    const btn = $("button", e.target);
     btn.disabled = true;
-    try {
-      const r = await api("POST", "/api/auth/request", { email });
-      ef.hidden = true;
-      cf.hidden = false;
-      $("#lc-email").textContent = email;
-      $("#lc-hint").textContent = r.delivery === "email" ? "Check your inbox." : "Email delivery isn't set up yet, so the code is printed in the terminal running PINE.";
-      if (r.dev_code) { $("#lc").value = r.dev_code; $("#lc-hint").textContent = "Local dev mode: the code has been filled in for you."; }
-      $("#lc").focus();
-    } catch (e2) { showErr(e2.message); } finally { btn.disabled = false; }
+    try { await api("POST", "/api/auth/login", { email: $("#le").value.trim(), password: $("#lp").value }); boot(); }
+    catch (e2) { showErr(e2.message); btn.disabled = false; }
   });
-  cf.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    err.hidden = true;
-    try { await api("POST", "/api/auth/verify", { email, code: $("#lc").value }); boot(); } catch (e2) { showErr(e2.message); }
-  });
-  $("#lc-back").addEventListener("click", () => { cf.hidden = true; ef.hidden = false; err.hidden = true; });
   if (msg) showErr(msg);
   $("#le").focus();
 }
+
+// #/welcome/<token>: the one-time link an admin sends. Choose a password, then you're signed in.
+async function showWelcome(token) {
+  let user;
+  try { ({ user } = await api("GET", `/api/auth/setup/${encodeURIComponent(token)}`)); }
+  catch (e) {
+    const showErr = loginCard(`<p class="hint">Already set a password? <a href="#/board" id="to-login">Sign in</a>.</p>`);
+    showErr(e.message);
+    $("#to-login").addEventListener("click", (ev) => { ev.preventDefault(); location.hash = "#/board"; boot(); });
+    return;
+  }
+  const showErr = loginCard(`<form id="welcome">
+      <p class="hint">Welcome, <b>${esc(user.name)}</b>. Choose a password; from now on you sign in with your email and this password.</p>
+      <label class="lbl" for="we">Email</label>
+      <input id="we" type="email" autocomplete="username" value="${esc(user.email)}" readonly>
+      <label class="lbl" for="wp">New password (at least 8 characters)</label>
+      <input id="wp" type="password" required minlength="8" autocomplete="new-password">
+      <label class="lbl" for="wp2">Type it again</label>
+      <input id="wp2" type="password" required minlength="8" autocomplete="new-password">
+      <button class="btn primary" type="submit">Set password and sign in</button>
+    </form>`);
+  $("#welcome").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if ($("#wp").value !== $("#wp2").value) return showErr("The two passwords don't match.");
+    showErr("");
+    const btn = $("button", e.target);
+    btn.disabled = true;
+    try {
+      await api("POST", "/api/auth/setup", { token, password: $("#wp").value });
+      history.replaceState(null, "", "#/board");
+      boot();
+    } catch (e2) { showErr(e2.message); btn.disabled = false; }
+  });
+  $("#wp").focus();
+}
+const welcomeToken = () => (location.hash.match(/^#\/welcome\/([\w-]+)/) || [])[1];
 
 /* ---------- shell + routing ---------- */
 function renderShell() {
@@ -1309,6 +1330,8 @@ function describe(a, onPlayerPage = false) {
     case "imported_list": return `imported the Impect list “${esc(d.name)}” (${d.created ?? 0} new)`;
     case "edited_staff": return `updated staff member ${esc(d.name)}`;
     case "added_staff": return `added staff member ${esc(d.name)}`;
+    case "created_signin_link": return `created a sign-in link for ${esc(d.name)}`;
+    case "set_password": return "set their PINE password";
     default: return esc(String(a.action).replace(/_/g, " "));
   }
 }
@@ -1321,17 +1344,28 @@ async function renderActivity(main) {
   } catch (e) { $("#feed").innerHTML = `<li class="empty">${esc(e.message)}</li>`; }
 }
 
+function signInStatus(u) {
+  if (u.has_password) return `<span class="dchip v-pass">Password set</span>`;
+  if (u.link_expires_at) return `<span class="dchip v-hold" title="Expires ${esc(fmtDate(new Date(u.link_expires_at).toISOString()))}">Link sent, not used yet</span>`;
+  return `<span class="chip">Not set up</span>`;
+}
+
 async function renderStaff(main) {
   if (!S.me.is_admin) { location.hash = "#/board"; return; }
   const { users } = await api("GET", "/api/users");
-  main.innerHTML = `<div class="page" style="max-width:900px">
-    <div class="page-h"><div><h1>Staff</h1><div class="sub">People sign in with the email set here. Everyone on this list gets their own evaluation section on every player.</div></div></div>
-    <div class="table-wrap"><table class="grid"><thead><tr><th>Name</th><th>Sign-in email</th><th>Admin</th><th></th></tr></thead><tbody>
+  main.innerHTML = `<div class="page" style="max-width:1000px">
+    <div class="page-h"><div><h1>Staff</h1><div class="sub">Everyone on this list gets their own evaluation section on every player. To let someone sign in, or to reset a forgotten password,
+      click <b>Copy sign-in link</b> and send it to them (text, WhatsApp, email). They open it, choose a password, and from then on sign in with their email and that password.
+      A link works once and expires after 7 days.</div></div></div>
+    <div class="table-wrap"><table class="grid"><thead><tr><th>Name</th><th>Sign-in email</th><th>Sign-in</th><th>Admin</th><th></th></tr></thead><tbody>
       ${users.map((u) => `<tr data-uid="${u.id}" style="cursor:default"><td><b>${esc(u.name)}</b></td>
-        <td><input type="email" value="${esc(u.email || "")}" placeholder="Add an email to let ${esc(u.name)} sign in" style="width:300px" aria-label="${esc(u.name)} email"></td>
+        <td><input type="email" value="${esc(u.email || "")}" placeholder="Add an email to let ${esc(u.name)} sign in" style="width:260px" aria-label="${esc(u.name)} email"></td>
+        <td>${signInStatus(u)}</td>
         <td><input type="checkbox" ${u.is_admin ? "checked" : ""} ${u.id === S.me.id ? "disabled" : ""} aria-label="${esc(u.name)} is admin"></td>
-        <td><button type="button" class="btn sm" data-save-user>Save</button></td></tr>`).join("")}
+        <td class="staff-actions"><button type="button" class="btn sm" data-save-user>Save</button>
+          <button type="button" class="btn sm primary" data-link-user>${u.has_password ? "New sign-in link" : "Copy sign-in link"}</button></td></tr>`).join("")}
     </tbody></table></div>
+    <p class="hint" id="link-out" hidden></p>
     <section class="panel" style="margin-top:14px"><header class="panel-h"><h2>Add a staff member</h2></header>
       <form id="add-user" class="row"><input name="name" placeholder="Name" required aria-label="Name"><input name="email" type="email" placeholder="Email" aria-label="Email"><button class="btn primary" type="submit">Add</button></form></section>
     <section class="panel" style="margin-top:14px" id="bk-panel">
@@ -1343,12 +1377,26 @@ async function renderStaff(main) {
   const root = main.firstElementChild;
   loadBackups(root);
   root.addEventListener("click", async (e) => {
-    const b = e.target.closest("[data-save-user]");
-    if (!b) return;
-    const tr = b.closest("tr");
+    const save = e.target.closest("[data-save-user]");
+    const link = e.target.closest("[data-link-user]");
+    if (!save && !link) return;
+    const tr = e.target.closest("tr");
+    const name = $("td b", tr).textContent;
     try {
-      await api("PATCH", `/api/users/${tr.dataset.uid}`, { email: $("input[type=email]", tr).value, is_admin: $("input[type=checkbox]", tr).checked });
-      toast("Staff member saved");
+      if (save) {
+        await api("PATCH", `/api/users/${tr.dataset.uid}`, { email: $("input[type=email]", tr).value, is_admin: $("input[type=checkbox]", tr).checked });
+        toast("Staff member saved");
+        return;
+      }
+      const { url } = await api("POST", `/api/users/${tr.dataset.uid}/setup-link`);
+      let copied = false;
+      try { await navigator.clipboard.writeText(url); copied = true; } catch {}
+      const out = $("#link-out", root);
+      out.hidden = false;
+      out.innerHTML = `Sign-in link for <b>${esc(name)}</b>${copied ? " (copied)" : ""}: <input readonly value="${esc(url)}" style="width:100%;margin-top:4px" aria-label="Sign-in link for ${esc(name)}"> Send it to them; it works once and expires in 7 days.`;
+      if (!copied) $("input", out).select();
+      toast(copied ? `Link for ${name} copied. Send it to them.` : `Link for ${name} is below. Copy it and send it to them.`);
+      $("td:nth-child(3)", tr).innerHTML = signInStatus({ link_expires_at: Date.now() + 7 * 864e5 });
     } catch (err) { oops(err); }
   });
   $("#add-user", root).addEventListener("submit", async (e) => {
@@ -1364,7 +1412,9 @@ async function renderStaff(main) {
 
 /* ---------- boot ---------- */
 async function boot() {
+  if (welcomeToken()) return showWelcome(welcomeToken());
   try { S.me = (await api("GET", "/api/auth/me")).user; } catch { return showLogin(); }
+  if (!S.me) return showLogin();
   try {
     S.config = await api("GET", "/api/config");
     await reloadPlayers();
@@ -1379,7 +1429,11 @@ async function boot() {
   S.pollTimer = setInterval(poll, 15000);
 }
 
-window.addEventListener("hashchange", () => { closeModal(); render().then(() => scrollTo(0, 0)); });
+window.addEventListener("hashchange", () => {
+  if (welcomeToken()) return showWelcome(welcomeToken());
+  closeModal();
+  render().then(() => scrollTo(0, 0));
+});
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && $("#modal")) closeModal();
   if (e.key === "/" && S.me && !e.target.matches("input, textarea, select") && !$("#modal")) { e.preventDefault(); $("#gs")?.focus(); }
