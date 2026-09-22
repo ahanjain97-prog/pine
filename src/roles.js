@@ -1,9 +1,11 @@
 // Board positions and roles (from the Hearts of Pine depth-chart graphic).
 // `area` is the CSS grid area the position box occupies on the pitch board.
+// Role codes are stored in board_entries and their number is the displayed #, so removing a role
+// (AM2) leaves every other role's code and number unchanged.
 export const POSITIONS = [
   { code: "FWD", label: "Forward", area: "fwd", roles: [["FWD1", "Complete"], ["FWD2", "Target"], ["FWD3", "FWD/Winger Aux"]] },
   { code: "LW", label: "Left Wing", area: "lw", roles: [["LW1", "High & Wide Winger"], ["LW2", "Inverted Winger"]] },
-  { code: "AM", label: "Attacking Mid", area: "am", roles: [["AM1", "Between Lines #10"], ["AM2", "Ball-Playing CM/#10"], ["AM3", "Second Striker"]] },
+  { code: "AM", label: "Attacking Mid", area: "am", roles: [["AM1", "Between Lines #10"], ["AM3", "Second Striker"]] },
   { code: "RW", label: "Right Wing", area: "rw", roles: [["RW1", "High & Wide Winger"], ["RW2", "Inverted Winger"]] },
   { code: "CM", label: "Central Mid", area: "cm", roles: [["CM1", "Ball-Playing CM"], ["CM2", "Blue Collar CM"]] },
   { code: "CDM", label: "Defensive Mid", area: "cdm", roles: [["CDM1", "Single-Pivot CDM"], ["CDM2", "Aux - Young Player"]] },
@@ -15,7 +17,7 @@ export const POSITIONS = [
 ];
 
 export const ROLES = Object.fromEntries(
-  POSITIONS.flatMap((p) => p.roles.map(([code, label], i) => [code, { code, label, position: p.code, num: i + 1 }]))
+  POSITIONS.flatMap((p) => p.roles.map(([code, label]) => [code, { code, label, position: p.code, num: Number(code.match(/\d+$/)[0]) }]))
 );
 
 export const DECISIONS = ["pass", "hold", "fail"];
@@ -42,7 +44,6 @@ const LIST_ROLE_HINTS = [
   [/high (&|and) wide rw/, "RW1"],
   [/inverted rw/, "RW2"],
   [/between (the )?lines/, "AM1"],
-  [/cm\s*\/\s*#?10/, "AM2"],
   [/second striker/, "AM3"],
   [/ball[- ]playing cm/, "CM1"],
   [/blue collar/, "CM2"],
