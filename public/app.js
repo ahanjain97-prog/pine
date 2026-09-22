@@ -232,7 +232,7 @@ const welcomeToken = () => (location.hash.match(/^#\/welcome\/([\w-]+)/) || [])[
 function renderShell() {
   $("#app").innerHTML = `
   <header class="top">
-    <a class="brand" href="#/board">${LOGO}<span class="wordmark">PINE</span><span class="tagline">Player Identification Network Evaluation</span></a>
+    <a class="brand" href="#/board"><img class="club-crest" src="/hop-crest.png?v=1" alt="Portland Hearts of Pine" width="31" height="36"><span class="brand-divider" aria-hidden="true"></span>${LOGO}<span class="wordmark">PINE</span><span class="tagline">Player Identification Network Evaluation</span></a>
     <nav class="nav" id="nav">
       <a href="#/board" data-v="board">Big Board</a>
       <a href="#/players" data-v="players">Database</a>
