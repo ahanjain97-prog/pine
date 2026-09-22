@@ -344,11 +344,23 @@ function posBox(pos) {
   </section>`;
 }
 
+// Domestic = US citizen, from Transfermarkt citizenship (players not linked to Transfermarkt carry
+// Impect's German country names). People from Puerto Rico and the other territories listed are US
+// citizens. Green cards aren't on Transfermarkt, so a permanent resident still shows as international.
+const US_CITIZENSHIPS = new Set(["United States", "Vereinigte Staaten", "Puerto Rico", "US Virgin Islands",
+  "Amerikanische Jungferninseln", "Guam", "Northern Mariana Islands", "Nördliche Marianen"]);
+function rosterBadge(p) {
+  const cit = p.citizenship || [];
+  if (!cit.length) return "";
+  const dom = cit.some((c) => US_CITIZENSHIPS.has(c));
+  return `<span class="roster ${dom ? "dom" : "intl"}" title="${dom ? "Domestic" : "International"}: ${esc(cit.join(", "))}">${dom ? "DOM" : "INTL"}</span>`;
+}
+
 function boardCard(p, role) {
   const sub = [p.age, p.club].filter((x) => x != null && x !== "").join(" · ") || p.position || "";
   return `<a class="pcard ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
     ${role ? `<span class="rank">${rankIn(p, role) + 1}</span>` : ""}${photo(p)}
-    <span class="ci"><div class="nm">${esc(p.name)}</div><div class="csub">${esc(sub)}</div></span>${verdictDots(p.verdicts)}</a>`;
+    <span class="ci"><div class="nm-row"><span class="nm">${esc(p.name)}</span>${rosterBadge(p)}</div><div class="csub">${esc(sub)}</div></span>${verdictDots(p.verdicts)}</a>`;
 }
 
 function applyBoardFilter(root) {
