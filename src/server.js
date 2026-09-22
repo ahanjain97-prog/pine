@@ -13,7 +13,7 @@ import { openDb, logActivity } from "./db.js";
 import { checkPassword, createSetupLink, setupLinkUser, useSetupLink, startSession, logout, currentUser } from "./auth.js";
 import { POSITIONS, ROLES, DECISIONS, SPLIT_ROLES, IMPECT_POSITION_LABEL, suggestPosition, suggestListRole, resolveRole } from "./roles.js";
 import { fetchTmPlayer, parseTmUrl, searchTmPlayers } from "./lib/transfermarkt.js";
-import { loadPhysical, matchPhysical, searchPhysical, rowsByKeys, teamOverlap, meta as physMeta } from "./lib/physical.js";
+import { loadPhysical, matchPhysical, resolveAutoLinks, searchPhysical, rowsByKeys, teamOverlap, meta as physMeta } from "./lib/physical.js";
 import {
   impectConfigured, iterations as impectIterations, searchImpect, getImpectPlayer, matchImpect,
   shortLists as impectShortLists, shortListPlayerMeta,
@@ -145,10 +145,9 @@ async function autoLink(playerId) {
   try {
     if (!p.phys_confirmed) {
       const phys = await loadPhysical(PHYS_CACHE);
-      const matches = matchPhysical(phys, p).filter((m) =>
-        p.birthdate ? m.reasons.includes("age") : m.reasons.includes("club")
-      );
-      if (matches.length) { updatePlayer(playerId, { phys_keys: matches.map((m) => m.key) }); out.physical = matches.length; }
+      const taken = physKeysOfOthers(playerId);
+      const keys = matchPhysical(phys, p).filter((m) => m.auto && !taken.has(m.key)).map((m) => m.key);
+      if (keys.length) { updatePlayer(playerId, { phys_keys: keys }); out.physical = keys.length; }
     }
   } catch (e) { console.warn("physical auto-link failed:", e.message); }
   try {
@@ -162,6 +161,34 @@ async function autoLink(playerId) {
   } catch (e) { console.warn("impect auto-link failed:", e.message); }
   return out;
 }
+
+function physKeysOfOthers(playerId) {
+  return new Set(db.all("SELECT phys_keys FROM players WHERE id <> ?", playerId).flatMap((r) => JSON.parse(r.phys_keys || "[]")));
+}
+
+// Re-run physical auto-linking for every player whose links nobody has confirmed by hand, so new
+// seasons on the physical site and matcher improvements reach existing players. Confirmed links are
+// never touched, and rows they use are not handed to anyone else.
+async function relinkPhysical() {
+  const phys = await loadPhysical(PHYS_CACHE);
+  const all = db.all("SELECT id, name, birthdate, club, loan_from, impect_squad, phys_keys, phys_confirmed FROM players");
+  const confirmedKeys = new Set(all.filter((p) => p.phys_confirmed).flatMap((p) => JSON.parse(p.phys_keys || "[]")));
+  const open = all.filter((p) => !p.phys_confirmed);
+  const { links } = resolveAutoLinks(phys, open);
+  let changed = 0;
+  for (const p of open) {
+    const keys = links.get(p.id).filter((k) => !confirmedKeys.has(k));
+    if ([...keys].sort().join("\n") === JSON.parse(p.phys_keys || "[]").sort().join("\n")) continue;
+    // Direct write: a background re-link shouldn't count as someone updating the player.
+    db.run("UPDATE players SET phys_keys = ? WHERE id = ?", JSON.stringify(keys), p.id);
+    changed++;
+  }
+  const linked = db.get("SELECT count(*) AS n FROM players WHERE phys_keys <> '[]'").n;
+  console.log(`[physical] re-linked: ${changed} players changed; ${linked}/${all.length} have physical data`);
+  return { changed, linked, total: all.length };
+}
+setTimeout(() => relinkPhysical().catch((e) => console.warn("physical re-link failed:", e.message)), 20_000);
+setInterval(() => relinkPhysical().catch((e) => console.warn("physical re-link failed:", e.message)), 6 * 60 * 60 * 1000);
 
 // Write a fetched Transfermarkt profile onto a player (used by manual sync and the bulk matcher).
 async function applyTmProfile(playerId, tm, userId, via) {

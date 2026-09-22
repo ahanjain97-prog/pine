@@ -498,7 +498,7 @@ function decisionPicker(host) {
 
 function previewHTML(d) {
   const p = d.profile;
-  const phys = d.physical.filter((x) => !x.reasons.includes("age-mismatch") && (x.reasons.includes("age") || x.reasons.includes("club")));
+  const phys = d.physical.filter((x) => x.auto);
   return `${d.duplicate ? `<div class="banner warn"><b>${esc(d.duplicate.name)}</b> is already in PINE. <a href="#/player/${d.duplicate.id}" data-close>Open profile →</a></div>` : ""}
     <div class="pv">${photo(p, "lg")}
       <div style="min-width:0;flex:1">
@@ -1045,10 +1045,11 @@ function physCard(r, meta, open) {
   </details>`;
 }
 
+const PHYS_REASON = { name: "name", "name-close": "similar name", "surname-only": "surname only", age: "age", club: "club", "age-mismatch": "age differs" };
 function physCand(r, checked) {
   return `<label class="cand"><input type="checkbox" value="${esc(r.key)}" ${checked ? "checked" : ""}>
     <span class="ci"><b>${esc(r.name)}</b> · ${esc(r.team)}<div class="muted sm">${esc(r.league)} ${esc(r.season)} · ${esc(r.pos)} · age ${r.age} · ${r.mins} min</div></span>
-    ${r.reasons ? `<span class="why">${r.reasons.map((x) => `<span class="${x === "age-mismatch" ? "bad" : ""}">${esc(x)}</span>`).join("")}</span>` : ""}</label>`;
+    ${r.reasons ? `<span class="why">${r.reasons.map((x) => `<span class="${x === "age-mismatch" ? "bad" : x === "surname-only" ? "warn" : ""}">${esc(PHYS_REASON[x] || x)}</span>`).join("")}</span>` : ""}</label>`;
 }
 
 async function loadPhysicalPanel(root, p) {

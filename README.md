@@ -85,6 +85,13 @@ Run `npm test` for benchmark and mocked-API regression tests, and `npm run check
   scouting.impect.com. It isn't part of Impect's documented API, so it could change without notice.
 - **Physical data**: `site_data.json` from the player-physical-data site (percentiles within
   league / season / position group). Links open that site's card for the same player.
+  Matching (`src/lib/physical.js`): site names are mostly Wyscout short names ("A. Surname"), and a
+  row's age is the player's age when the data was exported (the same in every season). A row links
+  automatically when the name matches (initial + surname, full name, a longer site surname such as
+  "McNeil LeFlore", the first of two Spanish surnames, or a one-letter spelling difference) and the age
+  agrees within a year, with the club (Transfermarkt club, loan club or Impect squad, via short-name
+  aliases) as a second check. Surname-only matches are shown as suggestions to confirm. The server
+  re-links every unconfirmed player at startup and every 6 hours; links saved by hand are never changed.
 
 ## Layout
 

@@ -273,6 +273,7 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
 .ci .why { margin-top: 3px; }
 .why span { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; background: var(--pass-bg); color: var(--pass); border-radius: 4px; padding: 0 5px; }
 .why span.bad { background: var(--fail-bg); color: var(--fail); }
+.why span.warn { background: var(--hold-bg); color: var(--hold); }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 13px; margin: 0; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; font-weight: 500; }
