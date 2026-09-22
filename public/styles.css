@@ -141,12 +141,12 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .pitch { position: relative; min-width: 1120px; border-radius: 16px; padding: 22px;
   background: repeating-linear-gradient(180deg, var(--pitch-a) 0 70px, var(--pitch-b) 70px 140px);
   display: grid; gap: 14px; align-items: start;
-  /* Outer columns hold the wingers and full-backs, so they get extra width. */
+  /* Outer columns hold the wingers and full-backs, so they get extra width; CM and CDM also span them. */
   grid-template-columns: minmax(0, 1.3fr) repeat(4, minmax(0, 1fr)) minmax(0, 1.3fr);
   grid-template-areas:
     ".   fwd fwd fwd fwd ."
     "lw  am  am  am  am  rw"
-    ".   cm  cm  cdm cdm ."
+    "cm  cm  cm  cdm cdm cdm"
     "lb  lcb lcb rcb rcb rb"
     ".   .   gk  gk  .   ."; }
 .pitch::before { content: ""; position: absolute; inset: 10px; border: 2px solid var(--pitch-line); border-radius: 8px; pointer-events: none; }
