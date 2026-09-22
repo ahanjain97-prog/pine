@@ -1,5 +1,6 @@
 // PINE front end: single page, no build step.
 // Routes: #/board  #/players  #/player/:id  #/impect  #/activity  #/staff
+// Shared links come in as /p/:id, which the server rewrites to #/player/:id before this boots.
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -81,6 +82,40 @@ const fmtNum = (x) => (x == null ? "" : Math.abs(x) >= 100 ? Math.round(x).toLoc
 const band = (v) => (v < 20 ? "var(--b0)" : v < 40 ? "var(--b1)" : v < 60 ? "var(--b2)" : v < 80 ? "var(--b3)" : "var(--b4)");
 
 /* ---------- shared bits ---------- */
+// Share a player the way people actually pass them around. On a phone that means the native share
+// sheet (WhatsApp sits in it); everywhere else, a small panel with the message ready to copy or
+// hand to WhatsApp. Both carry a line of context above the link, so the message reads on its own
+// even before the preview unfurls. /p/<id> is the shareable form of #/player/<id>: the server can
+// see the id there, so the preview names the player.
+function shareMessage(p) {
+  const who = [p.age, p.position, p.club].filter((x) => x != null && x !== "").join(", ");
+  return { text: `${p.name}${who ? ` — ${who}` : ""} · PINE`, url: `${location.origin}/p/${p.id}` };
+}
+
+async function sharePlayer(p) {
+  const { text, url } = shareMessage(p);
+  if (navigator.share) {
+    try { return await navigator.share({ title: p.name, text, url }); }
+    catch (e) { if (e.name === "AbortError") return; } // anything else: fall through to the panel
+  }
+  const message = `${text}\n${url}`;
+  const m = modal(`<header class="m-h"><h2>Share ${esc(p.name)}</h2><button type="button" class="icon-btn" data-close aria-label="Close">×</button></header>
+    <p class="hint">The link unfurls in WhatsApp with ${esc(p.name)}'s name, photo and club.</p>
+    <textarea id="share-text" rows="3" readonly>${esc(message)}</textarea>
+    <div class="m-actions">
+      <a class="btn ghost" href="https://wa.me/?text=${encodeURIComponent(message)}" target="_blank" rel="noopener" data-close>Open WhatsApp</a>
+      <button type="button" class="btn primary" id="share-copy">Copy</button>
+    </div>`);
+  const box = $("#share-text", m);
+  box.focus();
+  box.select();
+  $("#share-copy", m).addEventListener("click", async () => {
+    // The clipboard API needs a focused document, so leave the text selected when it refuses.
+    try { await navigator.clipboard.writeText(message); toast("Link copied"); closeModal(); }
+    catch { box.focus(); box.select(); toast("Press ⌘C to copy", true); }
+  });
+}
+
 const roleInfo = (code) => S.config.roles[code];
 const roleLabel = (code) => { const r = roleInfo(code); return r ? `${r.position} #${r.num} · ${r.label}` : String(code || ""); };
 const roleShort = (code) => { const r = roleInfo(code); return r ? `${r.position} #${r.num}` : String(code || ""); };
@@ -286,6 +321,8 @@ function wireGlobalSearch() {
   box.addEventListener("click", () => { inp.value = ""; results = []; draw(); inp.blur(); });
 }
 
+const setTitle = (s) => { document.title = s ? `${s} · PINE` : "PINE"; };
+
 function route() {
   const [view, arg] = location.hash.replace(/^#\/?/, "").split("/");
   return { view: view || "board", arg };
@@ -298,6 +335,8 @@ async function render() {
   $("#upd").hidden = true;
   const views = { board: renderBoard, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
   if (!views[view]) { location.hash = "#/board"; return; }
+  // The player view retitles itself once the profile loads.
+  setTitle({ board: "Big Board", players: "Database", impect: "Impect", activity: "Activity", staff: "Staff" }[view]);
   await views[view]($("#main"), arg);
 }
 
@@ -758,6 +797,7 @@ async function renderPlayer(main, idArg) {
   }
   if (route().view !== "player" || Number(route().arg) !== id) return;
   const p = d.player;
+  setTitle(p.name);
   const counts = { pass: 0, hold: 0, fail: 0 };
   d.staff.forEach((s) => s.verdict && counts[s.verdict]++);
   const pending = d.staff.filter((s) => !s.verdict).length;
@@ -788,6 +828,7 @@ async function renderPlayer(main, idArg) {
           ${p.tm_url
             ? `<a class="btn sm" href="${esc(p.tm_url)}" target="_blank" rel="noopener">Transfermarkt ↗</a><button type="button" class="btn sm ghost" id="sync-tm">Sync from Transfermarkt</button>${p.tm_synced_at ? `<span class="muted sm">Synced ${esc(relTime(p.tm_synced_at))}</span>` : ""}`
             : `<form id="link-tm" class="row"><input type="url" required placeholder="Paste a Transfermarkt link to pull info" aria-label="Transfermarkt link"><button class="btn sm" type="submit">Link</button></form>`}
+          <button type="button" class="btn sm ghost" id="share-p">Share</button>
           <button type="button" class="btn sm ghost" id="edit-p">Edit details</button>
           ${S.me.is_admin ? `<button type="button" class="btn sm ghost danger" id="del-p">Delete</button>` : ""}
         </div>
@@ -986,6 +1027,7 @@ function wirePlayer(root, d) {
         if (result.tm_conflicts?.length) openTmConflicts(p.id, result.tm_conflicts);
         return;
       }
+      if (t.id === "share-p") return sharePlayer(p);
       if (t.id === "edit-p") return openEditPlayer(p);
       if (t.id === "del-p") {
         if (!confirm(`Delete ${p.name}, including every note and verdict? This can't be undone.`)) return;
