@@ -1350,20 +1350,39 @@ function signInStatus(u) {
   return `<span class="chip">Not set up</span>`;
 }
 
+function signInEmail(link, reset) {
+  const first = String(link.name).split(" ")[0];
+  return {
+    subject: reset ? "Reset your PINE password" : "Your PINE sign-in link",
+    body: [
+      `Hi ${first},`,
+      "",
+      reset ? "Here's a link to choose a new PINE password:" : "Here's your link to set up your PINE login:",
+      link.url,
+      "",
+      `Open it, choose a password, and you're in. After that, sign in at ${link.site} with ${link.email} and your password.`,
+      "",
+      "The link works once and expires in 7 days.",
+      "",
+      S.me.name,
+    ].join("\n"),
+  };
+}
+
 async function renderStaff(main) {
   if (!S.me.is_admin) { location.hash = "#/board"; return; }
   const { users } = await api("GET", "/api/users");
   main.innerHTML = `<div class="page" style="max-width:1000px">
     <div class="page-h"><div><h1>Staff</h1><div class="sub">Everyone on this list gets their own evaluation section on every player. To let someone sign in, or to reset a forgotten password,
-      click <b>Copy sign-in link</b> and send it to them (text, WhatsApp, email). They open it, choose a password, and from then on sign in with their email and that password.
+      click <b>Email sign-in link</b>: a Gmail draft opens, addressed to them with their link, and you press Send. They open the link, choose a password, and from then on sign in with their email and that password.
       A link works once and expires after 7 days.</div></div></div>
     <div class="table-wrap"><table class="grid"><thead><tr><th>Name</th><th>Sign-in email</th><th>Sign-in</th><th>Admin</th><th></th></tr></thead><tbody>
-      ${users.map((u) => `<tr data-uid="${u.id}" style="cursor:default"><td><b>${esc(u.name)}</b></td>
+      ${users.map((u) => `<tr data-uid="${u.id}" data-has-password="${u.has_password ? 1 : 0}" style="cursor:default"><td><b>${esc(u.name)}</b></td>
         <td><input type="email" value="${esc(u.email || "")}" placeholder="Add an email to let ${esc(u.name)} sign in" style="width:260px" aria-label="${esc(u.name)} email"></td>
         <td>${signInStatus(u)}</td>
         <td><input type="checkbox" ${u.is_admin ? "checked" : ""} ${u.id === S.me.id ? "disabled" : ""} aria-label="${esc(u.name)} is admin"></td>
         <td class="staff-actions"><button type="button" class="btn sm" data-save-user>Save</button>
-          <button type="button" class="btn sm primary" data-link-user>${u.has_password ? "New sign-in link" : "Copy sign-in link"}</button></td></tr>`).join("")}
+          <button type="button" class="btn sm primary" data-link-user>${u.has_password ? "Email new link" : "Email sign-in link"}</button></td></tr>`).join("")}
     </tbody></table></div>
     <p class="hint" id="link-out" hidden></p>
     <section class="panel" style="margin-top:14px"><header class="panel-h"><h2>Add a staff member</h2></header>
@@ -1377,26 +1396,43 @@ async function renderStaff(main) {
   const root = main.firstElementChild;
   loadBackups(root);
   root.addEventListener("click", async (e) => {
-    const save = e.target.closest("[data-save-user]");
-    const link = e.target.closest("[data-link-user]");
-    if (!save && !link) return;
+    const saveBtn = e.target.closest("[data-save-user]");
+    const linkBtn = e.target.closest("[data-link-user]");
+    if (!saveBtn && !linkBtn) return;
     const tr = e.target.closest("tr");
-    const name = $("td b", tr).textContent;
     try {
-      if (save) {
+      if (saveBtn) {
         await api("PATCH", `/api/users/${tr.dataset.uid}`, { email: $("input[type=email]", tr).value, is_admin: $("input[type=checkbox]", tr).checked });
         toast("Staff member saved");
         return;
       }
-      const { url } = await api("POST", `/api/users/${tr.dataset.uid}/setup-link`);
-      let copied = false;
-      try { await navigator.clipboard.writeText(url); copied = true; } catch {}
+      // Open the tab inside the click so it isn't treated as a popup; it's pointed at Gmail below.
+      const tab = window.open("about:blank", "_blank");
+      if (tab) tab.opener = null;
+      let link;
+      try {
+        const emailInput = $("input[type=email]", tr);
+        if (emailInput.value.trim() !== emailInput.defaultValue.trim()) {
+          await api("PATCH", `/api/users/${tr.dataset.uid}`, { email: emailInput.value });
+          emailInput.defaultValue = emailInput.value;
+        }
+        link = await api("POST", `/api/users/${tr.dataset.uid}/setup-link`);
+      } catch (err) { tab?.close(); throw err; }
+      const mail = signInEmail(link, tr.dataset.hasPassword === "1");
+      const gmail = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(link.email)}&su=${encodeURIComponent(mail.subject)}&body=${encodeURIComponent(mail.body)}`;
+      const mailto = `mailto:${encodeURIComponent(link.email)}?subject=${encodeURIComponent(mail.subject)}&body=${encodeURIComponent(mail.body)}`;
+      if (tab) tab.location.href = gmail;
       const out = $("#link-out", root);
       out.hidden = false;
-      out.innerHTML = `Sign-in link for <b>${esc(name)}</b>${copied ? " (copied)" : ""}: <input readonly value="${esc(url)}" style="width:100%;margin-top:4px" aria-label="Sign-in link for ${esc(name)}"> Send it to them; it works once and expires in 7 days.`;
-      if (!copied) $("input", out).select();
-      toast(copied ? `Link for ${name} copied. Send it to them.` : `Link for ${name} is below. Copy it and send it to them.`);
-      $("td:nth-child(3)", tr).innerHTML = signInStatus({ link_expires_at: Date.now() + 7 * 864e5 });
+      out.innerHTML = `${tab ? "A Gmail draft to" : "Your browser blocked the Gmail tab. Email"} <b>${esc(link.name)}</b> (${esc(link.email)})${tab ? " opened in a new tab; press Send." : " with one of these:"}
+        <a href="${esc(gmail)}" target="_blank" rel="noopener">Open the Gmail draft</a> ·
+        <a href="${esc(mailto)}">Use my email app</a> ·
+        <button type="button" class="btn link" id="copy-link">Copy the link</button>
+        <input readonly value="${esc(link.url)}" style="width:100%;margin-top:4px" aria-label="Sign-in link for ${esc(link.name)}">`;
+      $("#copy-link", out).addEventListener("click", async () => {
+        try { await navigator.clipboard.writeText(link.url); toast("Link copied"); } catch { $("input", out).select(); }
+      });
+      $("td:nth-child(3)", tr).innerHTML = signInStatus({ link_expires_at: link.expires_at });
     } catch (err) { oops(err); }
   });
   $("#add-user", root).addEventListener("submit", async (e) => {

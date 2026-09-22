@@ -18,8 +18,8 @@ npm start              # http://localhost:8787
 
 Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Sign-in is email + password. Nobody signs up: an admin opens **Staff**, clicks **Copy sign-in link** next to a
-person and sends it to them (text, WhatsApp, email). The link opens a page where they choose a password; after
+Sign-in is email + password. Nobody signs up: an admin opens **Staff** and clicks **Email sign-in link** next to a
+person, which opens a Gmail draft to them with the link; press Send. The link opens a page where they choose a password; after
 that they sign in with their email and that password and stay signed in for 180 days on that device. A link works
 once and expires after 7 days; a forgotten password is fixed the same way, with a new link. Any signed-in staff
 member can edit the big board, add players and write in their own evaluation section; admins can also delete

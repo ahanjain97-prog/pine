@@ -627,7 +627,8 @@ app.get("/api/users", (c) => {
     : "id, name, is_admin";
   return c.json({ users: db.all(`SELECT ${cols} FROM users ORDER BY sort, id`) });
 });
-// A one-time link that lets this person choose a password (or reset a forgotten one). Admin sends it themselves.
+// A one-time link that lets this person choose a password (or reset a forgotten one). The admin emails it
+// from their own account (the Staff page opens a pre-written Gmail draft); PINE sends no email itself.
 app.post("/api/users/:id/setup-link", (c) => {
   const user = c.get("user");
   if (!user.is_admin) fail(403, "Only admins can create sign-in links");
@@ -636,7 +637,7 @@ app.post("/api/users/:id/setup-link", (c) => {
   const { token, expires_at } = createSetupLink(db, target.id);
   const origin = String(process.env.APP_URL || new URL(c.req.url).origin).replace(/\/+$/, "");
   logActivity(db, user.id, null, "created_signin_link", { name: target.name });
-  return c.json({ url: `${origin}/#/welcome/${token}`, expires_at });
+  return c.json({ url: `${origin}/#/welcome/${token}`, expires_at, name: target.name, email: target.email, site: origin });
 });
 app.patch("/api/users/:id", async (c) => {
   const user = c.get("user");
