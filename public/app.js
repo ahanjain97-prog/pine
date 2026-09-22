@@ -323,10 +323,21 @@ function wireGlobalSearch() {
 
 const setTitle = (s) => { document.title = s ? `${s} · PINE` : "PINE"; };
 
+// A profile has two URLs: #/player/7, which the app navigates with, and /p/7, which is the one
+// worth sharing -- a crawler never sees a #fragment, so only /p/7 can preview as the player.
+// route() understands both, and render() then parks the address bar on /p/7, so the URL copied
+// out of the browser is the one that previews properly.
 function route() {
-  const [view, arg] = location.hash.replace(/^#\/?/, "").split("/");
-  return { view: view || "board", arg };
+  const hash = location.hash.replace(/^#\/?/, "");
+  if (hash) {
+    const [view, arg] = hash.split("/");
+    return { view, arg };
+  }
+  const shared = location.pathname.match(/^\/p\/(\d+)/);
+  return shared ? { view: "player", arg: shared[1] } : { view: "board", arg: undefined };
 }
+
+const canonicalUrl = ({ view, arg }) => (view === "player" ? `/p/${arg}` : `/#/${view}`);
 
 async function render() {
   if (!S.me) return;
@@ -335,6 +346,9 @@ async function render() {
   $("#upd").hidden = true;
   const views = { board: renderBoard, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
   if (!views[view]) { location.hash = "#/board"; return; }
+  // replaceState fires nothing, so this can't loop back into render().
+  const want = canonicalUrl({ view, arg });
+  if (location.pathname + location.hash !== want) history.replaceState(null, "", want);
   // The player view retitles itself once the profile loads.
   setTitle({ board: "Big Board", players: "Database", impect: "Impect", activity: "Activity", staff: "Staff" }[view]);
   await views[view]($("#main"), arg);
@@ -1566,11 +1580,16 @@ async function boot() {
   S.pollTimer = setInterval(poll, 15000);
 }
 
-window.addEventListener("hashchange", () => {
+// hashchange alone isn't enough: stepping back or forward between /p/7 and a #/view changes the
+// path as well as the fragment, which is a popstate, not a hashchange. replaceState fires neither,
+// so canonicalising the URL in render() can't loop back in here.
+const onNavigate = () => {
   if (welcomeToken()) return showWelcome(welcomeToken());
   closeModal();
   render().then(() => scrollTo(0, 0));
-});
+};
+window.addEventListener("hashchange", onNavigate);
+window.addEventListener("popstate", onNavigate);
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && $("#modal")) closeModal();
   if (e.key === "/" && S.me && !e.target.matches("input, textarea, select") && !$("#modal")) { e.preventDefault(); $("#gs")?.focus(); }
