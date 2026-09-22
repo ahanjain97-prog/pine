@@ -751,22 +751,20 @@ app.use("/*", async (c, next) => {
   headers.set("Cache-Control", c.req.query("v") === undefined ? "no-cache" : "public, max-age=31536000, immutable");
   c.res = new Response(c.res.body, { status: c.res.status, headers });
 });
-const page = (c, preview, extraHead = "") => c.html(INDEX_HTML.replace("<!--og-->", `${ogTags(preview)}${extraHead}`));
+const page = (c, preview) => c.html(INDEX_HTML.replace("<!--og-->", ogTags(preview)));
 
 app.get("/", (c) => page(c, sitePreview(siteOrigin(c))));
 app.get("/index.html", (c) => page(c, sitePreview(siteOrigin(c))));
-// The shareable form of a player link: fills in that player's preview tags, then swaps the URL
-// back to the hash route so the app boots straight onto the profile. See src/lib/share.js.
+// The shareable form of a player link. The id is in the path, so this can answer a crawler with
+// that player's preview tags; the app reads the same path and opens the profile. An unknown id
+// still serves the app, which shows its own "Player not found". See src/lib/share.js.
 app.get("/p/:id", (c) => {
   const id = Number(c.req.param("id"));
   const row = Number.isInteger(id) && id > 0
     ? db.get("SELECT id, name, birthdate, position, club, league, photo_url FROM players WHERE id = ?", id)
     : null;
   const origin = siteOrigin(c);
-  // An unknown id still hands off to the app, which shows its own "Player not found" once signed in.
-  const target = Number.isInteger(id) && id > 0 ? `/#/player/${id}` : "/#/board";
-  const hop = `<script>history.replaceState(null, "", ${JSON.stringify(target)});</script>`;
-  return page(c, row ? playerPreview({ ...row, age: ageFrom(row.birthdate) }, origin) : sitePreview(origin), hop);
+  return page(c, row ? playerPreview({ ...row, age: ageFrom(row.birthdate) }, origin) : sitePreview(origin));
 });
 app.use("/*", serveStatic({ root: relative(process.cwd(), PUBLIC_DIR) || "." }));
 
