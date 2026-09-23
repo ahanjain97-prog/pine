@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ALL_METRICS } from '../src/lib/impect_categories.js';
-import { playerKpiCard } from '../src/lib/impect_kpi.js';
+import { playerKpiCard, DISPLAY_OVERRIDES } from '../src/lib/impect_kpi.js';
 
 test('live card assembly pools three same-season leagues and withholds a cameo target', async () => {
   const oldFetch = globalThis.fetch;
@@ -71,4 +71,10 @@ test('live card assembly pools three same-season leagues and withholds a cameo t
     if (oldUser === undefined) delete process.env.IMPECT_USERNAME; else process.env.IMPECT_USERNAME = oldUser;
     if (oldPass === undefined) delete process.env.IMPECT_PASSWORD; else process.env.IMPECT_PASSWORD = oldPass;
   }
+});
+
+test('every pXT KPI is relabelled so it cannot be read as a count', () => {
+  const pxt = ALL_METRICS.filter((m) => m.includes("PXT"));
+  assert.ok(pxt.length >= 7);
+  for (const m of pxt) assert.match(DISPLAY_OVERRIDES[m] || "", /pXT/, `${m} needs a display label`);
 });

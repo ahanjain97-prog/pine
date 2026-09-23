@@ -12,11 +12,17 @@ const BENCHMARK_LEAGUES = ["USL Championship", "MLS Next Pro", "USL League One"]
 
 const TTL_MS = 12 * 60 * 60 * 1000;
 const METRICS = new Set(ALL_METRICS);
-const DISPLAY_OVERRIDES = {
-  // Impect's API labels make these look like counts, but PXT_DRIBBLE is a goal-threat value.
-  // Calling 0.011 "Dribbles" is especially confusing once displayed beside count KPIs.
+// Every pXT KPI is a change in the team's goal threat per match, but Impect's labels ("Progressive
+// passes", "Receiving") read like counts, which is confusing next to real counts such as bypassed
+// opponents. PXT_PASS_FAIL is stored as a negative number, so higher (nearer zero) is better.
+export const DISPLAY_OVERRIDES = {
   kpi__PXT_DRIBBLE: "Dribble goal threat (pXT)",
   kpi__PXT_DRIBBLE_PRO: "Progressive dribble goal threat (pXT)",
+  kpi__PXT_PASS_PRO: "Progressive pass goal threat (pXT)",
+  kpi__PXT_PASS_FAIL: "Goal threat lost to failed passes (pXT)",
+  kpi__PXT_SETPIECE_PRO: "Set-piece goal threat (pXT)",
+  kpi__PXT_REC: "Receiving goal threat (pXT)",
+  kpi__PXT_DEFEND: "Defensive goal-threat swing (pXT)",
 };
 
 /* ---------- metric definitions (labels, meanings, direction) ---------- */
