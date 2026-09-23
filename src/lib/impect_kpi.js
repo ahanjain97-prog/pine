@@ -12,10 +12,12 @@ const BENCHMARK_LEAGUES = ["USL Championship", "MLS Next Pro", "USL League One"]
 
 const TTL_MS = 12 * 60 * 60 * 1000;
 const METRICS = new Set(ALL_METRICS);
-// Every pXT KPI is a change in the team's goal threat per match, but Impect's labels ("Progressive
-// passes", "Receiving") read like counts, which is confusing next to real counts such as bypassed
-// opponents. PXT_PASS_FAIL is stored as a negative number, so higher (nearer zero) is better.
+// Impect's own labels are kept wherever they describe the number, and replaced where they don't:
+// pXT KPIs are a change in the team's goal threat per match, not counts; several "percent" figures
+// are 0-1 shares; a few ratios are named cryptically; "*" is a footnote marker from Impect's docs.
+// PXT_PASS_FAIL is stored as a negative number, so higher (nearer zero) is better.
 export const DISPLAY_OVERRIDES = {
+  // Goal-threat (pXT) values, per match.
   kpi__PXT_DRIBBLE: "Dribble goal threat (pXT)",
   kpi__PXT_DRIBBLE_PRO: "Progressive dribble goal threat (pXT)",
   kpi__PXT_PASS_PRO: "Progressive pass goal threat (pXT)",
@@ -23,8 +25,45 @@ export const DISPLAY_OVERRIDES = {
   kpi__PXT_SETPIECE_PRO: "Set-piece goal threat (pXT)",
   kpi__PXT_REC: "Receiving goal threat (pXT)",
   kpi__PXT_DEFEND: "Defensive goal-threat swing (pXT)",
-};
 
+  // Shares, shown as 0-1 rather than as a percentage.
+  score__RATIO_PASSING_ACCURACY: "Pass success rate (0-1)",
+  score__RATIO_AERIAL_DUELS: "Aerial duels won (0-1)",
+  score__RATIO_AERIAL_DUELS_DEFENSIVE: "Defensive aerial duels won (0-1)",
+  score__RATIO_AERIAL_DUELS_OFFENSIVE: "Offensive aerial duels won (0-1)",
+  score__RATIO_GROUND_DUELS: "Ground duels won (0-1)",
+  score__RATIO_GROUND_DUELS_DEFENSIVE: "Defensive ground duels won (0-1)",
+  score__RATIO_GROUND_DUELS_OFFENSIVE: "Offensive ground duels won (0-1)",
+  score__RATIO_SHOTS_ON_TARGET: "Shots on target (share, 0-1)",
+  score__GK_CAUGHT_HIGH_BALLS_PERCENT: "High balls caught (share, 0-1)",
+  score__GK_CAUGHT_AND_PUNCHED_HIGH_BALLS_PERCENT: "High balls caught or punched (share, 0-1)",
+  score__GK_SUCCESSFUL_LAUNCHES_PERCENT: "Goal kicks completed (share, 0-1)",
+  score__PASS_COMPLETION_OVER_EXPECTED: "Pass completion vs expected (share)",
+
+  // Ratios of one quantity to another; Impect's names for these don't say what is divided by what.
+  score__GK_PREVENTED_GOALS_TOTAL_SHOT_XG_PERCENT: "Goals prevented \u00f7 shot xG faced",
+  score__GK_PREVENTED_GOALS_TOTAL_POSTSHOT_XG_PERCENT: "Goals prevented \u00f7 post-shot xG faced",
+  score__GK_PREVENTED_GOALS_POST_SHOT_XG_BY_ACTION1V1_AGAINST_GK_SHOT_RATIO: "Goals prevented \u00f7 post-shot xG: 1v1 shots",
+  score__GK_PREVENTED_GOALS_POST_SHOT_XG_BY_ACTION_CLOSE_RANGE_SHOT_RATIO: "Goals prevented \u00f7 post-shot xG: close-range shots",
+  score__GK_PREVENTED_GOALS_POST_SHOT_XG_BY_ACTION_HEADER_SHOT_RATIO: "Goals prevented \u00f7 post-shot xG: headers",
+  score__GK_PREVENTED_GOALS_POST_SHOT_XG_BY_ACTION_LONG_RANGE_SHOT_RATIO: "Goals prevented \u00f7 post-shot xG: long-range shots",
+  score__GK_PREVENTED_GOALS_POST_SHOT_XG_BY_ACTION_MID_RANGE_SHOT_RATIO: "Goals prevented \u00f7 post-shot xG: mid-range shots",
+  score__RATIO_POSTSHOT_XG_SHOT_XG: "Post-shot xG \u00f7 shot xG",
+  score__RATIO_GOALS_SHOT_XG: "Goals \u00f7 shot xG",
+  score__RATIO_GOALS_POSTSHOT_XG: "Goals \u00f7 post-shot xG",
+  score__RATIO_SHOTS_PER_GOAL: "Shots per goal",
+  score__RATIO_REVERSE_PLAY_ADDED_OPPONENTS: "Backpasses \u00f7 possible backpasses",
+
+  // Distances are metres gained towards the opponent's goal, not distance run.
+  kpi__DISTANCE_TO_GOAL_COVERED_DRIBBLE: "Distance carried towards goal (m)",
+  kpi__DISTANCE_TO_GOAL_COVERED_FDR: "Distance gained towards goal from deep runs (m)",
+
+  // Impect footnote markers and a typo in their label.
+  score__SUCCESSFUL_PASSES_CLEAN: "Successful passes",
+  score__UNSUCCESSFUL_PASSES_CLEAN: "Unsuccessful passes",
+  score__AVAILABILITY_OUT_WIDE_SCORE: "Availability out wide Score",
+  score__GK_DEFENSIVE_TOUCHES_OUTSIDE_OWN_BOX: "Defensive touches outside the box",
+};
 /* ---------- metric definitions (labels, meanings, direction) ---------- */
 let defsCache = null;
 async function definitions() {

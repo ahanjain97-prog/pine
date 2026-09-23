@@ -44,6 +44,11 @@ An available league failing to load produces an error instead of silently changi
 Pooling is league-adjusted: each KPI is standardised within its own league before the three leagues are ranked together, which removes league-wide differences in raw output (including any genuine difference in league level). Reference fetch times are shown; API data
 are cached for up to 12 hours.
 
+Metric labels come from Impect, except where their label misstates the number: pXT KPIs are a change in
+the team's goal threat per match rather than a count of actions, several "percent" figures are 0-1 shares,
+and a few ratios don't say what is divided by what. Those are relabelled in `DISPLAY_OVERRIDES`
+(`src/lib/impect_kpi.js`), and a test fails if a new percent/ratio/pXT metric arrives without one.
+
 Run `npm test` for benchmark and mocked-API regression tests, and `npm run check` for syntax checks.
 
 ## Configuration (`.env`, never committed)

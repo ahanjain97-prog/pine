@@ -73,8 +73,20 @@ test('live card assembly pools three same-season leagues and withholds a cameo t
   }
 });
 
-test('every pXT KPI is relabelled so it cannot be read as a count', () => {
-  const pxt = ALL_METRICS.filter((m) => m.includes("PXT"));
+test('display labels cover the metrics whose Impect label misstates the number', () => {
+  const keys = Object.keys(DISPLAY_OVERRIDES);
+  assert.deepEqual(keys.filter((m) => !ALL_METRICS.includes(m)), [], 'override for a metric nobody shows');
+
+  const pxt = ALL_METRICS.filter((m) => m.includes('PXT'));
   assert.ok(pxt.length >= 7);
-  for (const m of pxt) assert.match(DISPLAY_OVERRIDES[m] || "", /pXT/, `${m} needs a display label`);
+  for (const m of pxt) assert.match(DISPLAY_OVERRIDES[m] || '', /pXT/, `${m} is a goal-threat value, not a count`);
+
+  // Shares and ratios: Impect calls several of these "percent" although they run 0-1.
+  for (const m of ALL_METRICS.filter((x) => /PERCENT|RATIO/.test(x))) {
+    assert.ok(DISPLAY_OVERRIDES[m], `${m} needs a label saying what is divided by what`);
+  }
+
+  const labels = Object.values(DISPLAY_OVERRIDES);
+  assert.equal(new Set(labels).size, labels.length, 'two metrics share a label');
+  for (const l of labels) assert.doesNotMatch(l, /\*|Percent/, `"${l}" still reads as a percentage`);
 });
