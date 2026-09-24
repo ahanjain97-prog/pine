@@ -64,7 +64,7 @@ test('surname-only matches are suggestions, never auto-linked', () => {
   assert.deepEqual(m.map((x) => [x.name, x.reasons, x.auto]), [['S. Rempel', ['surname-only', 'age', 'club'], false]]);
 });
 
-test('a row two players would both claim goes to neither', () => {
+test('a row two equally likely players claim goes to neither', () => {
   const { links, contested } = resolveAutoLinks(c, [
     { id: 1, name: 'Jason Smith', birthdate: born(20) },
     { id: 2, name: 'Jared Smith', birthdate: born(20) },
@@ -74,4 +74,29 @@ test('a row two players would both claim goes to neither', () => {
   assert.deepEqual(links.get(1), []);
   assert.deepEqual(links.get(2), []);
   assert.equal(links.get(3).length, 2);
+});
+
+test('a contested row goes to the player with the stronger evidence', () => {
+  const { links, contested } = resolveAutoLinks(c, [
+    { id: 1, name: 'Jason Smith', birthdate: born(20) },                             // name + age
+    { id: 2, name: 'Jared Smith', birthdate: born(20), club: 'Fort Wayne FC' },      // name + age + club
+  ]);
+  assert.deepEqual(links.get(2), ['J. Smith|Fort Wayne|USL Championship|2026']); // his club
+  // Jason loses that row and ties on the other, so he keeps nothing rather than being guessed at.
+  assert.deepEqual(links.get(1), []);
+  assert.deepEqual([...contested], ['J. Smith|Chattanooga Red Wolves|USL Championship|2026']);
+});
+
+test('a confirmed link follows its row when the site relabels the team', async () => {
+  const moved = JSON.parse(JSON.stringify(data));
+  moved.rows.find((r) => r[0] === 'Tommy Silva' && r[3] === 2)[1] = 'Now at Someone Else';
+  globalThis.fetch = async () => ({ ok: true, json: async () => moved });
+  const { loadPhysical: load, repairKeys } = await import('../src/lib/physical.js?moved');
+  const c2 = await load(null);
+  const old = ['Tommy Silva|Detroit City|USL Championship|2026', 'Tommy Silva|Real Monarchs|USL Championship|2025'];
+  const { keys, changed } = repairKeys(c2, old);
+  assert.equal(changed, 1);
+  assert.deepEqual(keys, ['Tommy Silva|Now at Someone Else|USL Championship|2026', old[1]]);
+  // A key that still resolves is left alone, and an unknown one is kept rather than guessed at.
+  assert.deepEqual(repairKeys(c2, ['Nobody|Anywhere|USL Championship|2026']), { keys: ['Nobody|Anywhere|USL Championship|2026'], changed: 0 });
 });

@@ -16,7 +16,7 @@ import { checkPassword, createSetupLink, setupLinkUser, useSetupLink, startSessi
 import { POSITIONS, ROLES, DECISIONS, SPLIT_ROLES, IMPECT_POSITION_LABEL, suggestPosition, suggestListRole, resolveRole } from "./roles.js";
 import { fetchTmPlayer, parseTmUrl, searchTmPlayers } from "./lib/transfermarkt.js";
 import { TM_FIELDS, manualTmOverrides, releaseTmOverrides, tmConflicts, tmSyncFields } from "./lib/tm_sync.js";
-import { loadPhysical, matchPhysical, resolveAutoLinks, searchPhysical, rowsByKeys, teamOverlap, meta as physMeta } from "./lib/physical.js";
+import { loadPhysical, matchPhysical, repairKeys, resolveAutoLinks, searchPhysical, rowsByKeys, teamOverlap, meta as physMeta } from "./lib/physical.js";
 import {
   impectConfigured, iterations as impectIterations, searchImpect, getImpectPlayer, matchImpect,
   shortLists as impectShortLists, shortListPlayerMeta,
@@ -181,6 +181,16 @@ function physKeysOfOthers(playerId) {
 async function relinkPhysical() {
   const phys = await loadPhysical(PHYS_CACHE);
   const all = db.all("SELECT id, name, birthdate, club, loan_from, impect_squad, phys_keys, phys_confirmed FROM players");
+  // Repair hand-confirmed links first: the site relabels a row's team when a player moves, and
+  // nothing else would bring those rows back.
+  let repaired = 0;
+  for (const p of all.filter((x) => x.phys_confirmed)) {
+    const { keys, changed } = repairKeys(phys, JSON.parse(p.phys_keys || "[]"));
+    if (!changed) continue;
+    db.run("UPDATE players SET phys_keys = ? WHERE id = ?", JSON.stringify(keys), p.id);
+    p.phys_keys = JSON.stringify(keys);
+    repaired += changed;
+  }
   const confirmedKeys = new Set(all.filter((p) => p.phys_confirmed).flatMap((p) => JSON.parse(p.phys_keys || "[]")));
   const open = all.filter((p) => !p.phys_confirmed);
   const { links } = resolveAutoLinks(phys, open);
@@ -193,8 +203,8 @@ async function relinkPhysical() {
     changed++;
   }
   const linked = db.get("SELECT count(*) AS n FROM players WHERE phys_keys <> '[]'").n;
-  console.log(`[physical] re-linked: ${changed} players changed; ${linked}/${all.length} have physical data`);
-  return { changed, linked, total: all.length };
+  console.log(`[physical] re-linked: ${changed} players changed, ${repaired} confirmed links repaired; ${linked}/${all.length} have physical data`);
+  return { changed, repaired, linked, total: all.length };
 }
 setTimeout(() => relinkPhysical().catch((e) => console.warn("physical re-link failed:", e.message)), 20_000);
 setInterval(() => relinkPhysical().catch((e) => console.warn("physical re-link failed:", e.message)), 6 * 60 * 60 * 1000);

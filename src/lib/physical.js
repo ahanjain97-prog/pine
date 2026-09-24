@@ -216,18 +216,49 @@ export function matchPhysical(c, player) {
   return out.sort((a, b) => b.score - a.score || b.season.localeCompare(a.season));
 }
 
-// Auto-link keys for many players at once. A row that more than one player would claim is left for
-// review instead of being given to either.
+// Auto-link keys for many players at once. Where more than one player would claim the same row, it
+// goes to the one with the strongest evidence (say, the only one who also matches on club); if they
+// are equally strong it goes to nobody and waits for review. Two players named J. Smith, one of whom
+// plays for that club, is the case this decides.
 export function resolveAutoLinks(c, players) {
-  const claims = new Map(); // row key -> player ids
+  const claims = new Map(); // row key -> [{ id, score }]
   const byPlayer = new Map();
   for (const p of players) {
-    const keys = matchPhysical(c, p).filter((m) => m.auto).map((m) => m.key);
-    byPlayer.set(p.id, keys);
-    for (const k of keys) claims.set(k, [...(claims.get(k) || []), p.id]);
+    const mine = matchPhysical(c, p).filter((m) => m.auto);
+    byPlayer.set(p.id, mine.map((m) => m.key));
+    for (const m of mine) claims.set(m.key, [...(claims.get(m.key) || []), { id: p.id, score: m.score }]);
   }
-  const contested = new Set([...claims].filter(([, ids]) => ids.length > 1).map(([k]) => k));
-  return { links: new Map([...byPlayer].map(([id, keys]) => [id, keys.filter((k) => !contested.has(k))])), contested };
+  const winner = new Map(); // contested row key -> player id, or null when it is a tie
+  for (const [key, bids] of claims) {
+    if (bids.length < 2) continue;
+    const [best, next] = [...bids].sort((x, y) => y.score - x.score);
+    winner.set(key, best.score > next.score ? best.id : null);
+  }
+  const links = new Map([...byPlayer].map(([id, keys]) =>
+    [id, keys.filter((k) => !winner.has(k) || winner.get(k) === id)]));
+  return { links, contested: new Set([...winner].filter(([, id]) => id === null).map(([k]) => k)) };
+}
+
+// The site sometimes relabels a row's team (a player's season row now carries the club they moved
+// to). That changes the row key, which would silently drop a link somebody confirmed by hand. Where
+// the same player, league and season still exists under one new team, point the key at it.
+export function repairKeys(c, keys) {
+  const live = new Set(c.rows.map((r) => r.key));
+  const byPlayerSeason = new Map();
+  for (const r of c.rows) {
+    const k = `${r.name}|${r.league}|${r.season}`;
+    byPlayerSeason.set(k, [...(byPlayerSeason.get(k) || []), r.key]);
+  }
+  let changed = 0;
+  const out = keys.map((key) => {
+    if (live.has(key)) return key;
+    const [name, , league, season = ""] = key.split("|");
+    const now = byPlayerSeason.get(`${name}|${league}|${season.replace(/~\d+$/, "")}`);
+    if (!now || now.length !== 1) return key;
+    changed++;
+    return now[0];
+  });
+  return { keys: out, changed };
 }
 
 export function searchPhysical(c, q, limit = 25) {
