@@ -1300,29 +1300,32 @@ let cardTimer = null;
 async function loadCardPanel(root, p) {
   const el = $("#card-panel", root);
   const head = `<header class="panel-h"><h2>Player card</h2></header>`;
+  // Both are asked for at once. The cards are drawn as soon as they arrive; the seasons fill the pickers after.
+  const optsReq = api("GET", `/api/players/${p.id}/card-options`);
+  optsReq.catch(() => {}); // awaited below
   let cards, opts;
-  try {
-    ({ cards } = await api("GET", `/api/players/${p.id}/cards`));
-    opts = await api("GET", `/api/players/${p.id}/card-options`);
-  } catch (e) {
+  const showError = (e) => {
     // Impect unreachable: say so, but keep finished cards one click away.
     el.innerHTML = `${head}<div class="banner err sm">${esc(e.message)}</div>${(cards || []).filter((c) => c.status === "done").map((c) =>
       `<div class="card-line"><span>${esc(`${c.position} · ${c.season} · ${fmtDateTime(c.generated_at)}`)}</span><span class="spacer"></span>${cardPdf(c, "Open ↗")}</div>`).join("")}`;
+  };
+  try {
+    ({ cards } = await api("GET", `/api/players/${p.id}/cards`));
+  } catch (e) {
+    showError(e);
     return;
   }
   if (!el.isConnected) return;
-  if (!opts.seasons.length) { el.innerHTML = `${head}<p class="empty">No outfield Impect minutes to build a card from.</p>`; return; }
 
-  const offered = (x) => opts.seasons.some((s) => s.iteration_id === x?.iteration_id && s.positions.some((o) => o.code === x.position));
-  const sel = { ...(offered(cardPick.get(p.id)) ? cardPick.get(p.id) : opts.default) };
+  // Until the seasons arrive, show the season and position picked last, else the newest card.
+  const first = cardPick.get(p.id) || cards.find((c) => c.status === "done") || cards[0];
+  const sel = first ? { iteration_id: first.iteration_id, position: first.position } : {};
   const season = () => opts.seasons.find((s) => s.iteration_id === sel.iteration_id);
-  el.innerHTML = `<header class="panel-h"><h2>Player card</h2>${S.me.is_admin ? `<button type="button" class="btn sm" id="card-go"></button>` : ""}</header>
-    <div class="card-pick">
-      <select id="card-season" aria-label="Season">${opts.seasons.map((s) => `<option value="${s.iteration_id}">${esc(s.season)} · ${esc(s.competition)}</option>`).join("")}</select>
-      <select id="card-pos" aria-label="Position"></select>
-    </div>
+  el.innerHTML = `<header class="panel-h"><h2>Player card</h2>${S.me.is_admin ? `<button type="button" class="btn sm" id="card-go" disabled></button>` : ""}</header>
+    <div class="card-pick"><span class="muted sm">Loading seasons…</span></div>
     <div id="card-body"></div>`;
-  const seasonSel = $("#card-season", el), posSel = $("#card-pos", el), body = $("#card-body", el), go = $("#card-go", el);
+  const pickEl = $(".card-pick", el), body = $("#card-body", el), go = $("#card-go", el);
+  let seasonSel, posSel;
   const fillPositions = () => {
     posSel.innerHTML = season().positions.map((o) => `<option value="${o.code}">${o.code} · ${esc(o.label)} · ${o.match_share.toFixed(1)} matches</option>`).join("");
     seasonSel.value = sel.iteration_id;
@@ -1341,7 +1344,7 @@ async function loadCardPanel(root, p) {
       ${done.length ? `<div class="card-line"><span>Generated <b>${esc(fmtDateTime(done[0].generated_at))}</b>${done[0].data_as_of
           ? ` <span class="muted card-asof">· data through ${esc(fmtDate(done[0].data_as_of))}</span>` : ""}</span><span class="spacer"></span>${cardPdf(done[0], "Open PDF ↗")}</div>
         ${cardImg(done[0])}`
-        : open || failed ? "" : `<p class="empty">No card for this season and position yet.</p>`}
+        : open || failed || !opts ? "" : `<p class="empty">No card for this season and position yet.</p>`}
       ${done.length > 1 ? `<div class="card-older"><div class="lbl">Earlier versions</div><ul>${done.slice(1).map((c) =>
         `<li><span>${esc(fmtDateTime(c.generated_at))}</span>${cardPdf(c, "Open", "")}</li>`).join("")}</ul></div>` : ""}`;
     // A missing picture falls back to the Open PDF button above it.
@@ -1349,18 +1352,18 @@ async function loadCardPanel(root, p) {
     if (!go) return;
     go.textContent = failed ? "Try again" : done.length ? "Regenerate" : "Generate";
     go.classList.toggle("primary", !done.length);
-    go.disabled = Boolean(open);
+    go.disabled = Boolean(open) || !opts;
   };
-  // Poll while a card is queued or generating; stop once none are, or when the panel is gone
+  // Poll while a card is queued or generating; stop once none are, or when this panel's body is gone
   // (a re-render's new panel owns the timer from then on).
   const watch = () => {
-    if (!el.isConnected) return;
+    if (!body.isConnected) return;
     clearTimeout(cardTimer);
     if (!cards.some(cardOpen)) return;
     cardTimer = setTimeout(async () => {
       let fresh;
       try { ({ cards: fresh } = await api("GET", `/api/players/${p.id}/cards`)); } catch { return watch(); }
-      if (!el.isConnected) return;
+      if (!body.isConnected) return;
       for (const c of fresh) {
         const was = cards.find((x) => x.id === c.id);
         if (!was || !cardOpen(was) || cardOpen(c)) continue;
@@ -1372,6 +1375,24 @@ async function loadCardPanel(root, p) {
       watch();
     }, 3000);
   };
+  drawBody();
+  watch();
+
+  try {
+    opts = await optsReq;
+  } catch (e) {
+    if (el.isConnected) showError(e);
+    return;
+  }
+  if (!el.isConnected) return;
+  if (!opts.seasons.length) { el.innerHTML = `${head}<p class="empty">No outfield Impect minutes to build a card from.</p>`; return; }
+
+  const offered = (x) => opts.seasons.some((s) => s.iteration_id === x?.iteration_id && s.positions.some((o) => o.code === x.position));
+  if (!offered(sel)) Object.assign(sel, opts.default);
+  pickEl.innerHTML = `<select id="card-season" aria-label="Season">${opts.seasons.map((s) => `<option value="${s.iteration_id}">${esc(s.season)} · ${esc(s.competition)}</option>`).join("")}</select>
+      <select id="card-pos" aria-label="Position"></select>`;
+  seasonSel = $("#card-season", el);
+  posSel = $("#card-pos", el);
   const pick = () => { cardPick.set(p.id, { ...sel }); drawBody(); };
   seasonSel.addEventListener("change", () => { sel.iteration_id = Number(seasonSel.value); sel.position = season().positions[0].code; fillPositions(); pick(); });
   posSel.addEventListener("change", () => { sel.position = posSel.value; pick(); });
@@ -1388,7 +1409,6 @@ async function loadCardPanel(root, p) {
   });
   fillPositions();
   drawBody();
-  watch();
 }
 
 /* ---------- impect page ---------- */

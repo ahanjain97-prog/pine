@@ -18,11 +18,11 @@ import { fetchTmPlayer, parseTmUrl, searchTmPlayers } from "./lib/transfermarkt.
 import { TM_FIELDS, manualTmOverrides, releaseTmOverrides, tmConflicts, tmSyncFields } from "./lib/tm_sync.js";
 import { loadPhysical, matchPhysical, repairKeys, resolveAutoLinks, searchPhysical, rowsByKeys, teamOverlap, meta as physMeta } from "./lib/physical.js";
 import {
-  impectConfigured, iterations as impectIterations, searchImpect, getImpectPlayer, matchImpect,
+  impectConfigured, iterations as impectIterations, searchImpect, getImpectPlayer, matchImpect, playerPool,
   shortLists as impectShortLists, shortListPlayerMeta,
 } from "./lib/impect.js";
 import { playerKpiCard } from "./lib/impect_kpi.js";
-import { playerCardOptions } from "./lib/card_options.js";
+import { playerCardOptions, warmCardShares } from "./lib/card_options.js";
 import { MAX_CARD_BYTES, DAILY_CARD_LIMIT, cardErrorCode, cardProgress, claimCard, isPdf, isPng, saveCardFile, sqlTime } from "./lib/cards.js";
 import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
@@ -703,7 +703,7 @@ app.get("/api/players/:id/impect-candidates", async (c) => {
 /* ---------- player cards (PDFs and their PNGs, rendered by the card worker) ---------- */
 async function cardOptionsFor(p) {
   if (!impectConfigured()) fail(503, "Impect isn't configured on the server, so card seasons can't be looked up");
-  try { return await playerCardOptions(p.impect_id); } catch (e) {
+  try { return await playerCardOptions(db, p.impect_id); } catch (e) {
     console.warn("card options failed:", e.message);
     fail(502, `Couldn't load card seasons from Impect: ${e.message}`);
   }
@@ -913,5 +913,19 @@ app.get("/p/:id", (c) => {
 });
 app.use("/*", serveStatic({ root: relative(process.cwd(), PUBLIC_DIR) || "." }));
 
+// After a start, fetch the card seasons that aren't stored yet (and refresh the current season if it's due),
+// then the Impect player pool, one after the other so a small container isn't swamped.
+async function warmImpect() {
+  let t = Date.now();
+  const cards = await warmCardShares(db);
+  console.log(`card seasons ready in ${((Date.now() - t) / 1000).toFixed(1)}s (${cards.built} built, ${cards.refreshed} refreshed, ${cards.failed} failed)`);
+  t = Date.now();
+  const { players } = await playerPool();
+  console.log(`Impect player pool loaded in ${((Date.now() - t) / 1000).toFixed(1)}s (${players.length} players)`);
+}
+
 const port = Number(process.env.PORT) || 8787;
-serve({ fetch: app.fetch, port }, () => console.log(`PINE running on http://localhost:${port}`));
+serve({ fetch: app.fetch, port }, () => {
+  console.log(`PINE running on http://localhost:${port}`);
+  if (impectConfigured()) warmImpect().catch((e) => console.warn("Impect warm-up failed:", e.message));
+});

@@ -99,6 +99,20 @@ CREATE TABLE IF NOT EXISTS cards(
   progress TEXT, progress_matches INTEGER
 );
 CREATE INDEX IF NOT EXISTS cards_player ON cards(player_id, requested_at);
+-- Impect match shares per card position for every player in a card season (src/lib/card_options.js).
+-- A cache: rebuilt from Impect, never edited by hand.
+CREATE TABLE IF NOT EXISTS card_shares(
+  iteration_id INTEGER NOT NULL,
+  impect_id INTEGER NOT NULL,
+  position TEXT NOT NULL,
+  match_share REAL NOT NULL,
+  PRIMARY KEY(iteration_id, impect_id, position)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS card_shares_player ON card_shares(impect_id);
+CREATE TABLE IF NOT EXISTS card_share_builds(
+  iteration_id INTEGER PRIMARY KEY,
+  built_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS activity(
   id INTEGER PRIMARY KEY,
   user_id INTEGER REFERENCES users(id),
