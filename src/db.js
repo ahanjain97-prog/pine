@@ -95,7 +95,8 @@ CREATE TABLE IF NOT EXISTS cards(
   requested_at TEXT NOT NULL DEFAULT (datetime('now')),
   started_at TEXT, generated_at TEXT, attempts INTEGER NOT NULL DEFAULT 0,
   file TEXT, bytes INTEGER, hop_commit TEXT, data_as_of TEXT,
-  image TEXT
+  image TEXT,
+  progress TEXT, progress_matches INTEGER
 );
 CREATE INDEX IF NOT EXISTS cards_player ON cards(player_id, requested_at);
 CREATE TABLE IF NOT EXISTS activity(
@@ -130,6 +131,10 @@ export function openDb(file) {
   raw.exec("DROP TABLE IF EXISTS login_codes"); // old email-code sign-in
   if (!raw.prepare("PRAGMA table_info(players)").all().some((c) => c.name === "tm_overrides")) {
     raw.exec("ALTER TABLE players ADD COLUMN tm_overrides TEXT NOT NULL DEFAULT '[]'");
+  }
+  if (!raw.prepare("PRAGMA table_info(cards)").all().some((c) => c.name === "progress")) {
+    raw.exec("ALTER TABLE cards ADD COLUMN progress TEXT");
+    raw.exec("ALTER TABLE cards ADD COLUMN progress_matches INTEGER");
   }
   const db = {
     raw,

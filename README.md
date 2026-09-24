@@ -81,8 +81,10 @@ Run `npm test` for benchmark and mocked-API regression tests, and `npm run check
   one Impect match share that season); an admin presses Generate. That queues a job; the card worker on
   the Mac mini claims it (`POST /api/worker/cards/claim`), renders it, uploads a PNG of it
   (`PUT /api/worker/cards/:id/png`, optional) and then the PDF (`PUT /api/worker/cards/:id/pdf`, which
-  finishes the job), or reports a failure code (`POST /api/worker/cards/:id/fail`). Every version is kept
-  and any signed-in staff member can open it. One card per player can be in progress, and at most 30 are
+  finishes the job), or reports a failure code (`POST /api/worker/cards/:id/fail`). While it works it can
+  post a progress note (`POST /api/worker/cards/:id/progress`, `fetching_events` and a match count), which the
+  panel shows under "Generating" so staff know why a card that downloads Impect match data first is slower.
+  Every version is kept and any signed-in staff member can open it. One card per player can be in progress, and at most 30 are
   requested across PINE per 24 hours.
 - **Add player**: paste a Transfermarkt link (or paste one anywhere on the page). Physical data and
   Impect are matched automatically by name + date of birth / club.

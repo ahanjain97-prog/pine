@@ -23,7 +23,7 @@ import {
 } from "./lib/impect.js";
 import { playerKpiCard } from "./lib/impect_kpi.js";
 import { playerCardOptions } from "./lib/card_options.js";
-import { MAX_CARD_BYTES, DAILY_CARD_LIMIT, cardErrorCode, claimCard, isPdf, isPng, saveCardFile, sqlTime } from "./lib/cards.js";
+import { MAX_CARD_BYTES, DAILY_CARD_LIMIT, cardErrorCode, cardProgress, claimCard, isPdf, isPng, saveCardFile, sqlTime } from "./lib/cards.js";
 import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
@@ -701,6 +701,7 @@ async function cardOptionsFor(p) {
 // Everything but the stored file paths.
 const CARD_SELECT = `SELECT c.id, c.iteration_id, c.competition, c.season, c.position, c.status, c.error,
     c.requested_at, c.started_at, c.generated_at, c.bytes, c.hop_commit, c.data_as_of, c.image IS NOT NULL AS has_image,
+    c.progress, c.progress_matches,
     u.name AS requested_by_name
   FROM cards c LEFT JOIN users u ON u.id = c.requested_by`;
 
@@ -794,6 +795,14 @@ app.put("/api/worker/cards/:id/pdf", cardBodyLimit,
       /^[0-9a-f]{7,40}$/i.test(commit) ? commit : null, /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : null, card.id);
     return c.json({ ok: true });
   });
+// A note on why a running card is slower (a fixed code and a count), shown under "Generating".
+app.post("/api/worker/cards/:id/progress", async (c) => {
+  const { code, matches } = await c.req.json().catch(() => ({}));
+  const card = runningCard(c);
+  const note = cardProgress(code, matches) || fail(400, "Unknown progress code");
+  db.run("UPDATE cards SET progress = ?, progress_matches = ? WHERE id = ?", note.code, note.matches, card.id);
+  return c.json({ ok: true });
+});
 app.post("/api/worker/cards/:id/fail", async (c) => {
   const { code } = await c.req.json().catch(() => ({}));
   const card = runningCard(c);
