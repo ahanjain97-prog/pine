@@ -62,9 +62,12 @@ Run `npm test` for benchmark and mocked-API regression tests, and `npm run check
 
 ## What's where
 
-- **Big Board** (`#/board`): pitch layout of all 11 positions and 25 roles from the depth chart. Drag cards
-  to rank within a role or move between roles; drag to "Not on the board" to take a player off. Card stripe
-  = club decision, dots = the six staff verdicts, DOM / INTL = domestic (US citizen, from Transfermarkt citizenship)
+- **Big Board** (`#/board`): pitch layout of all 11 positions and 25 roles from the depth chart. Each role is a
+  lane of one-line rows (rank, name, DOM / INTL, age, verdict bar); a lane shows its top five and folds the rest
+  behind "+N more", which also unfolds while you drag over it or when a filter is on, so position boxes in the
+  same pitch row stay the same height. Hover a row for the full card. Drag rows to rank within a role or move
+  between roles; drag to "Not on the board" to take a player off. Row stripe = club decision, the bar = the six
+  staff verdicts (pass / hold / fail share), DOM / INTL = domestic (US citizen, from Transfermarkt citizenship)
   or international. Green cards aren't on Transfermarkt, so a permanent resident shows as INTL.
 - **Database** (`#/players`): sortable and filterable table of everyone, with CSV export.
 - **Player page**: Transfermarkt info (sync button), club decision, staff verdict summary, board roles

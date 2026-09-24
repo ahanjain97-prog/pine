@@ -13,8 +13,8 @@ const GRP_NAME = { CB: "centre backs", FB: "full backs", MID: "midfielders", FWD
 
 const S = {
   me: null, config: null, players: [], byId: new Map(), version: 0, pollTimer: null, dragging: null,
-  board: { decision: "all", q: "", league: "" },
-  table: { q: "", decision: "all", position: "", league: "", sort: "updated_at", dir: -1 },
+  board: { decision: "all", q: "", league: "", open: new Set() },
+  table: { q: "", decision: "all", position: "", league: "", coaches: new Set(), sort: "updated_at", dir: -1 },
   impect: { iteration: "", q: "" },
 };
 
@@ -355,6 +355,15 @@ async function render() {
 }
 
 /* ---------- big board ---------- */
+// Every lane is a stack of one-line rows. A lane shows its top LANE_ROWS and folds the rest behind
+// "+N more" (unfolded by a click, by dragging over it, or automatically while a filter is on), so a
+// position box has a predictable height. Boxes in the same pitch row stretch to equal height. Wide
+// boxes lay their lanes side by side; narrower ones stack them, and a stacked box with three roles
+// shares the same height by showing fewer rows per lane.
+const LANE_ROWS = 5;
+const LANE_ROWS_TRIPLE = 3;
+const LANES_SIDE_BY_SIDE = new Set(["FWD", "CM", "CDM", "GK"]);
+
 function renderBoard(main) {
   const f = S.board;
   const onBoard = S.players.filter((p) => p.roles.length);
@@ -374,8 +383,8 @@ function renderBoard(main) {
     </div>
     <div class="pitch-wrap"><div class="pitch">${S.config.positions.map(posBox).join("")}</div></div>
     <section class="panel tray">
-      <header class="panel-h"><h2>Not on the board</h2><span class="muted sm">${unassigned.length} player${unassigned.length === 1 ? "" : "s"} · drag onto a role, or drag a card here to take it off</span></header>
-      <div class="tray-body" data-tray="1">${unassigned.map((p) => boardCard(p, null)).join("") || `<p class="empty">Everyone in PINE has a role on the board.</p>`}</div>
+      <header class="panel-h"><h2>Not on the board</h2><span class="muted sm">${unassigned.length} player${unassigned.length === 1 ? "" : "s"} · drag onto a role, or drag a player here to take them off</span></header>
+      <div class="tray-body" data-tray="1">${unassigned.map((p) => boardRow(p, null)).join("") || `<p class="empty">Everyone in PINE has a role on the board.</p>`}</div>
     </section>
   </div>`;
   wireBoard(main.firstElementChild);
@@ -383,15 +392,17 @@ function renderBoard(main) {
 
 function posBox(pos) {
   const total = new Set(pos.roles.flatMap(([c]) => playersInRole(c).map((p) => p.id))).size;
+  const side = LANES_SIDE_BY_SIDE.has(pos.code);
+  const limit = !side && pos.roles.length >= 3 ? LANE_ROWS_TRIPLE : LANE_ROWS;
   return `<section class="pos" style="grid-area:${pos.area}">
     <header class="pos-h"><span class="pos-code">${pos.code}</span><span class="pos-label">${esc(pos.label)}</span><span class="pos-n">${total}</span></header>
-    <div class="lanes">${pos.roles.map(([code, label]) => {
+    <div class="lanes ${side ? "side" : "stack"}" style="--n:${pos.roles.length}">${pos.roles.map(([code, label]) => {
       const list = playersInRole(code);
       const num = roleInfo(code).num;
       return `<div class="lane">
         <div class="lane-h"><span class="lane-t" title="${esc(pos.code)} #${num}: ${esc(label)}"><b>#${num}</b>${esc(label)}</span><span class="lane-n">${list.length}</span>
           <button type="button" class="icon-btn" data-add-role="${code}" title="Add a player to ${esc(label)}" aria-label="Add a player to ${esc(pos.code)} ${esc(label)}">+</button></div>
-        <div class="lane-body" data-role="${code}">${list.map((p) => boardCard(p, code)).join("") || `<div class="lane-empty">Drop players here</div>`}</div>
+        <div class="lane-body" data-role="${code}" data-limit="${limit}">${list.map((p) => boardRow(p, code)).join("") || `<div class="lane-empty">Drop players here</div>`}<button type="button" class="more" data-more="${code}" hidden></button></div>
       </div>`;
     }).join("")}</div>
   </section>`;
@@ -409,28 +420,89 @@ function rosterBadge(p) {
   return `<span class="roster ${dom ? "dom" : "intl"}" title="${dom ? "Domestic" : "International"}: ${esc(cit.join(", "))}">${dom ? "DOM" : "INTL"}</span>`;
 }
 
-function boardCard(p, role) {
-  const sub = [p.age, p.club].filter((x) => x != null && x !== "").join(" · ") || p.position || "";
-  return `<a class="pcard ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
-    ${role ? `<span class="rank">${rankIn(p, role) + 1}</span>` : ""}${photo(p)}
-    <span class="ci"><div class="nm-row"><span class="nm">${esc(p.name)}</span>${rosterBadge(p)}</div><div class="csub">${esc(sub)}</div></span>${verdictDots(p.verdicts)}</a>`;
+// The six staff verdicts squeezed into one small bar: pass / hold / fail share of the staff.
+function verdictBar(verdicts) {
+  const n = { pass: 0, hold: 0, fail: 0 };
+  const names = [];
+  for (const s of S.config.staff) {
+    const v = verdicts?.[s.name];
+    if (v) n[v]++;
+    names.push(`${s.name}: ${v ? cap(v) : "no verdict"}`);
+  }
+  const seg = (k) => n[k] ? `<i class="v-${k}" style="width:${(n[k] / S.config.staff.length) * 100}%"></i>` : "";
+  return `<span class="vbar" title="${esc(names.join("\n"))}">${seg("pass")}${seg("hold")}${seg("fail")}</span>`;
+}
+
+function boardRow(p, role) {
+  return `<a class="prow ${p.decision ? "v-" + p.decision : ""} ${role ? "" : "norank"}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
+    ${role ? `<b class="rk">${rankIn(p, role) + 1}</b>` : ""}<span class="nm-row"><span class="nm">${esc(p.name)}</span>${rosterBadge(p)}</span><span class="club">${esc(p.club || "")}</span><span class="age">${p.age ?? ""}</span>${verdictBar(p.verdicts)}</a>`;
+}
+
+// The full card for a row, shown on hover next to it.
+function peekHtml(p) {
+  const line = [p.position, p.age != null ? `${p.age}` : "", p.club, p.league].filter(Boolean).join(" · ");
+  const roles = p.roles.map((r) => `<li>${esc(roleLabel(r.role))} <b>#${r.rank + 1}</b></li>`).join("");
+  return `<div class="peek-top">${photo(p)}<div class="ci"><div class="nm-row"><span class="nm">${esc(p.name)}</span>${rosterBadge(p)}</div><div class="csub">${esc(line)}</div></div>${decisionChip(p.decision)}</div>
+    ${roles ? `<ul class="peek-roles">${roles}</ul>` : ""}
+    <div class="peek-v">${S.config.staff.map((s) => { const v = p.verdicts?.[s.name]; return `<span><i class="vdot ${v ? "v-" + v : ""}"></i>${esc(s.name)}</span>`; }).join("")}</div>`;
+}
+
+function wirePeek(root) {
+  if (!matchMedia("(hover: hover)").matches) return;
+  let peek = $("#peek");
+  if (!peek) { peek = Object.assign(document.createElement("div"), { id: "peek", className: "peek", hidden: true }); document.body.appendChild(peek); }
+  const hide = () => { peek.hidden = true; };
+  root.addEventListener("mouseover", (e) => {
+    const row = e.target.closest(".prow");
+    if (!row || S.dragging) return;
+    const p = S.byId.get(Number(row.dataset.pid));
+    if (!p) return;
+    peek.innerHTML = peekHtml(p);
+    peek.hidden = false;
+    const r = row.getBoundingClientRect();
+    const w = peek.offsetWidth, h = peek.offsetHeight;
+    const left = r.right + 10 + w <= innerWidth ? r.right + 10 : Math.max(8, r.left - 10 - w);
+    const top = Math.min(Math.max(8, r.top - 6), innerHeight - h - 8);
+    peek.style.left = `${left}px`;
+    peek.style.top = `${top}px`;
+  });
+  root.addEventListener("mouseout", (e) => { if (e.target.closest?.(".prow") && !e.relatedTarget?.closest?.(".prow")) hide(); });
+  root.addEventListener("dragstart", hide);
+  root.addEventListener("click", hide);
+  addEventListener("scroll", hide, { passive: true, once: false });
 }
 
 function applyBoardFilter(root) {
   const f = S.board;
-  $$(".pcard", root).forEach((c) => {
-    const p = S.byId.get(Number(c.dataset.pid));
-    c.hidden = !(p && matchDecision(p, f.decision) && (!f.league || p.league === f.league) && matchText(p, f.q));
+  const filtering = f.decision !== "all" || !!f.league || !!f.q.trim();
+  const matches = (row) => { const p = S.byId.get(Number(row.dataset.pid)); return !!p && matchDecision(p, f.decision) && (!f.league || p.league === f.league) && matchText(p, f.q); };
+  $$(".lane-body", root).forEach((zone) => {
+    const role = zone.dataset.role;
+    const open = filtering || f.open.has(role);
+    const limit = open ? Infinity : Number(zone.dataset.limit);
+    let shown = 0, folded = 0;
+    $$(".prow", zone).forEach((row) => {
+      const ok = matches(row);
+      const fits = ok && shown < limit;
+      if (fits) shown++; else if (ok) folded++;
+      row.hidden = !fits;
+    });
+    const more = $(".more", zone);
+    const canFold = !filtering && f.open.has(role) && shown > Number(zone.dataset.limit);
+    more.hidden = !folded && !canFold;
+    more.textContent = folded ? `+${folded} more` : `Show top ${zone.dataset.limit}`;
   });
+  $$("[data-tray] .prow", root).forEach((row) => { row.hidden = !matches(row); });
 }
 
 function cardAfter(zone, y) {
-  return $$(".pcard:not(.dragging)", zone).filter((c) => !c.hidden)
+  return $$(".prow:not(.dragging)", zone).filter((c) => !c.hidden)
     .find((c) => { const r = c.getBoundingClientRect(); return y < r.top + r.height / 2; }) || null;
 }
 
 function wireBoard(root) {
   applyBoardFilter(root);
+  wirePeek(root);
   $("#bf-dec", root).addEventListener("click", (e) => {
     const b = e.target.closest("button[data-k]");
     if (!b) return;
@@ -442,13 +514,19 @@ function wireBoard(root) {
   $("#bf-q", root).addEventListener("input", (e) => { S.board.q = e.target.value; applyBoardFilter(root); });
   root.addEventListener("click", (e) => {
     const b = e.target.closest("[data-add-role]");
-    if (b) { e.preventDefault(); openRolePicker(b.dataset.addRole); }
+    if (b) { e.preventDefault(); openRolePicker(b.dataset.addRole); return; }
+    const m = e.target.closest("[data-more]");
+    if (m) {
+      const role = m.dataset.more;
+      if (S.board.open.has(role)) S.board.open.delete(role); else S.board.open.add(role);
+      applyBoardFilter(root);
+    }
   });
 
   let marker = null;
   const clear = () => { marker?.remove(); marker = null; $$(".over", root).forEach((x) => x.classList.remove("over")); };
   root.addEventListener("dragstart", (e) => {
-    const card = e.target.closest?.(".pcard[draggable]");
+    const card = e.target.closest?.(".prow[draggable]");
     if (!card) return;
     S.dragging = { pid: Number(card.dataset.pid), from: card.dataset.role || null, el: card };
     e.dataTransfer.effectAllowed = "move";
@@ -462,11 +540,16 @@ function wireBoard(root) {
     if (!zone) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
-    if (!zone.classList.contains("over")) { $$(".over", root).forEach((x) => x.classList.remove("over")); zone.classList.add("over"); }
+    if (!zone.classList.contains("over")) {
+      $$(".over", root).forEach((x) => x.classList.remove("over"));
+      zone.classList.add("over");
+      // A folded lane unfolds while something is dragged over it, so any rank is a drop target.
+      if (zone.dataset.role && !S.board.open.has(zone.dataset.role) && !$(".more", zone).hidden) { S.board.open.add(zone.dataset.role); applyBoardFilter(root); }
+    }
     if (zone.matches(".lane-body")) {
       marker ??= Object.assign(document.createElement("div"), { className: "drop-marker" });
       const before = cardAfter(zone, e.clientY);
-      if (before) zone.insertBefore(marker, before); else zone.appendChild(marker);
+      zone.insertBefore(marker, before || $(".more", zone));
     } else marker?.remove();
   });
   root.addEventListener("dragleave", (e) => {
@@ -482,7 +565,7 @@ function wireBoard(root) {
     let req = null;
     if (zone.matches(".lane-body")) {
       const before = cardAfter(zone, e.clientY);
-      const others = $$(".pcard", zone).filter((c) => Number(c.dataset.pid) !== pid);
+      const others = $$(".prow", zone).filter((c) => Number(c.dataset.pid) !== pid);
       const index = before ? others.indexOf(before) : others.length;
       req = api("POST", "/api/board/move", { player_id: pid, from_role: from, to_role: zone.dataset.role, index });
     } else if (from) {
@@ -729,6 +812,7 @@ function tableFiltered() {
   const col = COLS.find((c) => c.k === f.sort) || COLS[0];
   return S.players
     .filter((p) => matchText(p, f.q) && matchDecision(p, f.decision) && (!f.league || p.league === f.league)
+      && (!f.coaches.size || [p.created_by, ...(p.changed_by || [])].some((id) => f.coaches.has(Number(id))))
       && (!f.position || (f.position === "none" ? !p.roles.length : p.roles.some((r) => roleInfo(r.role)?.position === f.position))))
     .sort((a, b) => { const x = col.sort(a), y = col.sort(b); return (x < y ? -1 : x > y ? 1 : 0) * f.dir; });
 }
@@ -736,6 +820,10 @@ function tableFiltered() {
 function renderTable(main) {
   const f = S.table;
   const decs = [["all", "Any decision"], ["pass", "Pass"], ["hold", "Hold"], ["fail", "Fail"], ["none", "Undecided"]];
+  const coachLabel = () => {
+    const names = S.config.staff.filter((s) => f.coaches.has(s.id)).map((s) => s.name);
+    return names.length ? `Changed by ${names.length <= 2 ? names.join(" + ") : `${names.length} coaches`}` : "Changed by any coach";
+  };
   main.innerHTML = `<div class="page">
     <div class="page-h">
       <div><h1>Database</h1><div class="sub" id="t-count"></div></div>
@@ -745,6 +833,13 @@ function renderTable(main) {
         <select id="tf-dec" aria-label="Decision">${decs.map(([k, l]) => `<option value="${k}" ${f.decision === k ? "selected" : ""}>${l}</option>`).join("")}</select>
         <select id="tf-pos" aria-label="Board position"><option value="">Any board position</option><option value="none" ${f.position === "none" ? "selected" : ""}>Not on board</option>${S.config.positions.map((p) => `<option value="${p.code}" ${f.position === p.code ? "selected" : ""}>${p.code} · ${esc(p.label)}</option>`).join("")}</select>
         <select id="tf-league" aria-label="League"><option value="">All leagues</option>${leaguesOf().map((l) => `<option value="${esc(l)}" ${f.league === l ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
+        <details class="coach-filter" id="tf-coach">
+          <summary title="${esc(coachLabel())}"><span id="tf-coach-label">${esc(coachLabel())}</span></summary>
+          <div class="coach-filter-menu">
+            <div class="coach-filter-h"><b>Added or changed by</b><button type="button" class="btn link sm" id="tf-coach-clear" ${f.coaches.size ? "" : "disabled"}>Clear</button></div>
+            ${S.config.staff.map((s) => `<label><input type="checkbox" value="${s.id}" aria-label="${esc(s.name)}" ${f.coaches.has(s.id) ? "checked" : ""}> <span>${esc(s.name)}</span></label>`).join("")}
+          </div>
+        </details>
         <button type="button" class="btn" id="t-csv">Export CSV</button>
       </div>
     </div>
@@ -776,6 +871,24 @@ function renderTable(main) {
   $("#tf-dec", root).addEventListener("change", (e) => { f.decision = e.target.value; draw(); });
   $("#tf-pos", root).addEventListener("change", (e) => { f.position = e.target.value; draw(); });
   $("#tf-league", root).addEventListener("change", (e) => { f.league = e.target.value; draw(); });
+  $("#tf-coach", root).addEventListener("change", (e) => {
+    const input = e.target.closest("input[type=checkbox]");
+    if (!input) return;
+    const id = Number(input.value);
+    if (input.checked) f.coaches.add(id); else f.coaches.delete(id);
+    $("#tf-coach-label", root).textContent = coachLabel();
+    $("#tf-coach summary", root).title = coachLabel();
+    $("#tf-coach-clear", root).disabled = !f.coaches.size;
+    draw();
+  });
+  $("#tf-coach-clear", root).addEventListener("click", () => {
+    f.coaches.clear();
+    $$("#tf-coach input[type=checkbox]", root).forEach((input) => (input.checked = false));
+    $("#tf-coach-label", root).textContent = coachLabel();
+    $("#tf-coach summary", root).title = coachLabel();
+    $("#tf-coach-clear", root).disabled = true;
+    draw();
+  });
   $("thead", root).addEventListener("click", (e) => {
     const th = e.target.closest("th[data-sort]");
     if (!th) return;
