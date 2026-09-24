@@ -85,7 +85,7 @@ const PLAYER_SELECT = `
     (SELECT count(*) FROM notes n WHERE n.player_id = p.id) AS note_count,
     (SELECT max(n.created_at) FROM notes n WHERE n.player_id = p.id) AS last_note_at,
     (SELECT json_group_array(DISTINCT a.user_id) FROM activity a
-      WHERE a.player_id = p.id AND a.user_id IS NOT NULL) AS changed_by_json
+      WHERE a.player_id = p.id AND a.user_id IS NOT NULL AND a.action <> 'added_player') AS changed_by_json
   FROM players p`;
 
 const getPlayer = (id) => hydrate(db.get(`${PLAYER_SELECT} WHERE p.id = ?`, Number(id))) || fail(404, "Player not found");
