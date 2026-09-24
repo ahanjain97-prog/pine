@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { openDb } from '../src/db.js';
 import { tokenMatches } from '../src/auth.js';
 import { addShares, cardOptions } from '../src/lib/card_options.js';
-import { cardErrorCode, cardFileName, claimCard, isPdf, isPng, saveCardFile } from '../src/lib/cards.js';
+import { cardErrorCode, cardFileName, cardProgress, claimCard, isPdf, isPng, saveCardFile } from '../src/lib/cards.js';
 
 const it = (id, season, competition = 'USL League One', type = 'League') => ({ id, season, competition, type });
 
@@ -104,6 +104,44 @@ test('worker token: an unset key opens nothing; only the exact key matches', () 
   assert.equal(tokenMatches('secret-kez', 'secret-key'), false);
   assert.equal(tokenMatches('secret-key-longer', 'secret-key'), false);
   assert.equal(tokenMatches('secret-key', 'secret-key'), true);
+});
+
+test('progress notes: a fixed code and a sane match count, nothing else', () => {
+  assert.deepEqual(cardProgress('fetching_events', 21), { code: 'fetching_events', matches: 21 });
+  assert.deepEqual(cardProgress('fetching_events', 0), { code: 'fetching_events', matches: null });
+  assert.deepEqual(cardProgress('fetching_events', 2.5), { code: 'fetching_events', matches: null });
+  assert.deepEqual(cardProgress('fetching_events', '21'), { code: 'fetching_events', matches: null });
+  assert.deepEqual(cardProgress('fetching_events', 5000), { code: 'fetching_events', matches: null });
+  assert.equal(cardProgress('Traceback (most recent call last)', 21), null);
+  assert.equal(cardProgress(undefined, undefined), null);
+});
+
+test("a reclaimed card forgets the earlier attempt's progress note", () => {
+  const { db, add } = queueDb();
+  const card = add('AM', 30);
+  claimCard(db);
+  db.run("UPDATE cards SET progress = 'fetching_events', progress_matches = 21, started_at = datetime('now', '-16 minutes') WHERE id = ?", card);
+  assert.equal(claimCard(db).id, card);
+  assert.deepEqual({ ...db.get('SELECT progress, progress_matches FROM cards WHERE id = ?', card) }, { progress: null, progress_matches: null });
+});
+
+test('an existing database gains the progress columns and keeps its cards', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pine-cards-'));
+  try {
+    const file = join(dir, 'pine.db');
+    const db = openDb(file);
+    const player = Number(db.run("INSERT INTO players(name, impect_id) VALUES ('Test Player', 555)").lastInsertRowid);
+    db.run("INSERT INTO cards(player_id, impect_id, iteration_id, position) VALUES (?, 555, 11, 'AM')", player);
+    db.raw.exec('ALTER TABLE cards DROP COLUMN progress_matches; ALTER TABLE cards DROP COLUMN progress;');
+    db.raw.close();
+    const again = openDb(file);
+    const cols = again.all('PRAGMA table_info(cards)').map((c) => c.name);
+    assert.ok(cols.includes('progress') && cols.includes('progress_matches'));
+    assert.equal(again.get('SELECT count(*) AS n FROM cards').n, 1);
+    again.raw.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('failure codes outside the contract are stored as "failed"', () => {

@@ -9,19 +9,28 @@ export const DAILY_CARD_LIMIT = 30; // across PINE, per rolling 24 hours
 const STALE_MINUTES = 15; // a running job untouched this long is handed out again
 const MAX_ATTEMPTS = 3;
 const ERROR_CODES = ["not_covered", "no_minutes", "position_unavailable", "goalkeeper", "data_missing", "render_failed", "failed"];
+// What a running card is doing that makes it slower. fetching_events: downloading the player's match
+// events from Impect, which a card needs once per match; the worker sends how many matches.
+const PROGRESS_CODES = ["fetching_events"];
 
 export const cardErrorCode = (code) => (ERROR_CODES.includes(code) ? code : "failed");
+// { code, matches } to store, or null for a code outside the contract. A bad count is dropped, not the note.
+export const cardProgress = (code, matches) => (PROGRESS_CODES.includes(code)
+  ? { code, matches: Number.isInteger(matches) && matches > 0 && matches <= 1000 ? matches : null }
+  : null);
 export const isPdf = (buf) => buf.subarray(0, 5).toString("latin1") === "%PDF-";
 export const isPng = (buf) => buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
 
 // The oldest queued job, or one stuck in 'running' (its worker died), marked running now.
 // A card that has been handed out MAX_ATTEMPTS times and is stuck again is failed, not retried forever.
-// An earlier attempt's PNG is forgotten (its file stays), so the picture always matches the PDF.
+// An earlier attempt's PNG is forgotten (its file stays), so the picture always matches the PDF,
+// and so is its progress note.
 export function claimCard(db) {
   const stale = `status = 'running' AND started_at < datetime('now', '-${STALE_MINUTES} minutes')`;
   db.run(`UPDATE cards SET status = 'failed', error = 'failed' WHERE ${stale} AND attempts >= ${MAX_ATTEMPTS}`);
   const job = db.get(
-    `UPDATE cards SET status = 'running', started_at = datetime('now'), attempts = attempts + 1, image = NULL
+    `UPDATE cards SET status = 'running', started_at = datetime('now'), attempts = attempts + 1, image = NULL,
+         progress = NULL, progress_matches = NULL
      WHERE id = (SELECT id FROM cards WHERE status = 'queued' OR (${stale})
                  ORDER BY requested_at, id LIMIT 1)
      RETURNING id, impect_id, iteration_id, position, tm_id`);

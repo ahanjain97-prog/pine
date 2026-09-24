@@ -1282,6 +1282,14 @@ const CARD_FAILED = {
   failed: "The card couldn't be generated.",
 };
 const cardFailed = (c) => CARD_FAILED[c.error] || CARD_FAILED.failed;
+// Why a running card is slower, from the worker's progress note. Impect events take about 3 s a match.
+const cardNote = (c) => {
+  if (c.status !== "running" || c.progress !== "fetching_events") return "";
+  const n = c.progress_matches;
+  const what = n ? `event data for ${n} match${n === 1 ? "" : "es"}` : "match event data";
+  const wait = !n ? "" : n * 3 < 45 ? ", under a minute" : `, about ${Math.round((n * 3) / 60)} min`;
+  return `<p class="card-line muted">${esc(`Downloading ${what} from Impect first${wait}. Later cards reuse it.`)}</p>`;
+};
 const cardOpen = (c) => c.status === "queued" || c.status === "running";
 const cardPdf = (c, label, cls = "btn sm") => `<a class="${cls}" href="/api/cards/${c.id}/pdf" target="_blank" rel="noopener">${label}</a>`;
 const cardImg = (c) => c.has_image ? `<a class="card-img" href="/api/cards/${c.id}/pdf" target="_blank" rel="noopener" title="Open the PDF">
@@ -1327,7 +1335,8 @@ async function loadCardPanel(root, p) {
     const open = cards.find(cardOpen);
     body.innerHTML = `
       ${open ? `<p class="card-line"><span class="dchip v-hold">${open.status === "queued" ? "Queued" : "Generating"}</span>
-        <span class="muted sm">${esc(`${open.position} · ${open.season} ${open.competition} · ${open.status === "queued" ? `requested ${relTime(open.requested_at)}` : `started ${relTime(open.started_at)}`}`)}</span></p>` : ""}
+        <span class="muted sm">${esc(`${open.position} · ${open.season} ${open.competition} · ${open.status === "queued" ? `requested ${relTime(open.requested_at)}` : `started ${relTime(open.started_at)}`}`)}</span></p>
+        ${cardNote(open)}` : ""}
       ${failed ? `<div class="banner err sm">${esc(cardFailed(failed))}</div>` : ""}
       ${done.length ? `<div class="card-line"><span>Generated <b>${esc(fmtDateTime(done[0].generated_at))}</b>${done[0].data_as_of
           ? ` <span class="muted card-asof">· data through ${esc(fmtDate(done[0].data_as_of))}</span>` : ""}</span><span class="spacer"></span>${cardPdf(done[0], "Open PDF ↗")}</div>
