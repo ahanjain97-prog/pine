@@ -2,10 +2,9 @@
 // and in each, the card positions with at least one match share. The card worker renders the PDF;
 // PINE only decides what may be requested.
 
-import { impectGet, iterations as impectIterations, getImpectPlayer } from "./impect.js";
+import { impectGet, iterations as impectIterations } from "./impect.js";
 import { BENCHMARK_LEAGUES, mapLimit } from "./impect_kpi.js";
 
-const TTL_MS = 12 * 60 * 60 * 1000;
 export const MIN_CARD_SHARE = 1;
 
 // Card positions in pitch order (also the tie-break order).
@@ -56,40 +55,98 @@ export function cardOptions(iterations, shares) {
   return { seasons, default: top ? { iteration_id: top.iteration_id, position: top.positions[0].code } : null };
 }
 
-/* ---------- match shares for every player in one iteration ---------- */
-const indexes = new Map(); // iterationId -> { data } | { promise }
+/* ---------- match shares for every player in one iteration, stored in SQLite ---------- */
+// A closed season (older than the newest card season) is fetched once and kept. The current season is
+// rebuilt when its build is over 12 hours old, in the background: requests are served from the stored
+// rows meanwhile. Only a season that has never been built makes a request wait.
+const building = new WeakMap(); // db -> Map(iteration id -> promise of the build in flight)
 
-async function buildIndex(iterationId) {
+async function fetchShares(iterationId) {
   const index = new Map();
   const squads = await impectGet(`/v5/customerapi/iterations/${iterationId}/squads`);
   // player-scores rows carry position and matchShare and are a quarter the size of player-kpis.
   await mapLimit(squads, 4, async (s) =>
     addShares(index, await impectGet(`/v5/customerapi/iterations/${iterationId}/squads/${s.id}/player-scores`, { store: false })));
-  return { at: Date.now(), index };
+  return index;
 }
 
-async function sharesIndex(iterationId) {
-  const hit = indexes.get(iterationId);
-  if (hit?.data && Date.now() - hit.data.at < TTL_MS) return hit.data.index;
-  if (hit?.promise) return hit.promise;
-  const promise = buildIndex(iterationId)
-    .then((data) => {
-      indexes.set(iterationId, { data });
-      return data.index;
-    })
-    .catch((e) => {
-      indexes.delete(iterationId);
-      throw e;
-    });
-  indexes.set(iterationId, { promise });
-  return promise;
+function saveShares(db, iterationId, index) {
+  db.tx(() => {
+    db.run("DELETE FROM card_shares WHERE iteration_id = ?", iterationId);
+    for (const [playerId, shares] of index) {
+      for (const [position, share] of shares) {
+        db.run("INSERT INTO card_shares(iteration_id, impect_id, position, match_share) VALUES (?,?,?,?)", iterationId, playerId, position, share);
+      }
+    }
+    db.run("INSERT INTO card_share_builds(iteration_id, built_at) VALUES (?, datetime('now')) ON CONFLICT(iteration_id) DO UPDATE SET built_at = excluded.built_at", iterationId);
+  });
 }
 
-export async function playerCardOptions(impectId) {
-  const id = Number(impectId);
-  const [player, its] = await Promise.all([getImpectPlayer(id), impectIterations()]);
-  const byId = new Map(its.map((i) => [i.id, i]));
-  const mine = (player?.iterations || []).map((i) => byId.get(i.id) || i).filter(cardSeason);
-  const found = await mapLimit(mine, 2, (i) => sharesIndex(i.id));
-  return cardOptions(mine, new Map(mine.map((i, n) => [i.id, found[n].get(id)])));
+const inFlightFor = (db) => building.get(db) || building.set(db, new Map()).get(db);
+
+// Concurrent callers share one build per iteration.
+function build(db, iterationId) {
+  const inFlight = inFlightFor(db);
+  if (!inFlight.has(iterationId)) {
+    inFlight.set(iterationId, fetchShares(iterationId)
+      .then((index) => saveShares(db, iterationId, index))
+      .finally(() => inFlight.delete(iterationId)));
+  }
+  return inFlight.get(iterationId);
+}
+
+// null = never built; "fresh" = nothing to do; "stale" = a current season due for a rebuild.
+function buildState(db, it, newest) {
+  const row = db.get("SELECT built_at > datetime('now', '-12 hours') AS fresh FROM card_share_builds WHERE iteration_id = ?", it.id);
+  if (!row) return null;
+  const closed = String(it.season) < newest;
+  return closed || row.fresh ? "fresh" : "stale";
+}
+
+async function cardIterations() {
+  const its = (await impectIterations()).filter(cardSeason);
+  return { its, newest: its.reduce((m, it) => (String(it.season) > m ? String(it.season) : m), "") };
+}
+
+function refreshInBackground(db, it) {
+  if (inFlightFor(db).has(it.id)) return;
+  build(db, it.id).catch((e) => console.warn(`card seasons: rebuilding iteration ${it.id} failed: ${e.message}`));
+}
+
+// Builds every card season that has never been built and rebuilds stale current ones, one at a time.
+// Run at startup; a failure is logged and the pass moves on.
+export async function warmCardShares(db) {
+  const { its, newest } = await cardIterations();
+  const done = { built: 0, refreshed: 0, failed: 0 };
+  for (const it of its) {
+    const state = buildState(db, it, newest);
+    if (state === "fresh") continue;
+    try {
+      await build(db, it.id);
+      done[state ? "refreshed" : "built"]++;
+    } catch (e) {
+      done.failed++;
+      console.warn(`card seasons: building iteration ${it.id} failed: ${e.message}`);
+    }
+  }
+  return done;
+}
+
+export async function playerCardOptions(db, impectId) {
+  const { its, newest } = await cardIterations();
+  const missing = [];
+  for (const it of its) {
+    const state = buildState(db, it, newest);
+    if (!state) missing.push(it);
+    else if (state === "stale") refreshInBackground(db, it);
+  }
+  await mapLimit(missing, 2, (it) => build(db, it.id));
+
+  const shares = new Map();
+  for (const r of db.all("SELECT iteration_id, position, match_share FROM card_shares WHERE impect_id = ?", Number(impectId))) {
+    const mine = shares.get(r.iteration_id) || new Map();
+    mine.set(r.position, r.match_share);
+    shares.set(r.iteration_id, mine);
+  }
+  return cardOptions(its.filter((it) => shares.has(it.id)), shares);
 }

@@ -78,7 +78,10 @@ Run `npm test` for benchmark and mocked-API regression tests, and `npm run check
   can write in yours), physical percentiles, Impect link, lists, and history.
 - **Player card**: a PDF made outside PINE, shown on the player page as a picture that opens the PDF.
   Pick a season (league seasons in our three leagues, never the cup) and a position (any with at least
-  one Impect match share that season); an admin presses Generate. That queues a job; the card worker on
+  one Impect match share that season). Those choices come from every player's match shares per season,
+  stored in SQLite (`card_shares`): closed seasons are fetched from Impect once, the current season is
+  refreshed in the background every 12 hours, and at startup the server fetches any season it doesn't
+  have yet. An admin presses Generate. That queues a job; the card worker on
   the Mac mini claims it (`POST /api/worker/cards/claim`), renders it, uploads a PNG of it
   (`PUT /api/worker/cards/:id/png`, optional) and then the PDF (`PUT /api/worker/cards/:id/pdf`, which
   finishes the job), or reports a failure code (`POST /api/worker/cards/:id/fail`). While it works it can
