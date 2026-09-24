@@ -13,7 +13,7 @@ const GRP_NAME = { CB: "centre backs", FB: "full backs", MID: "midfielders", FWD
 
 const S = {
   me: null, config: null, players: [], byId: new Map(), version: 0, pollTimer: null, dragging: null,
-  board: { decision: "all", q: "", league: "", open: new Set() },
+  board: { decision: "all", q: "", league: "", open: new Set(), cpos: new Set(), crole: new Set() },
   table: { q: "", decision: "all", position: "", league: "", coaches: new Set(), sort: "updated_at", dir: -1 },
   impect: { iteration: "", q: "" },
 };
@@ -361,6 +361,20 @@ async function render() {
 // rows per lane so it comes out the same height as a box with two.
 const LANE_ROWS = 5;
 const LANE_ROWS_TRIPLE = 3;
+const CHEV = `<svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+// Which position boxes and role lanes are collapsed, kept in this browser between visits.
+const COLLAPSE_KEY = "pine.board.collapsed";
+function loadCollapsed() {
+  try {
+    const c = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "{}");
+    S.board.cpos = new Set(c.pos || []);
+    S.board.crole = new Set(c.roles || []);
+  } catch { /* no storage: everything starts open */ }
+}
+function saveCollapsed() {
+  try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify({ pos: [...S.board.cpos], roles: [...S.board.crole] })); } catch {}
+}
 
 function renderBoard(main) {
   const f = S.board;
@@ -368,10 +382,12 @@ function renderBoard(main) {
   const count = (d) => onBoard.filter((p) => p.decision === d).length;
   const unassigned = S.players.filter((p) => !p.roles.length);
   const decs = [["all", "All"], ["pass", "Pass"], ["hold", "Hold"], ["fail", "Fail"], ["none", "Undecided"]];
+  loadCollapsed();
   main.innerHTML = `<div class="page">
     <div class="page-h">
       <div><h1>Big Board</h1>
-        <div class="board-stats"><span><b>${onBoard.length}</b> on board</span><span><b>${count("pass")}</b> pass</span><span><b>${count("hold")}</b> hold</span><span><b>${count("fail")}</b> fail</span></div></div>
+        <div class="board-stats"><span><b>${onBoard.length}</b> on board</span><span><b>${count("pass")}</b> pass</span><span><b>${count("hold")}</b> hold</span><span><b>${count("fail")}</b> fail</span>
+          <span class="board-fold"><button type="button" class="btn link" data-fold-all="1">Collapse all</button><button type="button" class="btn link" data-fold-all="0">Expand all</button></span></div></div>
       <div class="spacer"></div>
       <div class="filters">
         <div class="seg" id="bf-dec">${decs.map(([k, l]) => `<button type="button" data-k="${k}" class="${k !== "all" && k !== "none" ? "v-" + k : ""} ${f.decision === k ? "on" : ""}">${l}</button>`).join("")}</div>
@@ -391,13 +407,18 @@ function renderBoard(main) {
 function posBox(pos) {
   const total = new Set(pos.roles.flatMap(([c]) => playersInRole(c).map((p) => p.id))).size;
   const limit = pos.roles.length >= 3 ? LANE_ROWS_TRIPLE : LANE_ROWS;
-  return `<section class="pos" style="grid-area:${pos.area}">
-    <header class="pos-h"><span class="pos-code">${pos.code}</span><span class="pos-label">${esc(pos.label)}</span><span class="pos-n">${total}</span></header>
+  const closed = S.board.cpos.has(pos.code);
+  const tops = pos.roles.map(([code]) => { const p = playersInRole(code)[0]; return `<span><b>#${roleInfo(code).num}</b> ${p ? esc(p.name) : "<i>empty</i>"}</span>`; }).join("");
+  return `<section class="pos ${closed ? "collapsed" : ""}" style="grid-area:${pos.area}" data-pos="${pos.code}">
+    <header class="pos-h" title="${closed ? "Expand" : "Collapse"} ${esc(pos.label)}"><button type="button" class="fold" data-fold-pos="${pos.code}" aria-expanded="${!closed}" aria-label="${closed ? "Expand" : "Collapse"} ${esc(pos.label)}">${CHEV}</button><span class="pos-code">${pos.code}</span><span class="pos-label">${esc(pos.label)}</span><span class="pos-n">${total}</span></header>
+    <div class="pos-sum">${tops}</div>
     <div class="lanes">${pos.roles.map(([code, label]) => {
       const list = playersInRole(code);
       const num = roleInfo(code).num;
-      return `<div class="lane">
-        <div class="lane-h"><span class="lane-t" title="${esc(pos.code)} #${num}: ${esc(label)}"><b>#${num}</b>${esc(label)}</span>
+      const lclosed = S.board.crole.has(code);
+      return `<div class="lane ${lclosed ? "collapsed" : ""}" data-lane="${code}">
+        <div class="lane-h" title="${lclosed ? "Expand" : "Collapse"} ${esc(label)}"><button type="button" class="fold" data-fold-role="${code}" aria-expanded="${!lclosed}" aria-label="${lclosed ? "Expand" : "Collapse"} ${esc(label)}">${CHEV}</button><span class="lane-t" title="${esc(pos.code)} #${num}: ${esc(label)}"><b>#${num}</b>${esc(label)}</span>
+          <span class="lane-top">${list[0] ? esc(list[0].name) : ""}</span>
           <button type="button" class="more" data-more="${code}" hidden></button><span class="lane-n">${list.length}</span>
           <button type="button" class="icon-btn" data-add-role="${code}" title="Add a player to ${esc(label)}" aria-label="Add a player to ${esc(pos.code)} ${esc(label)}">+</button></div>
         <div class="lane-body" data-role="${code}" data-limit="${limit}">${list.map((p) => boardRow(p, code)).join("") || `<div class="lane-empty">Drop players here</div>`}</div>
@@ -499,9 +520,37 @@ function cardAfter(zone, y) {
     .find((c) => { const r = c.getBoundingClientRect(); return y < r.top + r.height / 2; }) || null;
 }
 
+function setFold(root, kind, code, closed) {
+  const set = kind === "pos" ? S.board.cpos : S.board.crole;
+  if (closed) set.add(code); else set.delete(code);
+  const el = $(kind === "pos" ? `.pos[data-pos="${code}"]` : `.lane[data-lane="${code}"]`, root);
+  if (!el) return;
+  el.classList.toggle("collapsed", closed);
+  const head = $(kind === "pos" ? ".pos-h" : ".lane-h", el);
+  const btn = $(".fold", head);
+  const label = kind === "pos" ? S.config.positions.find((p) => p.code === code)?.label : roleInfo(code)?.label;
+  btn.setAttribute("aria-expanded", String(!closed));
+  btn.setAttribute("aria-label", `${closed ? "Expand" : "Collapse"} ${label || code}`);
+  head.title = `${closed ? "Expand" : "Collapse"} ${label || code}`;
+}
+
 function wireBoard(root) {
   applyBoardFilter(root);
   wirePeek(root);
+  root.addEventListener("click", (e) => {
+    const all = e.target.closest("[data-fold-all]");
+    if (all) {
+      const closed = all.dataset.foldAll === "1";
+      S.config.positions.forEach((p) => { setFold(root, "pos", p.code, closed); p.roles.forEach(([c]) => setFold(root, "role", c, closed)); });
+      saveCollapsed();
+      return;
+    }
+    // The chevron, or a click anywhere on a position / lane header that isn't another control.
+    const fp = e.target.closest("[data-fold-pos]") || (e.target.closest(".pos-h") && !e.target.closest("button, a") ? { dataset: { foldPos: e.target.closest(".pos").dataset.pos } } : null);
+    if (fp) { setFold(root, "pos", fp.dataset.foldPos, !S.board.cpos.has(fp.dataset.foldPos)); saveCollapsed(); return; }
+    const fr = e.target.closest("[data-fold-role]") || (e.target.closest(".lane-h") && !e.target.closest("button, a") ? { dataset: { foldRole: e.target.closest(".lane").dataset.lane } } : null);
+    if (fr) { setFold(root, "role", fr.dataset.foldRole, !S.board.crole.has(fr.dataset.foldRole)); saveCollapsed(); }
+  });
   $("#bf-dec", root).addEventListener("click", (e) => {
     const b = e.target.closest("button[data-k]");
     if (!b) return;
@@ -535,6 +584,11 @@ function wireBoard(root) {
   root.addEventListener("dragend", () => { S.dragging?.el?.classList.remove("dragging"); S.dragging = null; clear(); });
   root.addEventListener("dragover", (e) => {
     if (!S.dragging) return;
+    // Dragging over a collapsed position or lane opens it so its lanes become drop targets.
+    const cpos = e.target.closest(".pos.collapsed");
+    if (cpos) { setFold(root, "pos", cpos.dataset.pos, false); saveCollapsed(); }
+    const clane = e.target.closest(".lane.collapsed");
+    if (clane) { setFold(root, "role", clane.dataset.lane, false); saveCollapsed(); }
     const zone = e.target.closest(".lane-body, [data-tray]");
     if (!zone) return;
     e.preventDefault();

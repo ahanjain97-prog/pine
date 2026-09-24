@@ -155,6 +155,8 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 /* ---------- big board ---------- */
 .board-stats { display: flex; gap: 14px; font-size: 12.5px; color: var(--muted); }
 .board-stats b { color: var(--ink); }
+.board-fold { display: inline-flex; gap: 10px; margin-left: 6px; }
+.board-fold .btn.link { font-size: 12px; padding: 0; }
 .pitch-wrap { overflow-x: auto; border-radius: 16px; }
 .pitch { position: relative; min-width: 1120px; border-radius: 16px; padding: 18px;
   background: repeating-linear-gradient(180deg, var(--pitch-a) 0 70px, var(--pitch-b) 70px 140px);
@@ -170,14 +172,34 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .pitch::before { content: ""; position: absolute; inset: 10px; border: 2px solid var(--pitch-line); border-radius: 8px; pointer-events: none; }
 .pitch::after { content: ""; position: absolute; left: 10px; right: 10px; top: 50%; border-top: 2px solid var(--pitch-line); pointer-events: none; }
 .pos { position: relative; z-index: 1; background: var(--pos-bg); border-radius: 12px; box-shadow: 0 2px 10px rgba(0, 0, 0, .18); min-width: 0; display: flex; flex-direction: column; }
-.pos-h { display: flex; align-items: center; gap: 8px; padding: 7px 10px 3px; }
+.pos-h { display: flex; align-items: center; gap: 8px; padding: 7px 10px 3px 6px; cursor: pointer; user-select: none; }
+.fold { width: 20px; height: 20px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); display: grid; place-items: center; cursor: pointer; padding: 0; flex: none; }
+.fold:hover { background: var(--surface-2); color: var(--ink); }
+.chev { width: 12px; height: 12px; transition: transform .15s; }
+.collapsed > .pos-h .chev, .lane.collapsed .chev { transform: rotate(-90deg); }
+@media (prefers-reduced-motion: reduce) { .chev { transition: none; } }
+.pos.collapsed { align-self: start; }
+.pos.collapsed .lanes { display: none; }
+.pos.collapsed .pos-h { padding-bottom: 4px; }
+.pos-sum { display: none; padding: 0 10px 8px 34px; font-size: 11.5px; color: var(--ink-2); flex-direction: column; gap: 2px; }
+.pos-sum span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pos-sum b { font-family: var(--disp); font-size: 12px; color: var(--muted); letter-spacing: .03em; margin-right: 2px; }
+.pos-sum i { color: var(--muted); }
+.pos.collapsed .pos-sum { display: flex; }
 .pos-code { background: var(--navy); color: #fff; font-family: var(--disp); font-weight: 700; font-size: 15px; letter-spacing: .05em; border-radius: 999px; padding: 1px 12px; }
 @media (prefers-color-scheme: dark) { .pos-code { background: var(--navy-2); } }
 .pos-label { font-size: 12px; color: var(--muted); font-weight: 600; }
 .pos-n { margin-left: auto; font-size: 11.5px; color: var(--muted); }
-.lanes { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); grid-auto-rows: minmax(0, 1fr); gap: 6px; padding: 4px 6px 6px; min-height: 0; }
-.lane { background: var(--surface-2); border: 1px solid var(--line); border-radius: 9px; min-width: 0; display: flex; flex-direction: column; container: lane / inline-size; }
-.lane-h { display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 9px; border-bottom: 1px solid var(--line); }
+.lanes { flex: 1; display: flex; flex-direction: column; gap: 6px; padding: 4px 6px 6px; min-height: 0; }
+.lane { flex: 1; background: var(--surface-2); border: 1px solid var(--line); border-radius: 9px; min-width: 0; display: flex; flex-direction: column; container: lane / inline-size; }
+.lane.collapsed { flex: none; }
+.lane.collapsed .lane-body { display: none; }
+.lane.collapsed .lane-h { border-bottom: 0; }
+.lane-h { display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 5px; border-bottom: 1px solid var(--line); cursor: pointer; user-select: none; }
+.lane-top { display: none; font-size: 11.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.lane.collapsed .lane-top { display: block; flex: 1; }
+.lane.collapsed .lane-t { flex: none; max-width: 55%; }
+.lane.collapsed .more { display: none; }
 .lane-t { flex: 1; font-size: 11.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lane-t b { font-family: var(--disp); font-size: 13px; letter-spacing: .03em; margin-right: 3px; }
 .lane-n { font-size: 11px; color: var(--muted); }
