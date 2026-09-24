@@ -81,6 +81,22 @@ CREATE TABLE IF NOT EXISTS list_members(
   player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
   PRIMARY KEY(list_id, player_id)
 );
+CREATE TABLE IF NOT EXISTS cards(
+  id INTEGER PRIMARY KEY,
+  player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  impect_id INTEGER NOT NULL,
+  iteration_id INTEGER NOT NULL,
+  competition TEXT, season TEXT,
+  position TEXT NOT NULL,
+  tm_id TEXT,
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','done','failed')),
+  error TEXT,
+  requested_by INTEGER REFERENCES users(id),
+  requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+  started_at TEXT, generated_at TEXT,
+  file TEXT, bytes INTEGER, hop_commit TEXT, data_as_of TEXT
+);
+CREATE INDEX IF NOT EXISTS cards_player ON cards(player_id, requested_at);
 CREATE TABLE IF NOT EXISTS activity(
   id INTEGER PRIMARY KEY,
   user_id INTEGER REFERENCES users(id),

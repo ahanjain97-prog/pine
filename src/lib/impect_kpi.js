@@ -8,7 +8,7 @@ import { impectGet, iterations as impectIterations, getImpectPlayer } from "./im
 import { CATEGORIES, POSITION_MAP, POSITION_LABEL, MIN_MATCH_SHARE, ALL_METRICS } from "./impect_categories.js";
 import { benchmark, fixedFloor } from "./impect_benchmark.js";
 
-const BENCHMARK_LEAGUES = ["USL Championship", "MLS Next Pro", "USL League One"];
+export const BENCHMARK_LEAGUES = ["USL Championship", "MLS Next Pro", "USL League One"];
 
 const TTL_MS = 12 * 60 * 60 * 1000;
 const METRICS = new Set(ALL_METRICS);
@@ -91,7 +91,7 @@ async function definitions() {
   return defsCache;
 }
 
-async function mapLimit(items, limit, fn) {
+export async function mapLimit(items, limit, fn) {
   const out = new Array(items.length);
   let next = 0;
   await Promise.all(
