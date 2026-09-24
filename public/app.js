@@ -907,6 +907,7 @@ async function renderPlayer(main, idArg) {
           <textarea id="summary" rows="3" data-draft data-orig="${esc(p.summary || "")}" placeholder="Overall summary, fit, next steps…">${esc(p.summary || "")}</textarea>
           <div class="row end" style="margin-top:6px"><button type="button" class="btn sm" id="save-summary">Save summary</button></div>
         </section>
+        ${p.impect_id ? `<section class="panel" id="card-panel"><header class="panel-h"><h2>Player card</h2></header><div class="loading sm">Loading…</div></section>` : ""}
         ${p.impect_id ? `<section class="panel" id="kpi-panel"><header class="panel-h"><h2>Impect KPI profile</h2></header><div class="loading sm">Loading…</div></section>` : ""}
         <section class="panel"><header class="panel-h"><h2>Staff evaluations</h2></header><div class="evals">${d.staff.map(evalHTML).join("")}</div></section>
       </div>
@@ -925,6 +926,7 @@ async function renderPlayer(main, idArg) {
   if (!p.tm_url) loadTmPanel(root, p);
   loadPhysicalPanel(root, p);
   loadImpectPanel(root, p);
+  if (p.impect_id) loadCardPanel(root, p);
 }
 
 /* ---------- impect KPI profile ---------- */
@@ -1269,6 +1271,117 @@ async function loadImpectPanel(root, p) {
   });
 }
 
+/* ---------- player card (a PDF the card worker renders, shown as its PNG; every version is kept) ---------- */
+const CARD_FAILED = {
+  not_covered: "This season isn't in the card data yet.",
+  no_minutes: "The card data has no minutes for this player in this season.",
+  position_unavailable: "The card data doesn't have this position for this player in this season.",
+  goalkeeper: "Goalkeepers don't have a player card.",
+  data_missing: "Some of the data this card needs is missing.",
+  render_failed: "The card couldn't be drawn.",
+  failed: "The card couldn't be generated.",
+};
+const cardFailed = (c) => CARD_FAILED[c.error] || CARD_FAILED.failed;
+const cardOpen = (c) => c.status === "queued" || c.status === "running";
+const cardPdf = (c, label, cls = "btn sm") => `<a class="${cls}" href="/api/cards/${c.id}/pdf" target="_blank" rel="noopener">${label}</a>`;
+const cardImg = (c) => c.has_image ? `<a class="card-img" href="/api/cards/${c.id}/pdf" target="_blank" rel="noopener" title="Open the PDF">
+  <img src="/api/cards/${c.id}/png" width="1600" height="1088" decoding="async" alt="${esc(`Player card: ${c.position}, ${c.season} ${c.competition}`)}"></a>` : "";
+const cardPick = new Map(); // player id -> last season/position picked, kept across re-renders
+let cardTimer = null;
+
+async function loadCardPanel(root, p) {
+  const el = $("#card-panel", root);
+  const head = `<header class="panel-h"><h2>Player card</h2></header>`;
+  let cards, opts;
+  try {
+    ({ cards } = await api("GET", `/api/players/${p.id}/cards`));
+    opts = await api("GET", `/api/players/${p.id}/card-options`);
+  } catch (e) {
+    // Impect unreachable: say so, but keep finished cards one click away.
+    el.innerHTML = `${head}<div class="banner err sm">${esc(e.message)}</div>${(cards || []).filter((c) => c.status === "done").map((c) =>
+      `<div class="card-line"><span>${esc(`${c.position} · ${c.season} · ${fmtDateTime(c.generated_at)}`)}</span><span class="spacer"></span>${cardPdf(c, "Open ↗")}</div>`).join("")}`;
+    return;
+  }
+  if (!el.isConnected) return;
+  if (!opts.seasons.length) { el.innerHTML = `${head}<p class="empty">No outfield Impect minutes to build a card from.</p>`; return; }
+
+  const offered = (x) => opts.seasons.some((s) => s.iteration_id === x?.iteration_id && s.positions.some((o) => o.code === x.position));
+  const sel = { ...(offered(cardPick.get(p.id)) ? cardPick.get(p.id) : opts.default) };
+  const season = () => opts.seasons.find((s) => s.iteration_id === sel.iteration_id);
+  el.innerHTML = `<header class="panel-h"><h2>Player card</h2>${S.me.is_admin ? `<button type="button" class="btn sm" id="card-go"></button>` : ""}</header>
+    <div class="card-pick">
+      <select id="card-season" aria-label="Season">${opts.seasons.map((s) => `<option value="${s.iteration_id}">${esc(s.season)} · ${esc(s.competition)}</option>`).join("")}</select>
+      <select id="card-pos" aria-label="Position"></select>
+    </div>
+    <div id="card-body"></div>`;
+  const seasonSel = $("#card-season", el), posSel = $("#card-pos", el), body = $("#card-body", el), go = $("#card-go", el);
+  const fillPositions = () => {
+    posSel.innerHTML = season().positions.map((o) => `<option value="${o.code}">${o.code} · ${esc(o.label)} · ${o.match_share.toFixed(1)} matches</option>`).join("");
+    seasonSel.value = sel.iteration_id;
+    posSel.value = sel.position;
+  };
+  const drawBody = () => {
+    const mine = cards.filter((c) => c.iteration_id === sel.iteration_id && c.position === sel.position);
+    const done = mine.filter((c) => c.status === "done");
+    const failed = mine[0]?.status === "failed" ? mine[0] : null;
+    const open = cards.find(cardOpen);
+    body.innerHTML = `
+      ${open ? `<p class="card-line"><span class="dchip v-hold">${open.status === "queued" ? "Queued" : "Generating"}</span>
+        <span class="muted sm">${esc(`${open.position} · ${open.season} ${open.competition} · ${open.status === "queued" ? `requested ${relTime(open.requested_at)}` : `started ${relTime(open.started_at)}`}`)}</span></p>` : ""}
+      ${failed ? `<div class="banner err sm">${esc(cardFailed(failed))}</div>` : ""}
+      ${done.length ? `<div class="card-line"><span>Generated <b>${esc(fmtDateTime(done[0].generated_at))}</b>${done[0].data_as_of
+          ? ` <span class="muted card-asof">· data through ${esc(fmtDate(done[0].data_as_of))}</span>` : ""}</span><span class="spacer"></span>${cardPdf(done[0], "Open PDF ↗")}</div>
+        ${cardImg(done[0])}`
+        : open || failed ? "" : `<p class="empty">No card for this season and position yet.</p>`}
+      ${done.length > 1 ? `<div class="card-older"><div class="lbl">Earlier versions</div><ul>${done.slice(1).map((c) =>
+        `<li><span>${esc(fmtDateTime(c.generated_at))}</span>${cardPdf(c, "Open", "")}</li>`).join("")}</ul></div>` : ""}`;
+    // A missing picture falls back to the Open PDF button above it.
+    $("img", body)?.addEventListener("error", (e) => e.target.parentElement.remove());
+    if (!go) return;
+    go.textContent = failed ? "Try again" : done.length ? "Regenerate" : "Generate";
+    go.classList.toggle("primary", !done.length);
+    go.disabled = Boolean(open);
+  };
+  // Poll while a card is queued or generating; stop once none are, or when the panel is gone
+  // (a re-render's new panel owns the timer from then on).
+  const watch = () => {
+    if (!el.isConnected) return;
+    clearTimeout(cardTimer);
+    if (!cards.some(cardOpen)) return;
+    cardTimer = setTimeout(async () => {
+      let fresh;
+      try { ({ cards: fresh } = await api("GET", `/api/players/${p.id}/cards`)); } catch { return watch(); }
+      if (!el.isConnected) return;
+      for (const c of fresh) {
+        const was = cards.find((x) => x.id === c.id);
+        if (!was || !cardOpen(was) || cardOpen(c)) continue;
+        if (c.status === "done") toast(`Player card ready: ${c.position}, ${c.season}`);
+        else toast(`Player card failed: ${cardFailed(c)}`, true);
+      }
+      cards = fresh;
+      drawBody();
+      watch();
+    }, 3000);
+  };
+  const pick = () => { cardPick.set(p.id, { ...sel }); drawBody(); };
+  seasonSel.addEventListener("change", () => { sel.iteration_id = Number(seasonSel.value); sel.position = season().positions[0].code; fillPositions(); pick(); });
+  posSel.addEventListener("change", () => { sel.position = posSel.value; pick(); });
+  go?.addEventListener("click", async () => {
+    go.disabled = true;
+    try {
+      const { card } = await api("POST", `/api/players/${p.id}/cards`, sel);
+      cards = [card, ...cards];
+      cardPick.set(p.id, { ...sel });
+      await syncVersion(); // your own request needn't trigger the "new changes" refresh
+      drawBody();
+      watch();
+    } catch (err) { oops(err); go.disabled = false; }
+  });
+  fillPositions();
+  drawBody();
+  watch();
+}
+
 /* ---------- impect page ---------- */
 async function renderImpect(main) {
   main.innerHTML = `<div class="page" style="max-width:1200px">
@@ -1481,6 +1594,7 @@ function describe(a, onPlayerPage = false) {
     case "linked_tm": return `linked ${who} to Transfermarkt`;
     case "linked_physical": return `updated physical data links for ${who}`;
     case "linked_impect": return d.impect_id ? `linked ${who} to Impect` : `unlinked ${who} from Impect`;
+    case "requested_card": return `requested a player card for ${who} (${esc(d.position)}, ${esc(d.season)} ${esc(d.competition)})`;
     case "edited_player": return `edited details for ${who}`;
     case "deleted_player": return `deleted ${esc(d.name || "a player")}`;
     case "imported_list": return `imported the Impect list “${esc(d.name)}” (${d.created ?? 0} new)`;

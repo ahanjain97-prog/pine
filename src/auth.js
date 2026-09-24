@@ -96,6 +96,14 @@ export function logout(db, c) {
   deleteCookie(c, COOKIE, { path: "/" });
 }
 
+// Machine keys (PINE_BACKUP_TOKEN, PINE_WORKER_TOKEN): an unset key opens nothing. Hashing first
+// makes the comparison constant-time whatever the lengths.
+export function tokenMatches(got, want) {
+  if (!want || !got) return false;
+  const digest = (s) => createHash("sha256").update(String(s)).digest();
+  return timingSafeEqual(digest(got), digest(want));
+}
+
 export function currentUser(db, c) {
   const token = getCookie(c, COOKIE);
   if (!token) return null;

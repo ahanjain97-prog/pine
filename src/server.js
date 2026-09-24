@@ -3,14 +3,16 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { getCookie, setCookie } from "hono/cookie";
 import { basicAuth } from "hono/basic-auth";
+import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative } from "node:path";
 
 import { openDb, logActivity } from "./db.js";
-import { checkPassword, createSetupLink, setupLinkUser, useSetupLink, startSession, logout, currentUser } from "./auth.js";
+import { checkPassword, createSetupLink, setupLinkUser, useSetupLink, startSession, logout, currentUser, tokenMatches } from "./auth.js";
 import { POSITIONS, ROLES, DECISIONS, SPLIT_ROLES, IMPECT_POSITION_LABEL, suggestPosition, suggestListRole, resolveRole } from "./roles.js";
 import { fetchTmPlayer, parseTmUrl, searchTmPlayers } from "./lib/transfermarkt.js";
 import { TM_FIELDS, manualTmOverrides, releaseTmOverrides, tmConflicts, tmSyncFields } from "./lib/tm_sync.js";
@@ -20,6 +22,8 @@ import {
   shortLists as impectShortLists, shortListPlayerMeta,
 } from "./lib/impect.js";
 import { playerKpiCard } from "./lib/impect_kpi.js";
+import { playerCardOptions } from "./lib/card_options.js";
+import { MAX_CARD_BYTES, DAILY_CARD_LIMIT, cardErrorCode, claimCard, isPdf, isPng, saveCardFile, sqlTime } from "./lib/cards.js";
 import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
@@ -38,6 +42,8 @@ if (!existsSync(DB_FILE) && existsSync(SEED_DB)) {
 const db = openDb(DB_FILE);
 const BACKUP_DIR = join(dirname(DB_FILE), "backups");
 startDailyBackups(db, BACKUP_DIR);
+// Player card PDFs, one folder per player, on the same volume as the database.
+const CARDS_DIR = join(dirname(DB_FILE), "cards");
 const PHYS_CACHE = join(ROOT, "data", "physical_cache.json");
 
 class HttpError extends Error {
@@ -242,17 +248,20 @@ const resolveUser = (c) => (AUTH_OFF ? actingUser(c) : currentUser(db, c));
 // scripts/pull-backup.sh fetches snapshots with PINE_BACKUP_TOKEN (sent as X-PINE-Backup-Token)
 // instead of a staff sign-in. It opens /api/backup and nothing else.
 const BACKUP_TOKEN = process.env.PINE_BACKUP_TOKEN || "";
-function backupTokenOk(c) {
-  const got = c.req.header("X-PINE-Backup-Token");
-  if (!BACKUP_TOKEN || !got) return false;
-  const digest = (s) => createHash("sha256").update(s).digest();
-  return timingSafeEqual(digest(got), digest(BACKUP_TOKEN));
-}
+const backupTokenOk = (c) => tokenMatches(c.req.header("X-PINE-Backup-Token"), BACKUP_TOKEN);
+// The player card worker sends PINE_WORKER_TOKEN as X-PINE-Worker-Token. It opens /api/worker/* only,
+// and those routes never accept a staff session instead.
+const WORKER_TOKEN = process.env.PINE_WORKER_TOKEN || "";
 
 // Auth gate + CSRF header for writes.
 app.use("/api/*", async (c, next) => {
   if (c.req.method !== "GET" && c.req.header("X-PINE") !== "1") return c.json({ error: "Bad request" }, 400);
   if (c.req.path.startsWith("/api/auth/")) return next();
+  if (c.req.path.startsWith("/api/worker/")) {
+    if (!tokenMatches(c.req.header("X-PINE-Worker-Token"), WORKER_TOKEN)) return c.json({ error: "Worker token missing or wrong" }, 401);
+    c.set("user", null);
+    return next();
+  }
   if (c.req.method === "GET" && c.req.path === "/api/backup" && backupTokenOk(c)) { c.set("user", null); return next(); }
   const user = resolveUser(c);
   if (!user) return c.json({ error: "Not signed in" }, 401);
@@ -679,6 +688,117 @@ app.get("/api/players/:id/impect-kpis", async (c) => {
 app.get("/api/players/:id/impect-candidates", async (c) => {
   const p = getPlayer(c.req.param("id"));
   return c.json(await matchImpect(p));
+});
+
+/* ---------- player cards (PDFs and their PNGs, rendered by the card worker) ---------- */
+async function cardOptionsFor(p) {
+  if (!impectConfigured()) fail(503, "Impect isn't configured on the server, so card seasons can't be looked up");
+  try { return await playerCardOptions(p.impect_id); } catch (e) {
+    console.warn("card options failed:", e.message);
+    fail(502, `Couldn't load card seasons from Impect: ${e.message}`);
+  }
+}
+// Everything but the stored file paths.
+const CARD_SELECT = `SELECT c.id, c.iteration_id, c.competition, c.season, c.position, c.status, c.error,
+    c.requested_at, c.started_at, c.generated_at, c.bytes, c.hop_commit, c.data_as_of, c.image IS NOT NULL AS has_image,
+    u.name AS requested_by_name
+  FROM cards c LEFT JOIN users u ON u.id = c.requested_by`;
+
+app.get("/api/players/:id/card-options", async (c) => {
+  const p = getPlayer(c.req.param("id"));
+  if (!p.impect_id) return c.json({ seasons: [], default: null, reason: "Link this player to Impect first." });
+  return c.json(await cardOptionsFor(p));
+});
+app.get("/api/players/:id/cards", (c) => {
+  const p = getPlayer(c.req.param("id"));
+  return c.json({ cards: db.all(`${CARD_SELECT} WHERE c.player_id = ? ORDER BY c.requested_at DESC, c.id DESC`, p.id) });
+});
+app.post("/api/players/:id/cards", async (c) => {
+  const user = c.get("user");
+  if (!user.is_admin) fail(403, "Only admins can generate player cards");
+  const p = getPlayer(c.req.param("id"));
+  if (!p.impect_id) fail(400, "Link this player to Impect first");
+  const { iteration_id, position } = await c.req.json().catch(() => ({}));
+  const season = (await cardOptionsFor(p)).seasons.find((s) => s.iteration_id === Number(iteration_id));
+  if (!season?.positions.some((o) => o.code === position)) fail(400, "A card isn't offered for that season and position");
+  // Checked after the Impect lookup and before the insert, with no await in between, so two clicks can't both pass.
+  if (db.get("SELECT 1 FROM cards WHERE player_id = ? AND status IN ('queued','running')", p.id)) {
+    fail(409, "A card for this player is already queued or being generated");
+  }
+  if (db.get("SELECT count(*) AS n FROM cards WHERE requested_at > datetime('now', '-1 day')").n >= DAILY_CARD_LIMIT) {
+    fail(429, `${DAILY_CARD_LIMIT} cards were requested across PINE in the last 24 hours; try again later`);
+  }
+  const id = Number(db.run(
+    "INSERT INTO cards(player_id, impect_id, iteration_id, competition, season, position, tm_id, requested_by) VALUES (?,?,?,?,?,?,?,?)",
+    p.id, p.impect_id, season.iteration_id, season.competition, season.season, position, p.tm_id || null, user.id).lastInsertRowid);
+  logActivity(db, user.id, p.id, "requested_card", { card_id: id, season: season.season, competition: season.competition, position });
+  return c.json({ card: db.get(`${CARD_SELECT} WHERE c.id = ?`, id) }, 201);
+});
+function doneCard(c) {
+  const card = db.get("SELECT c.*, p.name FROM cards c JOIN players p ON p.id = c.player_id WHERE c.id = ?", Number(c.req.param("id")));
+  if (card?.status !== "done" || !card.file) fail(404, "Card not found");
+  return card;
+}
+function sendCardFile(stored, type, headers = {}) {
+  const file = join(CARDS_DIR, stored);
+  if (!existsSync(file)) fail(404, "This card's file is missing from the server");
+  return new Response(Readable.toWeb(createReadStream(file)), {
+    headers: { "Content-Type": type, "Content-Length": String(statSync(file).size), ...headers },
+  });
+}
+app.get("/api/cards/:id/pdf", (c) => {
+  const card = doneCard(c);
+  const name = `${card.name} ${card.season} ${card.position} ${card.generated_at.slice(0, 10)}.pdf`;
+  const ascii = name.normalize("NFKD").replace(/[^\x20-\x7e]/g, "").replace(/["\\]/g, "");
+  return sendCardFile(card.file, "application/pdf", {
+    "Content-Disposition": `inline; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`,
+  });
+});
+// A finished card's picture never changes, so the browser can keep it.
+app.get("/api/cards/:id/png", (c) => {
+  const card = doneCard(c);
+  if (!card.image) fail(404, "This card has no picture");
+  return sendCardFile(card.image, "image/png", { "Cache-Control": "private, max-age=604800, immutable" });
+});
+
+// Card worker API (X-PINE-Worker-Token, checked in the /api gate above).
+function runningCard(c) {
+  const card = db.get("SELECT id, player_id, iteration_id, position, status FROM cards WHERE id = ?", Number(c.req.param("id"))) || fail(404, "Card not found");
+  if (card.status !== "running") fail(409, `Card ${card.id} is ${card.status}, not running`);
+  return card;
+}
+app.post("/api/worker/cards/claim", (c) => {
+  const job = claimCard(db);
+  return job ? c.json(job) : c.body(null, 204);
+});
+const cardBodyLimit = bodyLimit({ maxSize: MAX_CARD_BYTES, onError: (c) => c.json({ error: "Card file is over 10 MB" }, 413) });
+// The PNG comes first and is optional; the PDF finishes the job.
+app.put("/api/worker/cards/:id/png", cardBodyLimit, async (c) => {
+  const buf = Buffer.from(await c.req.arrayBuffer());
+  const card = runningCard(c);
+  if (!isPng(buf)) fail(400, "That isn't a PNG");
+  db.run("UPDATE cards SET image = ? WHERE id = ?", saveCardFile(CARDS_DIR, card, buf, new Date(), "png"), card.id);
+  return c.json({ ok: true });
+});
+app.put("/api/worker/cards/:id/pdf", cardBodyLimit,
+  async (c) => {
+    const buf = Buffer.from(await c.req.arrayBuffer());
+    const card = runningCard(c);
+    if (!isPdf(buf)) fail(400, "That isn't a PDF");
+    const commit = c.req.header("X-PINE-Card-Commit") || "";
+    const asOf = c.req.header("X-PINE-Card-Data-As-Of") || "";
+    const now = new Date();
+    db.run(
+      "UPDATE cards SET status = 'done', error = NULL, generated_at = ?, file = ?, bytes = ?, hop_commit = ?, data_as_of = ? WHERE id = ?",
+      sqlTime(now), saveCardFile(CARDS_DIR, card, buf, now), buf.length,
+      /^[0-9a-f]{7,40}$/i.test(commit) ? commit : null, /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : null, card.id);
+    return c.json({ ok: true });
+  });
+app.post("/api/worker/cards/:id/fail", async (c) => {
+  const { code } = await c.req.json().catch(() => ({}));
+  const card = runningCard(c);
+  db.run("UPDATE cards SET status = 'failed', error = ? WHERE id = ?", cardErrorCode(code), card.id);
+  return c.json({ ok: true });
 });
 
 /* ---------- staff + activity ---------- */
