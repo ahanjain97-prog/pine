@@ -907,6 +907,7 @@ async function renderPlayer(main, idArg) {
           <textarea id="summary" rows="3" data-draft data-orig="${esc(p.summary || "")}" placeholder="Overall summary, fit, next steps…">${esc(p.summary || "")}</textarea>
           <div class="row end" style="margin-top:6px"><button type="button" class="btn sm" id="save-summary">Save summary</button></div>
         </section>
+        ${p.impect_id ? `<section class="panel" id="card-panel"><header class="panel-h"><h2>Player card</h2></header><div class="loading sm">Loading…</div></section>` : ""}
         ${p.impect_id ? `<section class="panel" id="kpi-panel"><header class="panel-h"><h2>Impect KPI profile</h2></header><div class="loading sm">Loading…</div></section>` : ""}
         <section class="panel"><header class="panel-h"><h2>Staff evaluations</h2></header><div class="evals">${d.staff.map(evalHTML).join("")}</div></section>
       </div>
@@ -914,7 +915,6 @@ async function renderPlayer(main, idArg) {
         ${p.tm_url ? "" : `<section class="panel" id="tm-panel"><header class="panel-h"><h2>Transfermarkt</h2></header><div class="loading sm">Searching Transfermarkt…</div></section>`}
         <section class="panel" id="phys-panel"><header class="panel-h"><h2>Physical data</h2></header><div class="loading sm">Loading…</div></section>
         <section class="panel" id="impect-panel"><header class="panel-h"><h2>Impect</h2></header><div class="loading sm">Loading…</div></section>
-        ${p.impect_id ? `<section class="panel" id="card-panel"><header class="panel-h"><h2>Player card</h2></header><div class="loading sm">Loading…</div></section>` : ""}
         ${d.lists.length ? `<section class="panel"><header class="panel-h"><h2>Lists</h2></header><div class="row">${d.lists.map((l) => `<span class="chip">${esc(l.name)}</span>`).join("")}</div></section>` : ""}
         <section class="panel"><header class="panel-h"><h2>History</h2></header><ul class="feed">${d.activity.map((a) => `<li><span><b>${esc(actor(a))}</b> ${describe(a, true)}</span><span class="when" title="${esc(fmtDateTime(a.created_at))}">${esc(relTime(a.created_at))}</span></li>`).join("") || `<li class="empty">No history yet.</li>`}</ul></section>
       </div>
@@ -1271,7 +1271,7 @@ async function loadImpectPanel(root, p) {
   });
 }
 
-/* ---------- player card (a PDF the card worker renders; every version is kept) ---------- */
+/* ---------- player card (a PDF the card worker renders, shown as its PNG; every version is kept) ---------- */
 const CARD_FAILED = {
   not_covered: "This season isn't in the card data yet.",
   no_minutes: "The card data has no minutes for this player in this season.",
@@ -1284,6 +1284,8 @@ const CARD_FAILED = {
 const cardFailed = (c) => CARD_FAILED[c.error] || CARD_FAILED.failed;
 const cardOpen = (c) => c.status === "queued" || c.status === "running";
 const cardPdf = (c, label, cls = "btn sm") => `<a class="${cls}" href="/api/cards/${c.id}/pdf" target="_blank" rel="noopener">${label}</a>`;
+const cardImg = (c) => c.has_image ? `<a class="card-img" href="/api/cards/${c.id}/pdf" target="_blank" rel="noopener" title="Open the PDF">
+  <img src="/api/cards/${c.id}/png" width="1600" height="1088" decoding="async" alt="${esc(`Player card: ${c.position}, ${c.season} ${c.competition}`)}"></a>` : "";
 const cardPick = new Map(); // player id -> last season/position picked, kept across re-renders
 let cardTimer = null;
 
@@ -1327,10 +1329,14 @@ async function loadCardPanel(root, p) {
       ${open ? `<p class="card-line"><span class="dchip v-hold">${open.status === "queued" ? "Queued" : "Generating"}</span>
         <span class="muted sm">${esc(`${open.position} · ${open.season} ${open.competition} · ${open.status === "queued" ? `requested ${relTime(open.requested_at)}` : `started ${relTime(open.started_at)}`}`)}</span></p>` : ""}
       ${failed ? `<div class="banner err sm">${esc(cardFailed(failed))}</div>` : ""}
-      ${done.length ? `<div class="card-line"><span>Generated <b>${esc(fmtDateTime(done[0].generated_at))}</b></span><span class="spacer"></span>${cardPdf(done[0], "Open ↗")}</div>`
+      ${done.length ? `<div class="card-line"><span>Generated <b>${esc(fmtDateTime(done[0].generated_at))}</b>${done[0].data_as_of
+          ? ` <span class="muted card-asof">· data through ${esc(fmtDate(done[0].data_as_of))}</span>` : ""}</span><span class="spacer"></span>${cardPdf(done[0], "Open PDF ↗")}</div>
+        ${cardImg(done[0])}`
         : open || failed ? "" : `<p class="empty">No card for this season and position yet.</p>`}
       ${done.length > 1 ? `<div class="card-older"><div class="lbl">Earlier versions</div><ul>${done.slice(1).map((c) =>
         `<li><span>${esc(fmtDateTime(c.generated_at))}</span>${cardPdf(c, "Open", "")}</li>`).join("")}</ul></div>` : ""}`;
+    // A missing picture falls back to the Open PDF button above it.
+    $("img", body)?.addEventListener("error", (e) => e.target.parentElement.remove());
     if (!go) return;
     go.textContent = failed ? "Try again" : done.length ? "Regenerate" : "Generate";
     go.classList.toggle("primary", !done.length);

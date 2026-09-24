@@ -74,14 +74,16 @@ Run `npm test` for benchmark and mocked-API regression tests, and `npm run check
   or international. Green cards aren't on Transfermarkt, so a permanent resident shows as INTL.
 - **Database** (`#/players`): sortable and filterable table of everyone, with CSV export.
 - **Player page**: Transfermarkt info (sync button), club decision, staff verdict summary, board roles
-  (with up/down ranking), shared summary, one evaluation section per staff member (only you can write
-  in yours), physical percentiles, Impect link, player card, lists, and history.
-- **Player card**: a PDF made outside PINE. Pick a season (league seasons in our three leagues, never the
-  cup) and a position (any with at least one Impect match share that season); an admin presses Generate.
-  That queues a job; the card worker on the Mac mini claims it (`POST /api/worker/cards/claim`), renders
-  the PDF and uploads it (`PUT /api/worker/cards/:id/pdf`) or reports a failure code
-  (`POST /api/worker/cards/:id/fail`). Every version is kept and any signed-in staff member can open it.
-  One card per player can be in progress, and at most 30 are requested across PINE per 24 hours.
+  (with up/down ranking), shared summary, player card, one evaluation section per staff member (only you
+  can write in yours), physical percentiles, Impect link, lists, and history.
+- **Player card**: a PDF made outside PINE, shown on the player page as a picture that opens the PDF.
+  Pick a season (league seasons in our three leagues, never the cup) and a position (any with at least
+  one Impect match share that season); an admin presses Generate. That queues a job; the card worker on
+  the Mac mini claims it (`POST /api/worker/cards/claim`), renders it, uploads a PNG of it
+  (`PUT /api/worker/cards/:id/png`, optional) and then the PDF (`PUT /api/worker/cards/:id/pdf`, which
+  finishes the job), or reports a failure code (`POST /api/worker/cards/:id/fail`). Every version is kept
+  and any signed-in staff member can open it. One card per player can be in progress, and at most 30 are
+  requested across PINE per 24 hours.
 - **Add player**: paste a Transfermarkt link (or paste one anywhere on the page). Physical data and
   Impect are matched automatically by name + date of birth / club.
 - **Impect** (`#/impect`): import or sync Impect Scouting short lists (each list maps to a board role;
@@ -118,7 +120,7 @@ src/lib/impect.js              Impect login, player pool, matching, Scouting sho
 src/lib/impect_kpi.js          Live KPI category percentiles per player
 src/lib/impect_categories.js   KPI category definitions (generated from the metric-stability study)
 src/lib/card_options.js        Which player card seasons and positions can be requested
-src/lib/cards.js               Player card jobs for the worker, and where the PDFs are saved
+src/lib/cards.js               Player card jobs for the worker, and where the PDFs and PNGs are saved
 src/lib/physical.js            Physical data loading + matching
 src/lib/backup.js              Daily database snapshots + download
 public/                        index.html, app.js (no build step), styles.css
@@ -134,8 +136,8 @@ password. The live address is kept out of this repo.
 
 - Railway project `pine`, service `pine`, environment `production`. This folder is linked, so the Railway CLI works from `~/pine`.
 - The database lives on the `pine-volume` disk mounted at `/app/data` (500 MB). Deploys never touch it.
-- Player card PDFs live on the same disk under `/app/data/cards/<player id>/`, one file per version, never
-  overwritten or deleted. They are not in the database snapshots; the Mac mini worker keeps its own copy of
+- Player card PDFs and their PNGs live on the same disk under `/app/data/cards/<player id>/`, one pair per
+  version, never overwritten or deleted. They are not in the database snapshots; the Mac mini worker keeps its own copy of
   every card it renders.
 - Settings (Impect login, passwords, `APP_URL`) are Railway variables; the local `.env` is not uploaded.
 - Deploys are automatic: Railway is connected to this repo, so a push to `main` builds and releases.

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { openDb } from '../src/db.js';
 import { tokenMatches } from '../src/auth.js';
 import { addShares, cardOptions } from '../src/lib/card_options.js';
-import { cardErrorCode, cardFileName, claimCard, saveCardFile } from '../src/lib/cards.js';
+import { cardErrorCode, cardFileName, claimCard, isPdf, isPng, saveCardFile } from '../src/lib/cards.js';
 
 const it = (id, season, competition = 'USL League One', type = 'League') => ({ id, season, competition, type });
 
@@ -77,6 +77,15 @@ test('a card stuck running for over 15 minutes is handed out again; done and fai
   assert.equal(claimCard(db), null, 'the reclaimed card is fresh again, and the other one is still inside its 15 minutes');
 });
 
+test("a reclaimed card forgets the earlier attempt's picture", () => {
+  const { db, add } = queueDb();
+  const card = add('AM', 30);
+  claimCard(db);
+  db.run("UPDATE cards SET image = '7/old.png', started_at = datetime('now', '-16 minutes') WHERE id = ?", card);
+  assert.equal(claimCard(db).id, card);
+  assert.equal(db.get('SELECT image FROM cards WHERE id = ?', card).image, null);
+});
+
 test('a card that keeps getting stuck is failed after three attempts', () => {
   const { db, add } = queueDb();
   const card = add('AM', 90);
@@ -104,6 +113,16 @@ test('failure codes outside the contract are stored as "failed"', () => {
   assert.equal(cardErrorCode(undefined), 'failed');
 });
 
+test('uploads are checked by their first bytes', () => {
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
+  assert.equal(isPng(png), true);
+  assert.equal(isPdf(png), false);
+  assert.equal(isPdf(Buffer.from('%PDF-1.7\n')), true);
+  assert.equal(isPng(Buffer.from('%PDF-1.7\n')), false);
+  assert.equal(isPng(Buffer.from('\x89PNG')), false, 'too short');
+  assert.equal(isPng(Buffer.from('<html>not a png</html>')), false);
+});
+
 test('card files are named by UTC time, season and position, and never overwritten', () => {
   const root = mkdtempSync(join(tmpdir(), 'pine-cards-'));
   try {
@@ -116,6 +135,9 @@ test('card files are named by UTC time, season and position, and never overwritt
     assert.equal(readFileSync(join(root, '7', '20260924T140212Z-1916-AM.pdf'), 'latin1'), pdf.toString('latin1'));
     assert.throws(() => saveCardFile(root, card, Buffer.from('%PDF-other'), when), /already exists/);
     assert.equal(readFileSync(join(root, '7', '20260924T140212Z-1916-AM.pdf'), 'latin1'), pdf.toString('latin1'));
+    // The PNG of the same card, saved the same second, sits beside it.
+    assert.equal(saveCardFile(root, card, Buffer.from('png bytes'), when, 'png'), '7/20260924T140212Z-1916-AM.png');
+    assert.deepEqual(readdirSync(join(root, '7')).sort(), ['20260924T140212Z-1916-AM.pdf', '20260924T140212Z-1916-AM.png']);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

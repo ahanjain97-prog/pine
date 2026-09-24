@@ -23,7 +23,7 @@ import {
 } from "./lib/impect.js";
 import { playerKpiCard } from "./lib/impect_kpi.js";
 import { playerCardOptions } from "./lib/card_options.js";
-import { MAX_CARD_BYTES, DAILY_CARD_LIMIT, cardErrorCode, claimCard, saveCardFile, sqlTime } from "./lib/cards.js";
+import { MAX_CARD_BYTES, DAILY_CARD_LIMIT, cardErrorCode, claimCard, isPdf, isPng, saveCardFile, sqlTime } from "./lib/cards.js";
 import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
@@ -690,7 +690,7 @@ app.get("/api/players/:id/impect-candidates", async (c) => {
   return c.json(await matchImpect(p));
 });
 
-/* ---------- player cards (PDFs rendered by the card worker) ---------- */
+/* ---------- player cards (PDFs and their PNGs, rendered by the card worker) ---------- */
 async function cardOptionsFor(p) {
   if (!impectConfigured()) fail(503, "Impect isn't configured on the server, so card seasons can't be looked up");
   try { return await playerCardOptions(p.impect_id); } catch (e) {
@@ -698,9 +698,10 @@ async function cardOptionsFor(p) {
     fail(502, `Couldn't load card seasons from Impect: ${e.message}`);
   }
 }
-// Everything but the stored file path.
+// Everything but the stored file paths.
 const CARD_SELECT = `SELECT c.id, c.iteration_id, c.competition, c.season, c.position, c.status, c.error,
-    c.requested_at, c.started_at, c.generated_at, c.bytes, c.hop_commit, c.data_as_of, u.name AS requested_by_name
+    c.requested_at, c.started_at, c.generated_at, c.bytes, c.hop_commit, c.data_as_of, c.image IS NOT NULL AS has_image,
+    u.name AS requested_by_name
   FROM cards c LEFT JOIN users u ON u.id = c.requested_by`;
 
 app.get("/api/players/:id/card-options", async (c) => {
@@ -733,20 +734,31 @@ app.post("/api/players/:id/cards", async (c) => {
   logActivity(db, user.id, p.id, "requested_card", { card_id: id, season: season.season, competition: season.competition, position });
   return c.json({ card: db.get(`${CARD_SELECT} WHERE c.id = ?`, id) }, 201);
 });
-app.get("/api/cards/:id/pdf", (c) => {
+function doneCard(c) {
   const card = db.get("SELECT c.*, p.name FROM cards c JOIN players p ON p.id = c.player_id WHERE c.id = ?", Number(c.req.param("id")));
   if (card?.status !== "done" || !card.file) fail(404, "Card not found");
-  const file = join(CARDS_DIR, card.file);
-  if (!existsSync(file)) fail(404, "This card's PDF is missing from the server");
+  return card;
+}
+function sendCardFile(stored, type, headers = {}) {
+  const file = join(CARDS_DIR, stored);
+  if (!existsSync(file)) fail(404, "This card's file is missing from the server");
+  return new Response(Readable.toWeb(createReadStream(file)), {
+    headers: { "Content-Type": type, "Content-Length": String(statSync(file).size), ...headers },
+  });
+}
+app.get("/api/cards/:id/pdf", (c) => {
+  const card = doneCard(c);
   const name = `${card.name} ${card.season} ${card.position} ${card.generated_at.slice(0, 10)}.pdf`;
   const ascii = name.normalize("NFKD").replace(/[^\x20-\x7e]/g, "").replace(/["\\]/g, "");
-  return new Response(Readable.toWeb(createReadStream(file)), {
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`,
-      "Content-Length": String(statSync(file).size),
-    },
+  return sendCardFile(card.file, "application/pdf", {
+    "Content-Disposition": `inline; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`,
   });
+});
+// A finished card's picture never changes, so the browser can keep it.
+app.get("/api/cards/:id/png", (c) => {
+  const card = doneCard(c);
+  if (!card.image) fail(404, "This card has no picture");
+  return sendCardFile(card.image, "image/png", { "Cache-Control": "private, max-age=604800, immutable" });
 });
 
 // Card worker API (X-PINE-Worker-Token, checked in the /api gate above).
@@ -759,12 +771,20 @@ app.post("/api/worker/cards/claim", (c) => {
   const job = claimCard(db);
   return job ? c.json(job) : c.body(null, 204);
 });
-app.put("/api/worker/cards/:id/pdf",
-  bodyLimit({ maxSize: MAX_CARD_BYTES, onError: (c) => c.json({ error: "Card PDF is over 10 MB" }, 413) }),
+const cardBodyLimit = bodyLimit({ maxSize: MAX_CARD_BYTES, onError: (c) => c.json({ error: "Card file is over 10 MB" }, 413) });
+// The PNG comes first and is optional; the PDF finishes the job.
+app.put("/api/worker/cards/:id/png", cardBodyLimit, async (c) => {
+  const buf = Buffer.from(await c.req.arrayBuffer());
+  const card = runningCard(c);
+  if (!isPng(buf)) fail(400, "That isn't a PNG");
+  db.run("UPDATE cards SET image = ? WHERE id = ?", saveCardFile(CARDS_DIR, card, buf, new Date(), "png"), card.id);
+  return c.json({ ok: true });
+});
+app.put("/api/worker/cards/:id/pdf", cardBodyLimit,
   async (c) => {
     const buf = Buffer.from(await c.req.arrayBuffer());
     const card = runningCard(c);
-    if (buf.subarray(0, 5).toString("latin1") !== "%PDF-") fail(400, "That isn't a PDF");
+    if (!isPdf(buf)) fail(400, "That isn't a PDF");
     const commit = c.req.header("X-PINE-Card-Commit") || "";
     const asOf = c.req.header("X-PINE-Card-Data-As-Of") || "";
     const now = new Date();
