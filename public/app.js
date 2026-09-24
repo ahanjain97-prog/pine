@@ -14,7 +14,7 @@ const GRP_NAME = { CB: "centre backs", FB: "full backs", MID: "midfielders", FWD
 const S = {
   me: null, config: null, players: [], byId: new Map(), version: 0, pollTimer: null, dragging: null,
   board: { decision: "all", q: "", league: "" },
-  table: { q: "", decision: "all", position: "", league: "", sort: "updated_at", dir: -1 },
+  table: { q: "", decision: "all", position: "", league: "", coaches: new Set(), sort: "updated_at", dir: -1 },
   impect: { iteration: "", q: "" },
 };
 
@@ -729,6 +729,7 @@ function tableFiltered() {
   const col = COLS.find((c) => c.k === f.sort) || COLS[0];
   return S.players
     .filter((p) => matchText(p, f.q) && matchDecision(p, f.decision) && (!f.league || p.league === f.league)
+      && (!f.coaches.size || [p.created_by, ...(p.changed_by || [])].some((id) => f.coaches.has(Number(id))))
       && (!f.position || (f.position === "none" ? !p.roles.length : p.roles.some((r) => roleInfo(r.role)?.position === f.position))))
     .sort((a, b) => { const x = col.sort(a), y = col.sort(b); return (x < y ? -1 : x > y ? 1 : 0) * f.dir; });
 }
@@ -736,6 +737,10 @@ function tableFiltered() {
 function renderTable(main) {
   const f = S.table;
   const decs = [["all", "Any decision"], ["pass", "Pass"], ["hold", "Hold"], ["fail", "Fail"], ["none", "Undecided"]];
+  const coachLabel = () => {
+    const names = S.config.staff.filter((s) => f.coaches.has(s.id)).map((s) => s.name);
+    return names.length ? `Changed by ${names.length <= 2 ? names.join(" + ") : `${names.length} coaches`}` : "Changed by any coach";
+  };
   main.innerHTML = `<div class="page">
     <div class="page-h">
       <div><h1>Database</h1><div class="sub" id="t-count"></div></div>
@@ -745,6 +750,13 @@ function renderTable(main) {
         <select id="tf-dec" aria-label="Decision">${decs.map(([k, l]) => `<option value="${k}" ${f.decision === k ? "selected" : ""}>${l}</option>`).join("")}</select>
         <select id="tf-pos" aria-label="Board position"><option value="">Any board position</option><option value="none" ${f.position === "none" ? "selected" : ""}>Not on board</option>${S.config.positions.map((p) => `<option value="${p.code}" ${f.position === p.code ? "selected" : ""}>${p.code} · ${esc(p.label)}</option>`).join("")}</select>
         <select id="tf-league" aria-label="League"><option value="">All leagues</option>${leaguesOf().map((l) => `<option value="${esc(l)}" ${f.league === l ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
+        <details class="coach-filter" id="tf-coach">
+          <summary title="${esc(coachLabel())}"><span id="tf-coach-label">${esc(coachLabel())}</span></summary>
+          <div class="coach-filter-menu">
+            <div class="coach-filter-h"><b>Added or changed by</b><button type="button" class="btn link sm" id="tf-coach-clear" ${f.coaches.size ? "" : "disabled"}>Clear</button></div>
+            ${S.config.staff.map((s) => `<label><input type="checkbox" value="${s.id}" aria-label="${esc(s.name)}" ${f.coaches.has(s.id) ? "checked" : ""}> <span>${esc(s.name)}</span></label>`).join("")}
+          </div>
+        </details>
         <button type="button" class="btn" id="t-csv">Export CSV</button>
       </div>
     </div>
@@ -776,6 +788,24 @@ function renderTable(main) {
   $("#tf-dec", root).addEventListener("change", (e) => { f.decision = e.target.value; draw(); });
   $("#tf-pos", root).addEventListener("change", (e) => { f.position = e.target.value; draw(); });
   $("#tf-league", root).addEventListener("change", (e) => { f.league = e.target.value; draw(); });
+  $("#tf-coach", root).addEventListener("change", (e) => {
+    const input = e.target.closest("input[type=checkbox]");
+    if (!input) return;
+    const id = Number(input.value);
+    if (input.checked) f.coaches.add(id); else f.coaches.delete(id);
+    $("#tf-coach-label", root).textContent = coachLabel();
+    $("#tf-coach summary", root).title = coachLabel();
+    $("#tf-coach-clear", root).disabled = !f.coaches.size;
+    draw();
+  });
+  $("#tf-coach-clear", root).addEventListener("click", () => {
+    f.coaches.clear();
+    $$("#tf-coach input[type=checkbox]", root).forEach((input) => (input.checked = false));
+    $("#tf-coach-label", root).textContent = coachLabel();
+    $("#tf-coach summary", root).title = coachLabel();
+    $("#tf-coach-clear", root).disabled = true;
+    draw();
+  });
   $("thead", root).addEventListener("click", (e) => {
     const th = e.target.closest("th[data-sort]");
     if (!th) return;

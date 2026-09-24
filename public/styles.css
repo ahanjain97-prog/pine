@@ -131,6 +131,21 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .page-h h1 { font-family: var(--disp); font-size: 30px; font-weight: 700; letter-spacing: .02em; line-height: 1; }
 .page-h .sub { color: var(--muted); font-size: 13px; }
 .filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.coach-filter { position: relative; }
+.coach-filter > summary { list-style: none; display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line-2);
+  border-radius: 8px; padding: 7px 10px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.coach-filter > summary::-webkit-details-marker { display: none; }
+.coach-filter > summary::after { content: "▾"; color: var(--muted); font-size: 10px; }
+.coach-filter[open] > summary { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.coach-filter[open] > summary::after { transform: rotate(180deg); }
+.coach-filter-menu { position: absolute; z-index: 40; top: calc(100% + 5px); right: 0; min-width: 220px; padding: 8px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 9px; box-shadow: var(--shadow); }
+.coach-filter-h { display: flex; align-items: center; gap: 12px; padding: 1px 4px 6px; font-size: 11px; color: var(--muted); }
+.coach-filter-h b { text-transform: uppercase; letter-spacing: .05em; }
+.coach-filter-h .btn { margin-left: auto; }
+.coach-filter-menu label { display: flex; align-items: center; gap: 7px; padding: 6px; border-radius: 6px; cursor: pointer; }
+.coach-filter-menu label:hover { background: var(--surface-2); }
+.coach-filter-menu input { margin: 0; }
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); }
 .panel + .panel { margin-top: 14px; }
 .panel-h { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }

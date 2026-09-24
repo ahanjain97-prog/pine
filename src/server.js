@@ -68,6 +68,10 @@ function ageFrom(birthdate) {
 function hydrate(p) {
   if (!p) return p;
   for (const k of JSON_COLS) p[k] = JSON.parse(p[k] || "[]");
+  if ("changed_by_json" in p) {
+    p.changed_by = JSON.parse(p.changed_by_json || "[]");
+    delete p.changed_by_json;
+  }
   p.age = ageFrom(p.birthdate);
   if ("roles_json" in p) { p.roles = JSON.parse(p.roles_json || "[]").sort((a, b) => a.role.localeCompare(b.role)); delete p.roles_json; }
   if ("verdicts_json" in p) { p.verdicts = JSON.parse(p.verdicts_json || "{}"); delete p.verdicts_json; }
@@ -79,7 +83,9 @@ const PLAYER_SELECT = `
     (SELECT json_group_array(json_object('role', b.role, 'rank', b.rank)) FROM board_entries b WHERE b.player_id = p.id) AS roles_json,
     (SELECT json_group_object(u.name, v.verdict) FROM verdicts v JOIN users u ON u.id = v.user_id WHERE v.player_id = p.id) AS verdicts_json,
     (SELECT count(*) FROM notes n WHERE n.player_id = p.id) AS note_count,
-    (SELECT max(n.created_at) FROM notes n WHERE n.player_id = p.id) AS last_note_at
+    (SELECT max(n.created_at) FROM notes n WHERE n.player_id = p.id) AS last_note_at,
+    (SELECT json_group_array(DISTINCT a.user_id) FROM activity a
+      WHERE a.player_id = p.id AND a.user_id IS NOT NULL) AS changed_by_json
   FROM players p`;
 
 const getPlayer = (id) => hydrate(db.get(`${PLAYER_SELECT} WHERE p.id = ?`, Number(id))) || fail(404, "Player not found");

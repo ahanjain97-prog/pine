@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS activity(
   detail TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE INDEX IF NOT EXISTS activity_player_user ON activity(player_id, user_id);
 `;
 
 const STAFF = [
