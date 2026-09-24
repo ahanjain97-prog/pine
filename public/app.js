@@ -355,14 +355,12 @@ async function render() {
 }
 
 /* ---------- big board ---------- */
-// Every lane is a stack of one-line rows. A lane shows its top LANE_ROWS and folds the rest behind
-// "+N more" (unfolded by a click, by dragging over it, or automatically while a filter is on), so a
-// position box has a predictable height. Boxes in the same pitch row stretch to equal height. Wide
-// boxes lay their lanes side by side; narrower ones stack them, and a stacked box with three roles
-// shares the same height by showing fewer rows per lane.
+// Every position box is the same size: one column of lanes, each lane a stack of one-line rows.
+// A lane shows its top LANE_ROWS and folds the rest behind "+N" in its header (unfolded by a click,
+// by dragging over it, or automatically while a filter is on). A box with three roles shows fewer
+// rows per lane so it comes out the same height as a box with two.
 const LANE_ROWS = 5;
 const LANE_ROWS_TRIPLE = 3;
-const LANES_SIDE_BY_SIDE = new Set(["FWD", "CM", "CDM", "GK"]);
 
 function renderBoard(main) {
   const f = S.board;
@@ -392,17 +390,17 @@ function renderBoard(main) {
 
 function posBox(pos) {
   const total = new Set(pos.roles.flatMap(([c]) => playersInRole(c).map((p) => p.id))).size;
-  const side = LANES_SIDE_BY_SIDE.has(pos.code);
-  const limit = !side && pos.roles.length >= 3 ? LANE_ROWS_TRIPLE : LANE_ROWS;
+  const limit = pos.roles.length >= 3 ? LANE_ROWS_TRIPLE : LANE_ROWS;
   return `<section class="pos" style="grid-area:${pos.area}">
     <header class="pos-h"><span class="pos-code">${pos.code}</span><span class="pos-label">${esc(pos.label)}</span><span class="pos-n">${total}</span></header>
-    <div class="lanes ${side ? "side" : "stack"}" style="--n:${pos.roles.length}">${pos.roles.map(([code, label]) => {
+    <div class="lanes">${pos.roles.map(([code, label]) => {
       const list = playersInRole(code);
       const num = roleInfo(code).num;
       return `<div class="lane">
-        <div class="lane-h"><span class="lane-t" title="${esc(pos.code)} #${num}: ${esc(label)}"><b>#${num}</b>${esc(label)}</span><span class="lane-n">${list.length}</span>
+        <div class="lane-h"><span class="lane-t" title="${esc(pos.code)} #${num}: ${esc(label)}"><b>#${num}</b>${esc(label)}</span>
+          <button type="button" class="more" data-more="${code}" hidden></button><span class="lane-n">${list.length}</span>
           <button type="button" class="icon-btn" data-add-role="${code}" title="Add a player to ${esc(label)}" aria-label="Add a player to ${esc(pos.code)} ${esc(label)}">+</button></div>
-        <div class="lane-body" data-role="${code}" data-limit="${limit}">${list.map((p) => boardRow(p, code)).join("") || `<div class="lane-empty">Drop players here</div>`}<button type="button" class="more" data-more="${code}" hidden></button></div>
+        <div class="lane-body" data-role="${code}" data-limit="${limit}">${list.map((p) => boardRow(p, code)).join("") || `<div class="lane-empty">Drop players here</div>`}</div>
       </div>`;
     }).join("")}</div>
   </section>`;
@@ -487,10 +485,11 @@ function applyBoardFilter(root) {
       if (fits) shown++; else if (ok) folded++;
       row.hidden = !fits;
     });
-    const more = $(".more", zone);
+    const more = $(".more", zone.parentElement);
     const canFold = !filtering && f.open.has(role) && shown > Number(zone.dataset.limit);
     more.hidden = !folded && !canFold;
-    more.textContent = folded ? `+${folded} more` : `Show top ${zone.dataset.limit}`;
+    more.textContent = folded ? `+${folded} more` : "show fewer";
+    more.title = folded ? `Show all ${shown + folded}` : `Show the top ${zone.dataset.limit}`;
   });
   $$("[data-tray] .prow", root).forEach((row) => { row.hidden = !matches(row); });
 }
@@ -544,12 +543,12 @@ function wireBoard(root) {
       $$(".over", root).forEach((x) => x.classList.remove("over"));
       zone.classList.add("over");
       // A folded lane unfolds while something is dragged over it, so any rank is a drop target.
-      if (zone.dataset.role && !S.board.open.has(zone.dataset.role) && !$(".more", zone).hidden) { S.board.open.add(zone.dataset.role); applyBoardFilter(root); }
+      if (zone.dataset.role && !S.board.open.has(zone.dataset.role) && !$(".more", zone.parentElement).hidden) { S.board.open.add(zone.dataset.role); applyBoardFilter(root); }
     }
     if (zone.matches(".lane-body")) {
       marker ??= Object.assign(document.createElement("div"), { className: "drop-marker" });
       const before = cardAfter(zone, e.clientY);
-      zone.insertBefore(marker, before || $(".more", zone));
+      if (before) zone.insertBefore(marker, before); else zone.appendChild(marker);
     } else marker?.remove();
   });
   root.addEventListener("dragleave", (e) => {
