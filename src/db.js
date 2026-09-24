@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS cards(
   error TEXT,
   requested_by INTEGER REFERENCES users(id),
   requested_at TEXT NOT NULL DEFAULT (datetime('now')),
-  started_at TEXT, generated_at TEXT,
+  started_at TEXT, generated_at TEXT, attempts INTEGER NOT NULL DEFAULT 0,
   file TEXT, bytes INTEGER, hop_commit TEXT, data_as_of TEXT
 );
 CREATE INDEX IF NOT EXISTS cards_player ON cards(player_id, requested_at);

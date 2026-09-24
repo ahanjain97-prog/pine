@@ -77,6 +77,17 @@ test('a card stuck running for over 15 minutes is handed out again; done and fai
   assert.equal(claimCard(db), null, 'the reclaimed card is fresh again, and the other one is still inside its 15 minutes');
 });
 
+test('a card that keeps getting stuck is failed after three attempts', () => {
+  const { db, add } = queueDb();
+  const card = add('AM', 90);
+  for (let n = 1; n <= 3; n++) {
+    assert.equal(claimCard(db).id, card, `attempt ${n}`);
+    db.run("UPDATE cards SET started_at = datetime('now', '-16 minutes') WHERE id = ?", card);
+  }
+  assert.equal(claimCard(db), null);
+  assert.deepEqual({ ...db.get('SELECT status, error, attempts FROM cards WHERE id = ?', card) }, { status: 'failed', error: 'failed', attempts: 3 });
+});
+
 test('worker token: an unset key opens nothing; only the exact key matches', () => {
   assert.equal(tokenMatches('anything', ''), false);
   assert.equal(tokenMatches('', 'secret-key'), false);
