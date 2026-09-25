@@ -74,7 +74,7 @@ Run `npm test` for benchmark and mocked-API regression tests, and `npm run check
   or international. Green cards aren't on Transfermarkt, so a permanent resident shows as INTL.
 - **Database** (`#/players`): sortable and filterable table of everyone, with CSV export.
 - **Player page**: Transfermarkt info (sync button), club decision, staff verdict summary, board roles
-  (with up/down ranking), shared summary, player card, one evaluation section per staff member (only you
+  (with up/down ranking), shared summary, player card, pitch maps, one evaluation section per staff member (only you
   can write in yours), physical percentiles, Impect link, lists, and history.
 - **Player card**: a PDF made outside PINE, shown on the player page as a picture that opens the PDF.
   Pick a season (league seasons in our three leagues, never the cup) and a position (any with at least
@@ -86,18 +86,18 @@ Run `npm test` for benchmark and mocked-API regression tests, and `npm run check
   panel shows under "Generating" so staff know why a card that downloads Impect match data first is slower.
   Every version is kept and any signed-in staff member can open it. One card per player can be in progress, and at most 30 are
   requested across PINE per 24 hours.
-- **Pitch maps** (`#/maps`, `#/maps/<player id>`): the card's two activity maps (In attack, Defensive actions)
-  for any Impect-linked player, season and position, with up to three metrics per map chosen from every
-  metric the card worker exports (28 today: the card's markers plus passes into the box, receptions, ball
-  losses, clearances and more; hover one for its definition). The shading never depends on the metrics
-  shown. Anyone signed in can build maps; the card worker claims the job (`POST /api/worker/maps/claim`),
-  may post the same `fetching_events` progress note, and uploads the export (`PUT /api/worker/maps/:id/json`,
-  at most 5 MB, which finishes the job) or a failure code (`POST /api/worker/maps/:id/fail`). The export has
-  every metric's points, so choosing metrics is instant. Each view keeps only its latest build, gzipped;
-  a rebuild replaces it. The page says when a build predates newer metrics or is over a week old in the
-  current season, and when the worker is offline or not yet taking map jobs. Chosen metrics are remembered
-  per position group in the browser; Download PNG saves both maps as a picture. At most 6 builds wait per
-  person and 200 are requested across PINE per 24 hours.
+- **Pitch maps**: a panel on the player page (Impect-linked players) under the player card. It shows the card's two
+  activity maps (In attack, Defensive actions) for a season and position, with up to three metrics per map chosen
+  from every metric the card worker exports (28 today: the card's markers plus passes into the box, receptions,
+  ball losses, clearances and more; hover one for its definition). The shading never depends on the metrics
+  shown. Anyone signed in can build maps; the card worker claims the job (`POST /api/worker/maps/claim`), may
+  post the same `fetching_events` progress note, and uploads the export (`PUT /api/worker/maps/:id/json`, at most
+  5 MB, which finishes the job) or a failure code (`POST /api/worker/maps/:id/fail`). The export has every
+  metric's points, so choosing metrics is instant. Each view keeps only its latest build, gzipped; a rebuild
+  replaces it. The panel says when a build predates newer metrics or is over a week old in the current season,
+  and when the worker is offline or not yet taking map jobs. Chosen metrics are remembered per position group in
+  the browser; Download PNG saves both maps as a picture. At most 6 builds wait per person and 200 are requested
+  across PINE per 24 hours. Old `#/maps/<player id>` links open the player page.
 - **Add player**: paste a Transfermarkt link (or paste one anywhere on the page). Physical data and
   Impect are matched automatically by name + date of birth / club.
 - **Impect** (`#/impect`): import or sync Impect Scouting short lists (each list maps to a board role;

@@ -851,13 +851,6 @@ app.get("/api/players/:id/maps", (c) => {
     : [];
   return c.json({ maps, ...mapsMeta() });
 });
-// The latest builds across PINE, for opening one without searching.
-app.get("/api/maps/recent", (c) => c.json({
-  maps: db.all(`SELECT m.id, m.player_id, p.name, p.club, p.photo_url, m.iteration_id, m.competition, m.season, m.position,
-      m.generated_at, m.data_as_of
-    FROM maps m JOIN players p ON p.id = m.player_id AND p.impect_id = m.impect_id
-    WHERE m.status = 'done' ORDER BY m.generated_at DESC, m.id DESC LIMIT 12`),
-}));
 // Anyone signed in can build maps. Asking again for a view already waiting returns that job.
 app.post("/api/players/:id/maps", async (c) => {
   const user = c.get("user");
