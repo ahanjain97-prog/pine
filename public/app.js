@@ -413,7 +413,7 @@ function boardCard(p, role) {
   const sub = [p.age, p.club].filter((x) => x != null && x !== "").join(" · ") || p.position || "";
   return `<a class="pcard ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
     ${role ? `<span class="rank">${rankIn(p, role) + 1}</span>` : ""}${photo(p)}
-    <span class="ci"><div class="nm-row"><span class="nm">${esc(p.name)}</span>${rosterBadge(p)}</div><div class="csub">${esc(sub)}</div></span>${verdictDots(p.verdicts)}</a>`;
+    <span class="ci"><div class="nm">${esc(p.name)}</div><div class="nm-row"><span class="csub">${esc(sub)}</span>${rosterBadge(p)}</div></span>${verdictDots(p.verdicts)}</a>`;
 }
 
 function applyBoardFilter(root) {
