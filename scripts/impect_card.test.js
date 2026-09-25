@@ -62,6 +62,14 @@ test('live card assembly pools three same-season leagues and withholds a cameo t
     assert.equal(qualified.categories[0].peer_count, 36);
     assert.equal(qualified.position, 'W');
     assert.deepEqual(qualified.positions.map((o) => [o.group, o.match_share, o.eligible]), [['W', 10, true], ['ST', 2, false]]);
+    // Display: shared names, phases in reading order, metric kinds, and the player's own-league median.
+    assert.deepEqual(qualified.phases.map((p) => p.id), ['build', 'attack', 'defend']);
+    assert.ok(qualified.categories.every((c) => c.label && c.phase !== 'other' && c.description));
+    assert.equal(qualified.categories.find((c) => c.name === 'Circulation and link play').label, 'Circulation');
+    assert.equal(qualified.iteration.short, 'USL-C');
+    const parts = qualified.categories.flatMap((c) => c.components);
+    assert.ok(parts.every((m) => ['rate', 'volume', 'mistake', 'score'].includes(m.kind)));
+    assert.ok(parts.every((m) => Number.isFinite(m.league_median) && !('median' in m)));
     const asStriker = await playerKpiCard(111, {iterationId: 1, position: 'ST'});
     assert.equal(asStriker.position, 'ST');
     assert.equal(asStriker.eligible, false);

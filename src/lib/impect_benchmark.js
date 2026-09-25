@@ -36,6 +36,14 @@ export function percentile(value, reference) {
   return 100 * (a.filter((v) => v < value).length + .5 * a.filter((v) => v === value).length) / a.length;
 }
 
+// Typical raw value among the reference, on the same eight-player minimum as percentiles.
+export function median(values) {
+  const a = values.filter(Number.isFinite).sort((x, y) => x - y);
+  if (a.length < 8) return null;
+  const mid = a.length >> 1;
+  return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
+}
+
 // byLeague: standardise every KPI within the row's own league (row.league) before pooling, so
 // league-wide differences in raw output don't tilt pooled ranks. Component percentiles then rank
 // those league-standardised values. Without it, one fit covers the whole pool (the original method).
@@ -73,7 +81,7 @@ export function benchmark(target, rows, categories, meta, floor = 5, { byLeague 
           const ref = peers.map((p) => oriented(p, m)).filter(Number.isFinite);
           return { metric: m, ...(meta.get(m) || {}), value: target.values[m] ?? null,
             percentile: percentile(oriented(target, m), ref),
-            peer_count: ref.length };
+            peer_count: ref.length, median: median(peers.map((p) => p.values[m])) };
         }) };
     }),
   };
