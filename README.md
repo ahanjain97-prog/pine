@@ -86,6 +86,18 @@ Run `npm test` for benchmark and mocked-API regression tests, and `npm run check
   panel shows under "Generating" so staff know why a card that downloads Impect match data first is slower.
   Every version is kept and any signed-in staff member can open it. One card per player can be in progress, and at most 30 are
   requested across PINE per 24 hours.
+- **Pitch maps** (`#/maps`, `#/maps/<player id>`): the card's two activity maps (In attack, Defensive actions)
+  for any Impect-linked player, season and position, with up to three metrics per map chosen from every
+  metric the card worker exports (28 today: the card's markers plus passes into the box, receptions, ball
+  losses, clearances and more; hover one for its definition). The shading never depends on the metrics
+  shown. Anyone signed in can build maps; the card worker claims the job (`POST /api/worker/maps/claim`),
+  may post the same `fetching_events` progress note, and uploads the export (`PUT /api/worker/maps/:id/json`,
+  at most 5 MB, which finishes the job) or a failure code (`POST /api/worker/maps/:id/fail`). The export has
+  every metric's points, so choosing metrics is instant. Each view keeps only its latest build, gzipped;
+  a rebuild replaces it. The page says when a build predates newer metrics or is over a week old in the
+  current season, and when the worker is offline or not yet taking map jobs. Chosen metrics are remembered
+  per position group in the browser; Download PNG saves both maps as a picture. At most 6 builds wait per
+  person and 200 are requested across PINE per 24 hours.
 - **Add player**: paste a Transfermarkt link (or paste one anywhere on the page). Physical data and
   Impect are matched automatically by name + date of birth / club.
 - **Impect** (`#/impect`): import or sync Impect Scouting short lists (each list maps to a board role;
@@ -123,6 +135,7 @@ src/lib/impect_kpi.js          Live KPI category percentiles per player
 src/lib/impect_categories.js   KPI category definitions (generated from the metric-stability study)
 src/lib/card_options.js        Which player card seasons and positions can be requested
 src/lib/cards.js               Player card jobs for the worker, and where the PDFs and PNGs are saved
+src/lib/maps.js                Pitch map jobs for the worker; checks, trims and stores their exports
 src/lib/physical.js            Physical data loading + matching
 src/lib/backup.js              Daily database snapshots + download
 public/                        index.html, app.js (no build step), styles.css
@@ -141,6 +154,8 @@ password. The live address is kept out of this repo.
 - Player card PDFs and their PNGs live on the same disk under `/app/data/cards/<player id>/`, one pair per
   version, never overwritten or deleted. They are not in the database snapshots; the Mac mini worker keeps its own copy of
   every card it renders.
+- Pitch map exports live under `/app/data/maps/<player id>/` (gzipped JSON, tens of KB each), only the latest
+  per player, season and position. They are not in the snapshots either; any view can be rebuilt.
 - Settings (Impect login, passwords, `APP_URL`) are Railway variables; the local `.env` is not uploaded.
 - Deploys are automatic: Railway is connected to this repo, so a push to `main` builds and releases.
   GitHub Actions runs `npm run check` and `npm test` on every push and pull request. Manual override:

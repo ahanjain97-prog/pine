@@ -367,6 +367,68 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
 .card-older ul { list-style: none; margin: 0; padding: 0; font-size: 12.5px; }
 .card-older li { display: flex; gap: 10px; padding: 2px 0; }
 
+/* ---------- pitch maps ---------- */
+.maps-page { max-width: 1400px; }
+.maps-top { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
+.maps-who { display: flex; align-items: center; gap: 10px; min-width: 0; color: var(--ink); }
+.maps-who:hover { text-decoration: none; }
+.maps-who .nm { display: block; font-size: 17px; font-weight: 700; }
+.maps-who .csub { display: block; font-size: 12.5px; }
+.maps-find { position: relative; flex: 1 1 240px; max-width: 420px; }
+.maps-find input { width: 100%; }
+.maps-res { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
+.maps-res a { display: flex; gap: 9px; align-items: center; padding: 7px 10px; color: var(--ink); }
+.maps-res a:hover, .maps-res a.hl { background: var(--surface-2); text-decoration: none; }
+.maps-res a.off .nm { color: var(--muted); }
+.maps-res .nm, .maps-rec .nm { display: block; }
+.maps-res .csub, .maps-rec .csub { display: block; }
+.maps-pick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 12px; }
+.maps-pick select { flex: 0 1 300px; }
+.maps-status { margin-top: 10px; }
+.maps-status:empty { display: none; }
+.maps-status .banner { margin: 6px 0 0; }
+.maps-meta { margin: 14px 2px 0; font-size: 13px; color: var(--ink-2); font-weight: 600; }
+.maps-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 10px; }
+.maps-grid .panel + .panel { margin-top: 0; }
+.map-panel .panel-h { flex-wrap: wrap; }
+.map-swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.map-body { display: grid; grid-template-columns: minmax(180px, 290px) minmax(190px, 1fr); gap: 16px; align-items: start; }
+.map-fig { margin: 0; min-width: 0; }
+.pitch-svg { display: block; width: 100%; height: auto; background: #f3f2ec; border-radius: 6px; }
+.map-legend { display: grid; gap: 4px; margin-top: 8px; font-size: 12.5px; }
+.map-legend .lg { display: flex; align-items: center; gap: 7px; }
+.map-legend .lg-l { flex: 1; min-width: 0; }
+.map-legend b { font-variant-numeric: tabular-nums; }
+.map-metrics { max-height: 560px; overflow-y: auto; padding-right: 4px; }
+.mm-cat + .mm-cat { margin-top: 10px; }
+.mm-cat .lbl { margin: 0 0 2px 4px; }
+.mm { display: grid; grid-template-columns: 16px 16px minmax(0, 1fr) auto; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 6px;
+  font-size: 13px; cursor: pointer; }
+.mm input { margin: 0; }
+.mm:hover { background: var(--surface-2); }
+.mm.on { background: color-mix(in srgb, var(--accent) 10%, transparent); font-weight: 600; }
+.mm.off { color: var(--muted); cursor: default; }
+.mm.off:hover { background: none; }
+.mm-g { display: grid; place-items: center; }
+.mm-n { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.glyph { display: block; flex: none; }
+.maps-note { margin: 12px 2px 0; }
+.maps-recent { margin-top: 14px; }
+.maps-rec-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px 12px; }
+.maps-rec { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 8px; color: var(--ink); }
+.maps-rec:hover { background: var(--surface-2); text-decoration: none; }
+@media (max-width: 1180px) {
+  .maps-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .map-body { grid-template-columns: 1fr; }
+  .map-fig { max-width: 340px; width: 100%; margin: 0 auto; }
+  .map-metrics { max-height: none; }
+  .maps-pick select { flex: 1 1 100%; }
+  .maps-find { max-width: none; }
+}
+
 /* ---------- login ---------- */
 .login { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px;
   background: radial-gradient(1200px 600px at 50% -10%, color-mix(in srgb, var(--navy-2) 35%, transparent), transparent), var(--bg); }

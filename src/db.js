@@ -99,6 +99,25 @@ CREATE TABLE IF NOT EXISTS cards(
   progress TEXT, progress_matches INTEGER
 );
 CREATE INDEX IF NOT EXISTS cards_player ON cards(player_id, requested_at);
+-- Pitch maps: one player view (season + card position) built by the card worker. A view keeps its
+-- latest build and its latest failure; a new build replaces older ones.
+CREATE TABLE IF NOT EXISTS maps(
+  id INTEGER PRIMARY KEY,
+  player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  impect_id INTEGER NOT NULL,
+  iteration_id INTEGER NOT NULL,
+  competition TEXT, season TEXT,
+  position TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','done','failed')),
+  error TEXT,
+  requested_by INTEGER REFERENCES users(id),
+  requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+  started_at TEXT, generated_at TEXT, attempts INTEGER NOT NULL DEFAULT 0,
+  file TEXT, bytes INTEGER, hop_commit TEXT, catalog TEXT, data_as_of TEXT,
+  progress TEXT, progress_matches INTEGER
+);
+CREATE INDEX IF NOT EXISTS maps_view ON maps(player_id, iteration_id, position, requested_at);
+CREATE INDEX IF NOT EXISTS maps_queue ON maps(status, requested_at);
 CREATE TABLE IF NOT EXISTS activity(
   id INTEGER PRIMARY KEY,
   user_id INTEGER REFERENCES users(id),
