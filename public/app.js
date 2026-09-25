@@ -909,9 +909,9 @@ async function renderPlayer(main, idArg) {
           <textarea id="summary" rows="3" data-draft data-orig="${esc(p.summary || "")}" placeholder="Overall summary, fit, next steps…">${esc(p.summary || "")}</textarea>
           <div class="row end" style="margin-top:6px"><button type="button" class="btn sm" id="save-summary">Save summary</button></div>
         </section>
+        ${p.impect_id ? `<section class="panel" id="kpi-panel"><header class="panel-h"><h2>Impect KPI profile</h2></header><div class="loading sm">Loading…</div></section>` : ""}
         ${p.impect_id ? `<section class="panel" id="card-panel"><header class="panel-h"><h2>Player card</h2></header><div class="loading sm">Loading…</div></section>` : ""}
         ${p.impect_id ? `<section class="panel" id="maps-panel"><header class="panel-h"><h2>Pitch maps</h2></header><div class="loading sm">Loading…</div></section>` : ""}
-        ${p.impect_id ? `<section class="panel" id="kpi-panel"><header class="panel-h"><h2>Impect KPI profile</h2></header><div class="loading sm">Loading…</div></section>` : ""}
         <section class="panel"><header class="panel-h"><h2>Staff evaluations</h2></header><div class="evals">${d.staff.map(evalHTML).join("")}</div></section>
       </div>
       <div>

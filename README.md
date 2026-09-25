@@ -82,7 +82,7 @@ Run `npm test` for benchmark and mocked-API regression tests, and `npm run check
   or international. Green cards aren't on Transfermarkt, so a permanent resident shows as INTL.
 - **Database** (`#/players`): sortable and filterable table of everyone, with CSV export.
 - **Player page**: Transfermarkt info (sync button), club decision, staff verdict summary, board roles
-  (with up/down ranking), shared summary, player card, pitch maps, one evaluation section per staff member (only you
+  (with up/down ranking), shared summary, Impect KPI profile, player card, pitch maps, one evaluation section per staff member (only you
   can write in yours), physical percentiles, Impect link, lists, and history.
 - **Player card**: a PDF made outside PINE, shown on the player page as a picture that opens the PDF.
   Pick a season (league seasons in our three leagues, never the cup) and a position (any with at least
