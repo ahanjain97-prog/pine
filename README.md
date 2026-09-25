@@ -49,6 +49,14 @@ the team's goal threat per match rather than a count of actions, several "percen
 and a few ratios don't say what is divided by what. Those are relabelled in `DISPLAY_OVERRIDES`
 (`src/lib/impect_kpi.js`), and a test fails if a new percent/ratio/pXT metric arrives without one.
 
+The panel groups categories by phase of play (build-up, final third, defending and duels) and shows one
+name for each idea at every position: the study calls the same five passing metrics "Build-up circulation"
+at centre-back and "Circulation and tempo" in midfield, and the page calls both "Circulation". Opening a
+category splits its metrics into how well, how much, mistakes and Impect's own scores, each with the
+median of the player's own league and a percentile against that league alone. The names, phases and
+descriptions live in `src/lib/impect_display.js`, and a test fails if a regenerated study adds a category
+without one.
+
 Run `npm test` for benchmark and mocked-API regression tests, and `npm run check` for syntax checks.
 
 ## Configuration (`.env`, never committed)
@@ -74,7 +82,7 @@ Run `npm test` for benchmark and mocked-API regression tests, and `npm run check
   or international. Green cards aren't on Transfermarkt, so a permanent resident shows as INTL.
 - **Database** (`#/players`): sortable and filterable table of everyone, with CSV export.
 - **Player page**: Transfermarkt info (sync button), club decision, staff verdict summary, board roles
-  (with up/down ranking), shared summary, player card, pitch maps, one evaluation section per staff member (only you
+  (with up/down ranking), shared summary, Impect KPI profile, player card, pitch maps, one evaluation section per staff member (only you
   can write in yours), physical percentiles, Impect link, lists, and history.
 - **Player card**: a PDF made outside PINE, shown on the player page as a picture that opens the PDF.
   Pick a season (league seasons in our three leagues, never the cup) and a position (any with at least
@@ -133,6 +141,7 @@ src/lib/tm_match.js            Bulk Transfermarkt matching (confirms by date of 
 src/lib/impect.js              Impect login, player pool, matching, Scouting short lists
 src/lib/impect_kpi.js          Live KPI category percentiles per player
 src/lib/impect_categories.js   KPI category definitions (generated from the metric-stability study)
+src/lib/impect_display.js      How the KPI profile names, groups and explains those categories
 src/lib/card_options.js        Which player card seasons and positions can be requested
 src/lib/cards.js               Player card jobs for the worker, and where the PDFs and PNGs are saved
 src/lib/maps.js                Pitch map jobs for the worker; checks, trims and stores their exports

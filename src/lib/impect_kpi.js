@@ -7,6 +7,7 @@
 import { impectGet, iterations as impectIterations, getImpectPlayer } from "./impect.js";
 import { CATEGORIES, POSITION_MAP, POSITION_LABEL, MIN_MATCH_SHARE, ALL_METRICS } from "./impect_categories.js";
 import { benchmark, fixedFloor } from "./impect_benchmark.js";
+import { categoryDisplay, phasesFor, metricKind, METRIC_KINDS, shortLeague } from "./impect_display.js";
 
 export const BENCHMARK_LEAGUES = ["USL Championship", "MLS Next Pro", "USL League One"];
 
@@ -236,18 +237,20 @@ export async function playerKpiCard(impectId, { iterationId = null, minShare = M
     const pooled = benchmark({ ...row, league: it.id }, pooledRows, cats, defs.meta, floor, { byLeague: true });
     const league = benchmark(row, co.byGroup.get(row.group), cats, defs.meta, floor);
     const categories = pooled.categories.map((c, i) => ({
-      ...c, percentile: round(c.percentile, 1), score: round(c.score, 3),
+      ...c, ...categoryDisplay(row.group, c.name), percentile: round(c.percentile, 1), score: round(c.score, 3),
       league_percentile: round(league.categories[i].percentile, 1),
       league_peer_count: league.categories[i].peer_count,
-      components: c.components.map((m, j) => ({ ...m,
-        label: m.label || m.metric, value: round(m.value, 3), percentile: round(m.percentile, 1),
+      // The pooled median mixes three leagues' raw scales; the player's own league is the fair comparison.
+      components: c.components.map(({ median: _pooledMedian, ...m }, j) => ({ ...m,
+        label: m.label || m.metric, kind: metricKind(m.metric), value: round(m.value, 3), percentile: round(m.percentile, 1),
+        league_median: round(league.categories[i].components[j].median, 3),
         league_percentile: round(league.categories[i].components[j].percentile, 1),
         league_peer_count: league.categories[i].components[j].peer_count,
       })),
     }));
 
     return {
-      iteration: { id: it.id, competition: it.competition, season: it.season },
+      iteration: { id: it.id, competition: it.competition, season: it.season, short: shortLeague(it.competition) },
       available_iterations: available,
       position: row.group,
       position_label: POSITION_LABEL[row.group] || row.group,
@@ -270,6 +273,8 @@ export async function playerKpiCard(impectId, { iterationId = null, minShare = M
       min_share_used: round(floor),
       min_share_default: MIN_MATCH_SHARE,
       cohort_built_at: new Date(Math.min(...cohorts.map((c) => c.at))).toISOString(),
+      phases: phasesFor(categories.map((c) => c.phase)),
+      metric_kinds: METRIC_KINDS,
       categories,
     };
   }

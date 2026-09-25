@@ -909,9 +909,9 @@ async function renderPlayer(main, idArg) {
           <textarea id="summary" rows="3" data-draft data-orig="${esc(p.summary || "")}" placeholder="Overall summary, fit, next steps…">${esc(p.summary || "")}</textarea>
           <div class="row end" style="margin-top:6px"><button type="button" class="btn sm" id="save-summary">Save summary</button></div>
         </section>
+        ${p.impect_id ? `<section class="panel" id="kpi-panel"><header class="panel-h"><h2>Impect KPI profile</h2></header><div class="loading sm">Loading…</div></section>` : ""}
         ${p.impect_id ? `<section class="panel" id="card-panel"><header class="panel-h"><h2>Player card</h2></header><div class="loading sm">Loading…</div></section>` : ""}
         ${p.impect_id ? `<section class="panel" id="maps-panel"><header class="panel-h"><h2>Pitch maps</h2></header><div class="loading sm">Loading…</div></section>` : ""}
-        ${p.impect_id ? `<section class="panel" id="kpi-panel"><header class="panel-h"><h2>Impect KPI profile</h2></header><div class="loading sm">Loading…</div></section>` : ""}
         <section class="panel"><header class="panel-h"><h2>Staff evaluations</h2></header><div class="evals">${d.staff.map(evalHTML).join("")}</div></section>
       </div>
       <div>
@@ -934,27 +934,48 @@ async function renderPlayer(main, idArg) {
 }
 
 /* ---------- impect KPI profile ---------- */
-function kpiComponent(m) {
-  if (m.percentile == null) {
-    return `<div class="bar"><span class="bl" title="${esc(m.definition || m.label)}">${esc(m.label)} <span class="raw">${m.value == null ? "no data" : esc(String(m.value)) + " · percentile unavailable"}</span></span><span class="track"></span><span class="bv">–</span></div>`;
-  }
+// The five colour bands, in words.
+const tier = (v) => (v < 20 ? "Bottom 20%" : v < 40 ? "Below average" : v < 60 ? "Average" : v < 80 ? "Above average" : "Top 20%");
+const byPercentile = (a, b) => (b.percentile ?? -1) - (a.percentile ?? -1);
+const wholePct = (v) => (v == null ? null : Math.round(v));
+// Percentile bar; the tick at its midpoint (CSS) marks the median peer.
+const kpiBar = (pct) => `<span class="kpi-bar">${pct == null ? "" : `<span style="width:${Math.max(2, pct)}%;background:${band(pct)}"></span>`}</span>`;
+
+function kpiMetric(m) {
+  const pct = wholePct(m.percentile);
   const label = `${m.label}${m.inverted ? " ↓" : ""}`;
-  return bar(label, Math.round(m.percentile), m.value, {
-    format: fmtKpiNum,
-    title: [label, m.meaning].filter(Boolean).join(" — "),
-  });
+  return `<div class="kpi-m">
+    <span class="kpi-m-l" title="${esc([label, m.meaning || m.definition].filter(Boolean).join(" — "))}">${esc(label)}</span>
+    <span class="kpi-m-v">${m.value == null ? `<span class="muted">no data</span>` : `<b>${fmtKpiNum(m.value)}</b>`}${m.league_median == null ? "" : ` <span class="muted">median ${fmtKpiNum(m.league_median)}</span>`}</span>
+    ${kpiBar(pct)}<b class="kpi-m-p">${pct ?? "–"}</b><span class="kpi-m-lg">${wholePct(m.league_percentile) ?? "–"}</span>
+  </div>`;
 }
 
-function kpiCategory(c) {
-  const pct = c.percentile == null ? null : Math.round(c.percentile);
-  const parts = [...c.components].sort((x, y) => (y.percentile ?? -1) - (x.percentile ?? -1));
+function kpiCategory(c, d) {
+  const pct = wholePct(c.percentile);
+  const peers = `${d.position_label.toLowerCase()}s`;
+  const league = d.iteration.short;
+  const kinds = d.metric_kinds.map((k) => ({ ...k, rows: c.components.filter((m) => m.kind === k.id).sort(byPercentile) }))
+    .filter((k) => k.rows.length);
   return `<li><details>
-    <summary><span class="kpi-name">${esc(c.name)}</span>
-      <span class="kpi-bar"><span style="width:${pct ?? 0}%;background:${pct == null ? "var(--none)" : band(pct)}"></span></span>
-      <b title="${esc(`Pooled: ${c.peer_count} valid peers`)}">${pct == null ? "\u2013" : pct}</b></summary>
-    <p class="sm muted">Pooled benchmark: ${c.peer_count} valid peers.</p>
-    <div class="bars">${parts.map(kpiComponent).join("")}</div>
+    <summary><span class="kpi-name" title="${esc(`Study category: ${c.name}`)}">${esc(c.label)}</span>${kpiBar(pct)}<b>${pct ?? "–"}</b><span class="kpi-chev" aria-hidden="true"></span></summary>
+    <div class="kpi-detail">
+      <p class="kpi-about">${pct == null ? "" : `<span class="kpi-tier" style="--c:${band(pct)}">${tier(pct)}</span>`}${c.description ? `<span>${esc(c.description)}</span>` : ""}</p>
+      <div class="kpi-m kpi-mh"><span>Metric</span><span>Value · ${esc(league)} median</span><span>vs ${d.peer_count} ${esc(peers)}</span><span>Pct</span>
+        <span title="${esc(`Percentile against ${d.iteration.competition} ${peers} only`)}">${esc(league)}</span></div>
+      ${kinds.map((k) => `<h4 class="kpi-kind">${esc(k.name)} <span>${esc(k.note)}</span></h4>${k.rows.map(kpiMetric).join("")}`).join("")}
+      <p class="kpi-foot">The category score averages its ${c.components.length} metrics, flipped where lower is better, and ranks against ${c.peer_count} ${esc(peers)}.
+        Against ${esc(d.iteration.competition)} ${esc(peers)} alone (${c.league_peer_count}) it ranks ${wholePct(c.league_percentile) ?? "–"}.</p>
+    </div>
   </details></li>`;
+}
+
+function kpiPhase(ph, d) {
+  const cats = d.categories.filter((c) => c.phase === ph.id).sort(byPercentile);
+  return `<section class="kpi-group">
+    <div class="kpi-phase"><h3>${esc(ph.name)}</h3>${ph.desc ? `<span>${esc(ph.desc)}</span>` : ""}</div>
+    <ol class="kpi-list">${cats.map((c) => kpiCategory(c, d)).join("")}</ol>
+  </section>`;
 }
 
 function loadKpiPanel(root, p) {
@@ -977,22 +998,36 @@ function loadKpiPanel(root, p) {
     if (d.empty) {
       el.innerHTML = `${head(picker)}<p class="empty">${esc(d.reason)}</p>`;
     } else {
+      const peers = `${d.position_label.toLowerCase()}s`;
       el.innerHTML = `${head(picker)}
-        <p class="hint" style="margin:-4px 0 10px">${esc(d.position_label)} · ${esc(d.squad || "")} · ${d.minutes.toLocaleString()} min (${d.match_share} match shares).
-          Pooled benchmark: <b>${d.peer_count}</b> ${esc(d.position_label.toLowerCase())}s across ${esc(d.benchmark_competitions.join(" + "))}, ${esc(d.iteration.season)}, with ${d.min_share_used}+ match shares at this position. Each KPI is standardised within its own league before pooling.</p>
-        ${(d.positions || []).length > 1 ? `<div class="kpi-positions" role="group" aria-label="Position benchmarked">${d.positions.map((o) =>
+        <div class="kpi-ctx">
+          <b>${esc([d.position_label, d.squad, `${d.minutes.toLocaleString()} min`].filter(Boolean).join(" · "))}</b>
+          <span class="muted">vs ${d.peer_count} ${esc(peers)} · ${esc(d.benchmark_competitions.join(", "))} · ${esc(d.iteration.season)}</span>
+          <button type="button" class="kpi-how-btn" aria-expanded="false" aria-controls="kpi-how">How this is scored</button>
+        </div>
+        <div class="kpi-how" id="kpi-how" hidden>
+          <p>Percentiles rank this player against <b>${d.peer_count}</b> ${esc(peers)} with ${d.min_share_used}+ match shares at the position in ${esc(d.benchmark_competitions.join(" + "))}, ${esc(d.iteration.season)}.
+            Each metric is standardised within its own league before the leagues are pooled, so league-wide differences in output don't tilt the ranks.</p>
+          <p>A category's score is the equal-weight average of its metrics' z-scores, fitted only on qualified peers and flipped where lower is better (marked ↓); each metric belongs to one category.
+            Values are Impect rates per match share; ratios and scores are shown as supplied. Medians and the ${esc(d.iteration.short)} column use ${esc(d.iteration.competition)} ${esc(peers)} only.</p>
+          <p>Transfers count once in the reference, using their largest qualified league sample. Oldest reference fetch: ${esc(new Date(d.cohort_built_at).toLocaleString())}. Cached for up to 12 hours.</p>
+        </div>
+        ${(d.positions || []).length > 1 ? `<div class="kpi-positions" role="group" aria-label="Position benchmarked"><span class="muted sm">Benchmark as</span>${d.positions.map((o) =>
           `<button type="button" class="${o.group === d.position ? "on" : ""}${o.eligible ? "" : " thin"}" data-kpi-pos="${esc(o.group)}" aria-pressed="${o.group === d.position}"
-            title="${esc(o.impect_positions.map((x) => `${x.name.replace(/_/g, " ").toLowerCase()} ${x.match_share}`).join(", "))}${o.eligible ? "" : " (below the minimum)"}">${esc(o.label)} <span>${o.match_share}</span></button>`).join("")}</div>` : ""}
-        ${!d.eligible ? `<p class="banner warn">Small sample: ${d.match_share} match shares (${d.minutes.toLocaleString()} min) at this position, below the ${d.min_share_used} required for the reference group. Percentiles are shown but are less reliable.</p>` : ""}
+            title="${esc(o.impect_positions.map((x) => `${x.name.replace(/_/g, " ").toLowerCase()} ${x.match_share}`).join(", "))}${o.eligible ? "" : " (below the minimum)"}">${esc(o.label)} <span>· ${o.match_share} matches</span></button>`).join("")}</div>` : ""}
+        ${!d.eligible ? `<p class="banner warn">Small sample: ${d.match_share} matches (${d.minutes.toLocaleString()} min) at this position, below the ${d.min_share_used} required for the reference group. Percentiles are shown but are less reliable.</p>` : ""}
         ${d.missing_benchmark_competitions?.length ? `<p class="sm muted">Unavailable for this season: ${esc(d.missing_benchmark_competitions.join(", "))}.</p>` : ""}
-        <ol class="kpi-list">${[...d.categories].sort((a, b) => (b.percentile ?? -1) - (a.percentile ?? -1)).map(kpiCategory).join("")}</ol>
-        <p class="sm muted" style="margin:8px 0 0">Bars show pooled percentiles, highest to lowest; expand a category for its metrics and valid peer count. Raw volume and threat values are Impect rates per match share; ratios and scores are shown as supplied. Equal-weight, direction-adjusted KPI z-scores fitted only on qualified peers; each KPI belongs to one category.
-          A high percentile on a volume KPI means “more”, not necessarily “better”; ↓ marks KPIs where lower is favourable.
-          Transfers count once in the reference, using their largest qualified league sample.
-          Oldest reference fetch: ${esc(new Date(d.cohort_built_at).toLocaleString())}. Cached for up to 12 hours.</p>`;
+        <div class="kpi-axis" aria-hidden="true"><span></span><span class="kpi-scale"><span>0</span><span>50<span class="kpi-scale-m"> · median</span></span><span>100</span></span></div>
+        ${d.phases.map((ph) => kpiPhase(ph, d)).join("")}
+        <p class="sm muted" style="margin:10px 0 0">Percentile against the benchmark; the tick marks the median ${esc(d.position_label.toLowerCase())}. Open a category for its metrics.</p>`;
     }
     $("#kpi-it", el)?.addEventListener("change", (e) => draw(e.target.value, null));
     el.querySelectorAll("[data-kpi-pos]").forEach((b) => b.addEventListener("click", () => draw(d.iteration?.id, b.dataset.kpiPos)));
+    $(".kpi-how-btn", el)?.addEventListener("click", (e) => {
+      const open = e.currentTarget.getAttribute("aria-expanded") !== "true";
+      e.currentTarget.setAttribute("aria-expanded", String(open));
+      $("#kpi-how", el).hidden = !open;
+    });
   };
   draw();
 }

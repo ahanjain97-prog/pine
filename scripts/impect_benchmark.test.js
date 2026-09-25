@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { benchmark, fixedFloor, percentile, qualifiedReference } from '../src/lib/impect_benchmark.js';
+import { benchmark, fixedFloor, median, percentile, qualifiedReference } from '../src/lib/impect_benchmark.js';
 import { CATEGORIES } from '../src/lib/impect_categories.js';
 
 test('each position assigns every component to only one non-empty category', () => {
@@ -84,4 +84,14 @@ test('without byLeague the original single-fit result is unchanged', () => {
   const flagged = benchmark(t, rows.map((r, i) => ({ ...r, league: i % 2 ? 'X' : 'Y' })), cats, meta, 5, { byLeague: false });
   assert.deepEqual(flagged.categories.map((c) => c.percentile), plain.categories.map((c) => c.percentile));
   assert.equal(plain.league_adjusted, false);
+});
+
+test('each metric carries the raw median of qualified peers', () => {
+  assert.equal(median([1, 2, 3, 4, 5, 6, 7]), null, 'fewer than eight peers');
+  assert.equal(median([8, 1, 7, 2, 6, 3, 5, 4]), 4.5);
+  assert.equal(median([9, 1, 8, 2, 7, 3, 6, 4, 5, null, NaN]), 5);
+  const loud = { playerId: 99, matchShare: .1, values: { pass: 1e9, loss: 1e9 } };
+  const [pass, loss] = benchmark(rows[0], [...rows, loud], cats, meta).categories[0].components;
+  assert.equal(pass.median, 9.5, 'raw scale, and the unqualified player is ignored');
+  assert.equal(loss.median, 10.5, 'not flipped for lower-is-better metrics');
 });
