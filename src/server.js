@@ -24,6 +24,10 @@ import {
 import { playerKpiCard } from "./lib/impect_kpi.js";
 import { playerCardOptions } from "./lib/card_options.js";
 import { MAX_CARD_BYTES, DAILY_CARD_LIMIT, cardErrorCode, cardProgress, claimCard, isPdf, isPng, saveCardFile, sqlTime } from "./lib/cards.js";
+import {
+  MAX_MAPS_BYTES, DAILY_MAPS_LIMIT, OPEN_MAPS_PER_USER, MapsError, claimMap, mapErrorCode, mapProgress, normalizeMaps,
+  removeMapsFiles, saveMapsFile,
+} from "./lib/maps.js";
 import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
@@ -44,6 +48,8 @@ const BACKUP_DIR = join(dirname(DB_FILE), "backups");
 startDailyBackups(db, BACKUP_DIR);
 // Player card PDFs, one folder per player, on the same volume as the database.
 const CARDS_DIR = join(dirname(DB_FILE), "cards");
+// Pitch map exports (gzipped JSON), one folder per player, likewise.
+const MAPS_DIR = join(dirname(DB_FILE), "maps");
 const PHYS_CACHE = join(ROOT, "data", "physical_cache.json");
 
 class HttpError extends Error {
@@ -262,6 +268,9 @@ const backupTokenOk = (c) => tokenMatches(c.req.header("X-PINE-Backup-Token"), B
 // The player card worker sends PINE_WORKER_TOKEN as X-PINE-Worker-Token. It opens /api/worker/* only,
 // and those routes never accept a staff session instead.
 const WORKER_TOKEN = process.env.PINE_WORKER_TOKEN || "";
+// When the worker last called in at all, and about maps. It polls every 5 seconds, so the Maps tab can
+// say when it's offline, or running a version from before maps.
+const workerSeen = { any: null, maps: null };
 
 // Auth gate + CSRF header for writes.
 app.use("/api/*", async (c, next) => {
@@ -269,6 +278,8 @@ app.use("/api/*", async (c, next) => {
   if (c.req.path.startsWith("/api/auth/")) return next();
   if (c.req.path.startsWith("/api/worker/")) {
     if (!tokenMatches(c.req.header("X-PINE-Worker-Token"), WORKER_TOKEN)) return c.json({ error: "Worker token missing or wrong" }, 401);
+    workerSeen.any = new Date();
+    if (c.req.path.startsWith("/api/worker/maps/")) workerSeen.maps = workerSeen.any;
     c.set("user", null);
     return next();
   }
@@ -817,6 +828,126 @@ app.post("/api/worker/cards/:id/fail", async (c) => {
   const { code } = await c.req.json().catch(() => ({}));
   const card = runningCard(c);
   db.run("UPDATE cards SET status = 'failed', error = ? WHERE id = ?", cardErrorCode(code), card.id);
+  return c.json({ ok: true });
+});
+
+/* ---------- pitch maps (built by the card worker from Impect events; drawn and filtered in the browser) ---------- */
+const MAP_SELECT = `SELECT m.id, m.player_id, m.iteration_id, m.competition, m.season, m.position, m.status, m.error,
+    m.requested_at, m.started_at, m.generated_at, m.data_as_of, m.catalog, m.progress, m.progress_matches,
+    u.name AS requested_by_name
+  FROM maps m LEFT JOIN users u ON u.id = m.requested_by`;
+// The newest metric catalog any build has used: a build made with an older one lacks newer metrics.
+const mapsMeta = () => ({
+  latest_catalog: db.get("SELECT catalog FROM maps WHERE status = 'done' AND catalog IS NOT NULL ORDER BY generated_at DESC, id DESC LIMIT 1")?.catalog || null,
+  worker_seen_at: workerSeen.any ? sqlTime(workerSeen.any) : null,
+  maps_worker_seen_at: workerSeen.maps ? sqlTime(workerSeen.maps) : null,
+});
+const OPEN_MAP = "status IN ('queued','running')";
+
+app.get("/api/players/:id/maps", (c) => {
+  const p = getPlayer(c.req.param("id"));
+  const maps = p.impect_id
+    ? db.all(`${MAP_SELECT} WHERE m.player_id = ? AND m.impect_id = ? ORDER BY m.requested_at DESC, m.id DESC`, p.id, p.impect_id)
+    : [];
+  return c.json({ maps, ...mapsMeta() });
+});
+// The latest builds across PINE, for opening one without searching.
+app.get("/api/maps/recent", (c) => c.json({
+  maps: db.all(`SELECT m.id, m.player_id, p.name, p.club, p.photo_url, m.iteration_id, m.competition, m.season, m.position,
+      m.generated_at, m.data_as_of
+    FROM maps m JOIN players p ON p.id = m.player_id AND p.impect_id = m.impect_id
+    WHERE m.status = 'done' ORDER BY m.generated_at DESC, m.id DESC LIMIT 12`),
+}));
+// Anyone signed in can build maps. Asking again for a view already waiting returns that job.
+app.post("/api/players/:id/maps", async (c) => {
+  const user = c.get("user");
+  const p = getPlayer(c.req.param("id"));
+  if (!p.impect_id) fail(400, "Link this player to Impect first");
+  const { iteration_id, position } = await c.req.json().catch(() => ({}));
+  const season = (await cardOptionsFor(p)).seasons.find((s) => s.iteration_id === Number(iteration_id));
+  if (!season?.positions.some((o) => o.code === position)) fail(400, "Maps aren't offered for that season and position");
+  // Checked after the Impect lookup and before the insert, with no await in between, so two clicks can't both pass.
+  const open = db.get(`${MAP_SELECT} WHERE m.player_id = ? AND m.impect_id = ? AND m.iteration_id = ? AND m.position = ? AND m.${OPEN_MAP}`,
+    p.id, p.impect_id, season.iteration_id, position);
+  if (open) return c.json({ map: open, ...mapsMeta() });
+  if (db.get(`SELECT count(*) AS n FROM maps WHERE requested_by = ? AND ${OPEN_MAP}`, user.id).n >= OPEN_MAPS_PER_USER) {
+    fail(429, `You have ${OPEN_MAPS_PER_USER} maps waiting to build already; ask again once one is done`);
+  }
+  if (db.get("SELECT count(*) AS n FROM maps WHERE requested_at > datetime('now', '-1 day')").n >= DAILY_MAPS_LIMIT) {
+    fail(429, `${DAILY_MAPS_LIMIT} maps were requested across PINE in the last 24 hours; try again later`);
+  }
+  const id = Number(db.run(
+    "INSERT INTO maps(player_id, impect_id, iteration_id, competition, season, position, requested_by) VALUES (?,?,?,?,?,?,?)",
+    p.id, p.impect_id, season.iteration_id, season.competition, season.season, position, user.id).lastInsertRowid);
+  return c.json({ map: db.get(`${MAP_SELECT} WHERE m.id = ?`, id), ...mapsMeta() }, 201);
+});
+// A build's file never changes (a rebuild is a new id), so the browser keeps it.
+app.get("/api/maps/:id/json", (c) => {
+  const map = db.get("SELECT status, file FROM maps WHERE id = ?", Number(c.req.param("id")));
+  if (map?.status !== "done" || !map.file) fail(404, "These maps aren't available; they may have been rebuilt");
+  const file = join(MAPS_DIR, map.file);
+  if (!existsSync(file)) fail(404, "These maps' file is missing from the server; build them again");
+  return new Response(Readable.toWeb(createReadStream(file)), {
+    headers: {
+      "Content-Type": "application/json; charset=utf-8", "Content-Encoding": "gzip",
+      "Content-Length": String(statSync(file).size), "Cache-Control": "private, max-age=31536000, immutable",
+    },
+  });
+});
+
+// Map worker API (X-PINE-Worker-Token, checked in the /api gate above).
+function runningMap(c) {
+  const map = db.get("SELECT id, player_id, impect_id, iteration_id, position, status FROM maps WHERE id = ?", Number(c.req.param("id")))
+    || fail(404, "Maps job not found");
+  if (map.status !== "running") fail(409, `Maps job ${map.id} is ${map.status}, not running`);
+  return map;
+}
+app.post("/api/worker/maps/claim", (c) => {
+  const job = claimMap(db);
+  return job ? c.json(job) : c.body(null, 204);
+});
+const mapsBodyLimit = bodyLimit({ maxSize: MAX_MAPS_BYTES, onError: (c) => c.json({ error: "The maps export is over 5 MB" }, 413) });
+// The export finishes the job and replaces the view's earlier builds and failures.
+app.put("/api/worker/maps/:id/json", mapsBodyLimit, async (c) => {
+  const buf = Buffer.from(await c.req.arrayBuffer());
+  const map = runningMap(c);
+  let data;
+  try { data = normalizeMaps(JSON.parse(buf.toString("utf8")), map); } catch (e) {
+    if (e instanceof SyntaxError) fail(400, "That isn't JSON");
+    if (e instanceof MapsError) fail(400, e.message);
+    throw e;
+  }
+  const commit = c.req.header("X-PINE-Maps-Commit") || "";
+  const now = new Date();
+  const saved = saveMapsFile(MAPS_DIR, map, data, now);
+  const view = "player_id = ? AND iteration_id = ? AND position = ? AND id <> ? AND status IN ('done','failed')";
+  const replaced = db.tx(() => {
+    const old = db.all(`SELECT file FROM maps WHERE ${view} AND file IS NOT NULL`, map.player_id, map.iteration_id, map.position, map.id);
+    db.run(`DELETE FROM maps WHERE ${view}`, map.player_id, map.iteration_id, map.position, map.id);
+    db.run(
+      "UPDATE maps SET status = 'done', error = NULL, generated_at = ?, file = ?, bytes = ?, hop_commit = ?, catalog = ?, data_as_of = ? WHERE id = ?",
+      sqlTime(now), saved.file, saved.bytes, /^[0-9a-f]{7,40}$/i.test(commit) ? commit : null, data.catalog, data.sample.last_match, map.id);
+    return old.map((r) => r.file);
+  });
+  removeMapsFiles(MAPS_DIR, replaced);
+  return c.json({ ok: true });
+});
+app.post("/api/worker/maps/:id/progress", async (c) => {
+  const { code, matches } = await c.req.json().catch(() => ({}));
+  const map = runningMap(c);
+  const note = mapProgress(code, matches) || fail(400, "Unknown progress code");
+  db.run("UPDATE maps SET progress = ?, progress_matches = ? WHERE id = ?", note.code, note.matches, map.id);
+  return c.json({ ok: true });
+});
+// A failure keeps the view's last good build; only an earlier failure is replaced.
+app.post("/api/worker/maps/:id/fail", async (c) => {
+  const { code } = await c.req.json().catch(() => ({}));
+  const map = runningMap(c);
+  db.tx(() => {
+    db.run("DELETE FROM maps WHERE player_id = ? AND iteration_id = ? AND position = ? AND id <> ? AND status = 'failed'",
+      map.player_id, map.iteration_id, map.position, map.id);
+    db.run("UPDATE maps SET status = 'failed', error = ? WHERE id = ?", mapErrorCode(code), map.id);
+  });
   return c.json({ ok: true });
 });
 

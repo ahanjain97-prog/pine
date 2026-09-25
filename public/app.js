@@ -1,5 +1,5 @@
 // PINE front end: single page, no build step.
-// Routes: #/board  #/players  #/player/:id  #/impect  #/activity  #/staff
+// Routes: #/board  #/players  #/player/:id  #/maps(/:id)  #/impect  #/activity  #/staff
 // Shared links come in as /p/:id, which the server rewrites to #/player/:id before this boots.
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -271,6 +271,7 @@ function renderShell() {
     <nav class="nav" id="nav">
       <a href="#/board" data-v="board">Big Board</a>
       <a href="#/players" data-v="players">Database</a>
+      <a href="#/maps" data-v="maps">Maps</a>
       <a href="#/impect" data-v="impect">Impect</a>
       <a href="#/activity" data-v="activity">Activity</a>
       ${S.me.is_admin ? `<a href="#/staff" data-v="staff">Staff</a>` : ""}
@@ -337,20 +338,20 @@ function route() {
   return shared ? { view: "player", arg: shared[1] } : { view: "board", arg: undefined };
 }
 
-const canonicalUrl = ({ view, arg }) => (view === "player" ? `/p/${arg}` : `/#/${view}`);
+const canonicalUrl = ({ view, arg }) => (view === "player" ? `/p/${arg}` : arg ? `/#/${view}/${arg}` : `/#/${view}`);
 
 async function render() {
   if (!S.me) return;
   const { view, arg } = route();
   $$("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.v === view || (view === "player" && a.dataset.v === "players")));
   $("#upd").hidden = true;
-  const views = { board: renderBoard, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
+  const views = { board: renderBoard, players: renderTable, player: renderPlayer, maps: renderMaps, impect: renderImpect, activity: renderActivity, staff: renderStaff };
   if (!views[view]) { location.hash = "#/board"; return; }
   // replaceState fires nothing, so this can't loop back into render().
   const want = canonicalUrl({ view, arg });
   if (location.pathname + location.hash !== want) history.replaceState(null, "", want);
-  // The player view retitles itself once the profile loads.
-  setTitle({ board: "Big Board", players: "Database", impect: "Impect", activity: "Activity", staff: "Staff" }[view]);
+  // The player and maps views retitle themselves.
+  setTitle({ board: "Big Board", players: "Database", maps: "Pitch maps", impect: "Impect", activity: "Activity", staff: "Staff" }[view]);
   await views[view]($("#main"), arg);
 }
 
@@ -1316,7 +1317,7 @@ async function loadCardPanel(root, p) {
   const offered = (x) => opts.seasons.some((s) => s.iteration_id === x?.iteration_id && s.positions.some((o) => o.code === x.position));
   const sel = { ...(offered(cardPick.get(p.id)) ? cardPick.get(p.id) : opts.default) };
   const season = () => opts.seasons.find((s) => s.iteration_id === sel.iteration_id);
-  el.innerHTML = `<header class="panel-h"><h2>Player card</h2>${S.me.is_admin ? `<button type="button" class="btn sm" id="card-go"></button>` : ""}</header>
+  el.innerHTML = `<header class="panel-h"><h2>Player card</h2><a class="sm" href="#/maps/${p.id}">Pitch maps →</a>${S.me.is_admin ? `<button type="button" class="btn sm" id="card-go"></button>` : ""}</header>
     <div class="card-pick">
       <select id="card-season" aria-label="Season">${opts.seasons.map((s) => `<option value="${s.iteration_id}">${esc(s.season)} · ${esc(s.competition)}</option>`).join("")}</select>
       <select id="card-pos" aria-label="Position"></select>
@@ -1388,6 +1389,456 @@ async function loadCardPanel(root, p) {
   });
   fillPositions();
   drawBody();
+  watch();
+}
+
+/* ---------- pitch maps (#/maps/:id): the card's two maps, with up to three chosen metrics on each ---------- */
+const MAP_SIDES = { use: "In attack", defend: "Defensive actions" };
+const MAP_SHADE = { use: "#76518e", defend: "#b06127" };
+// The glyph of each pick on a map. The first two are the card's, and a map opens on the card's two
+// metrics, so it first looks like the card; the third exists only here.
+const MAP_GLYPHS = {
+  use: [["dot", "#276e91"], ["triangle", "#e6ad2f"], ["square", "#c2474f"]],
+  defend: [["dot", "#14705b"], ["cross", "#2b4a72"], ["diamond", "#8a4fb0"]],
+};
+const MAP_FAILED = {
+  not_covered: "This season isn't in the event data yet.",
+  no_minutes: "The event data has no minutes for this player in this season.",
+  position_unavailable: "The event data doesn't have this position for this player in this season.",
+  goalkeeper: "Goalkeepers don't have pitch maps.",
+  data_missing: "Some of the data these maps need is missing.",
+  render_failed: "The maps couldn't be built.",
+  failed: "The maps couldn't be built.",
+};
+const PITCH_VIEWBOX = "-1.5 -2.6 71 110.2"; // the 68 x 105 m pitch plus its goals
+const mapOpen = (m) => m.status === "queued" || m.status === "running";
+const mapFailed = (m) => MAP_FAILED[m.error] || MAP_FAILED.failed;
+const mapsPick = new Map(); // player id -> the season and position last viewed
+const mapsJson = new Map(); // build id -> its export; a build never changes
+let mapsTimer = null;
+const r2 = (v) => Math.round(v * 100) / 100;
+
+// Picks per position group and map: three slots, each a metric key or null; the slot sets the glyph.
+// Kept in this browser, so the metrics chosen for one centre-back carry over to the next.
+const MAP_PICKS_KEY = "pine.mapPicks";
+const picksMemory = {};
+function storedPicks() {
+  try { return { ...picksMemory, ...JSON.parse(localStorage.getItem(MAP_PICKS_KEY) || "{}") }; } catch { return picksMemory; }
+}
+function storePicks(group, picks) {
+  picksMemory[group] = picks;
+  try { localStorage.setItem(MAP_PICKS_KEY, JSON.stringify({ ...storedPicks(), [group]: picks })); } catch {}
+}
+const cardPicks = (data, side) => [0, 1, 2].map((i) => data.defaults[side][i] || null);
+function picksFor(data) {
+  const mine = storedPicks()[data.group] || {};
+  return Object.fromEntries(["use", "defend"].map((side) => {
+    const ok = new Set(data.metrics.filter((m) => m.side === side && m.available).map((m) => m.key));
+    const want = Array.isArray(mine[side]) ? mine[side] : cardPicks(data, side);
+    const seen = new Set();
+    return [side, [0, 1, 2].map((i) => {
+      const k = want[i];
+      if (!k || !ok.has(k) || seen.has(k)) return null;
+      seen.add(k);
+      return k;
+    })];
+  }));
+}
+
+function glyph(shape, x, y, color, s = 1) {
+  const r = r2(1.1 * s), X = r2(x), Y = r2(y), w = r2(0.25 * s);
+  if (shape === "dot") return `<circle cx="${X}" cy="${Y}" r="${r2(0.9 * s)}" fill="${color}" fill-opacity=".85" stroke="#fff" stroke-width="${w}"/>`;
+  if (shape === "triangle") return `<path d="M${X},${r2(Y - r)}l${r},${r2(2 * r)}h${-r2(2 * r)}Z" fill="${color}" stroke="#624815" stroke-width="${r2(0.3 * s)}"/>`;
+  if (shape === "cross") {
+    return `<path d="M${r2(X - r)},${r2(Y - r)}L${r2(X + r)},${r2(Y + r)}M${r2(X - r)},${r2(Y + r)}L${r2(X + r)},${r2(Y - r)}" stroke="${color}" stroke-width="${r2(0.55 * s)}" stroke-linecap="round" fill="none"/>`;
+  }
+  if (shape === "square") {
+    const h = r2(0.8 * s);
+    return `<rect x="${r2(X - h)}" y="${r2(Y - h)}" width="${r2(2 * h)}" height="${r2(2 * h)}" fill="${color}" stroke="#fff" stroke-width="${w}"/>`;
+  }
+  return `<path d="M${X},${r2(Y - r)}L${r2(X + r)},${Y}L${X},${r2(Y + r)}L${r2(X - r)},${Y}Z" fill="${color}" stroke="#fff" stroke-width="${w}"/>`;
+}
+const glyphIcon = (side, slot, size = 14) => {
+  const [shape, color] = MAP_GLYPHS[side][slot];
+  return `<svg class="glyph" viewBox="-1.7 -1.7 3.4 3.4" width="${size}" height="${size}" aria-hidden="true">${glyph(shape, 0, 0, color)}</svg>`;
+};
+// The card's pitch: 68 x 105 m, attacking upward, goals outside the lines.
+const PITCH_LINES = (() => {
+  const c = "#8b8d83";
+  const box = (x, y, w, h, stroke = c, sw = 0.3) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="${stroke}" stroke-width="${sw}"/>`;
+  return box(0, 0, 68, 105, c, 0.35) + `<line x1="0" y1="52.5" x2="68" y2="52.5" stroke="${c}" stroke-width=".3"/>`
+    + `<circle cx="34" cy="52.5" r="9.15" fill="none" stroke="${c}" stroke-width=".3"/>`
+    + [0, 88.5].map((y) => box(13.84, y, 40.32, 16.5)).join("") + [0, 99.5].map((y) => box(24.84, y, 18.32, 5.5)).join("")
+    + [11, 94].map((y) => `<circle cx="34" cy="${y}" r=".35" fill="${c}"/>`).join("")
+    + [-1.6, 105].map((y) => box(30.34, y, 7.32, 1.6, "#626d61")).join("");
+})();
+// One map's drawing in pitch metres: the shading (or each action, when sparse), the lines, then the
+// chosen metrics in slot order. clip must be unique in the document.
+function pitchInner(data, side, slots, clip) {
+  const layer = data.layers[side], c = MAP_SHADE[side];
+  let s = `<defs><clipPath id="${clip}"><rect width="68" height="105"/></clipPath></defs><rect width="68" height="105" fill="#f3f2ec"/><g clip-path="url(#${clip})">`;
+  if (layer.sparse) s += layer.points.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="1.3" fill="${c}" stroke="#fff" stroke-width=".35"/>`).join("");
+  else {
+    s += ["80", "50"].map((mass) => layer.paths[mass].map((d) => mass === "80"
+      ? `<path d="${d}" fill="${c}" fill-opacity=".1" stroke="${c}" stroke-opacity=".3" stroke-width=".3"/>`
+      : `<path d="${d}" fill="${c}" fill-opacity=".25" stroke="${c}" stroke-width=".7"/>`).join("")).join("");
+  }
+  s += `</g>${PITCH_LINES}`;
+  slots.forEach((key, i) => {
+    const m = key && data.metrics.find((x) => x.key === key);
+    const [shape, color] = MAP_GLYPHS[side][i];
+    if (m) s += m.points.map(([x, y]) => glyph(shape, x, y, color)).join("");
+  });
+  return s;
+}
+const sameSlots = (a, b) => a.every((k, i) => k === b[i]);
+const actions = (n) => `${n.toLocaleString()} action${n === 1 ? "" : "s"}`;
+
+function mapPanel(data, side, slots) {
+  const layer = data.layers[side];
+  const mine = data.metrics.filter((m) => m.side === side);
+  const full = slots.every(Boolean);
+  const chosen = slots.map((k) => k && mine.find((m) => m.key === k));
+  const legend = chosen.map((m, i) => (m ? `<span class="lg">${glyphIcon(side, i)}<span class="lg-l">${esc(m.label)}</span><b>${m.points.length.toLocaleString()}</b></span>` : "")).join("");
+  const described = chosen.filter(Boolean).map((m) => `${m.label} ${m.points.length}`).join(", ");
+  return `<section class="panel map-panel" data-side="${side}">
+    <header class="panel-h"><span class="map-swatch" style="background:${MAP_SHADE[side]}"></span><h2>${MAP_SIDES[side]}</h2>
+      <span class="muted sm">${actions(layer.n)}${layer.sparse ? " · sparse" : ""}</span>
+      <button type="button" class="btn sm ghost" data-reset="${side}" ${sameSlots(slots, cardPicks(data, side)) ? "disabled" : ""} title="Go back to the two metrics the player card shows for this position">Card's metrics</button></header>
+    <div class="map-body">
+      <figure class="map-fig">
+        <svg class="pitch-svg" viewBox="${PITCH_VIEWBOX}" role="img" aria-label="${esc(`${MAP_SIDES[side]}, ${actions(layer.n)}${described ? `, showing ${described}` : ""}`)}">${pitchInner(data, side, slots, `clip-${side}`)}</svg>
+        <figcaption class="map-legend">${legend || `<span class="muted">No metrics chosen</span>`}</figcaption>
+      </figure>
+      <div class="map-metrics" role="group" aria-label="${esc(MAP_SIDES[side])} metrics">
+        ${[...new Set(mine.map((m) => m.category))].map((cat) => `<div class="mm-cat"><div class="lbl">${esc(cat)}</div>${mine.filter((m) => m.category === cat).map((m) => {
+          const slot = slots.indexOf(m.key), on = slot >= 0, off = !m.available || (!on && full);
+          const why = !m.available ? " Not in this player's event data." : !on && full ? " Three are chosen; clear one first." : "";
+          return `<label class="mm${on ? " on" : ""}${off ? " off" : ""}" title="${esc(m.definition + why)}">
+            <input type="checkbox" data-metric="${esc(m.key)}" data-side="${side}"${on ? " checked" : ""}${off ? " disabled" : ""}>
+            <span class="mm-g">${on ? glyphIcon(side, slot) : ""}</span><span class="mm-l">${esc(m.label)}</span>
+            <span class="mm-n">${m.available ? m.points.length.toLocaleString() : "n/a"}</span></label>`;
+        }).join("")}</div>`).join("")}
+      </div>
+    </div>
+  </section>`;
+}
+
+// A standalone picture of both maps for a report or a message: header, maps, legends.
+function mapsExportSvg(data, picks) {
+  const W = 1000, PW = 420, PH = r2((PW * 110.2) / 71), top = 132, cols = [50, 530];
+  const legendY = top + PH + 34, H = legendY + 3 * 26 + 44;
+  const who = data.player, when = data.sample.last_match ? ` · data through ${fmtDate(data.sample.last_match)}` : "";
+  let s = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="Inter, system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">`
+    + `<rect width="${W}" height="${H}" fill="#faf8f1"/>`
+    + `<text x="50" y="62" font-size="32" font-weight="700" fill="#13201a">${esc(who.name)}</text>`
+    + `<text x="50" y="92" font-size="16" fill="#44524b">${esc(`${who.club} · ${who.league} ${who.season} · ${data.position}`)}</text>`
+    + `<text x="950" y="92" font-size="13" fill="#75817a" text-anchor="end">${esc(`${data.sample.matches} matches${when}`)}</text>`;
+  ["use", "defend"].forEach((side, i) => {
+    const x = cols[i];
+    s += `<text x="${x}" y="${top - 12}" font-size="14" font-weight="700" letter-spacing="1.2" fill="${MAP_SHADE[side]}">${MAP_SIDES[side].toUpperCase()}</text>`
+      + `<text x="${x + PW}" y="${top - 12}" font-size="12" fill="#75817a" text-anchor="end">${actions(data.layers[side].n)}</text>`
+      + `<svg x="${x}" y="${top}" width="${PW}" height="${PH}" viewBox="${PITCH_VIEWBOX}">${pitchInner(data, side, picks[side], `png-clip-${side}`)}</svg>`;
+    picks[side].forEach((key, j) => {
+      const m = key && data.metrics.find((x2) => x2.key === key);
+      if (!m) return;
+      const y = legendY + j * 26;
+      s += `<svg x="${x}" y="${y - 13}" width="17" height="17" viewBox="-1.7 -1.7 3.4 3.4">${glyph(MAP_GLYPHS[side][j][0], 0, 0, MAP_GLYPHS[side][j][1])}</svg>`
+        + `<text x="${x + 26}" y="${y}" font-size="14" fill="#13201a">${esc(m.label)}</text>`
+        + `<text x="${x + PW}" y="${y}" font-size="14" font-weight="700" fill="#13201a" text-anchor="end">${m.points.length.toLocaleString()}</text>`;
+    });
+  });
+  s += `<text x="50" y="${H - 22}" font-size="12" fill="#75817a">Open play only · attacking upward · shading holds 50% and 80% of the player's actions on each map · Impect event data</text>`
+    + `<text x="950" y="${H - 22}" font-size="12" font-weight="700" fill="#1f5a3e" text-anchor="end">PINE · Hearts of Pine</text>`;
+  return { svg: s + "</svg>", W, H };
+}
+async function downloadMapsPng(data, picks) {
+  const { svg, W, H } = mapsExportSvg(data, picks);
+  const img = new Image();
+  img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  await img.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = W * 2;
+  canvas.height = H * 2;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(2, 2);
+  ctx.drawImage(img, 0, 0, W, H);
+  const blob = await new Promise((done) => canvas.toBlob(done, "image/png"));
+  if (!blob) throw new Error("The picture couldn't be made in this browser");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${data.player.name} ${data.player.season} ${data.position} pitch maps.png`.replace(/[\\/:*?"<>|]/g, "");
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+function mapsStatusHTML(view, { done, open, failed }, meta) {
+  const out = [];
+  if (open) {
+    const queued = open.status === "queued";
+    out.push(`<p class="card-line"><span class="dchip v-hold">${queued ? "Queued" : "Building"}</span><span class="muted sm">${esc(queued ? `requested ${relTime(open.requested_at)}` : `started ${relTime(open.started_at)}`)}</span></p>`);
+    if (!queued && open.progress === "fetching_events") {
+      const n = open.progress_matches;
+      const wait = !n ? "" : n * 3 < 45 ? ", under a minute" : `, about ${Math.round((n * 3) / 60)} min`;
+      out.push(`<p class="card-line muted sm">${esc(`Downloading event data for ${n ? `${n} match${n === 1 ? "" : "es"}` : "its matches"} from Impect first${wait}. Later maps and cards reuse it.`)}</p>`);
+    }
+    // The builder polls every 5 seconds; say why a job is still waiting after half a minute.
+    const seen = toDate(meta.worker_seen_at), mapsSeen = toDate(meta.maps_worker_seen_at);
+    const recent = (d) => d && Date.now() - d < 60e3;
+    const waited = Date.now() - (toDate(open.requested_at) || Date.now());
+    if (queued && waited > 30e3) {
+      if (!recent(seen)) {
+        out.push(`<div class="banner warn sm">The map builder ${seen ? `last checked in ${esc(relTime(meta.worker_seen_at))}` : "hasn't checked in since PINE last restarted"}. It runs on the club's Mac mini, so these maps will build once it's back online.</div>`);
+      } else if (!recent(mapsSeen)) {
+        out.push(`<div class="banner warn sm">The builder on the club's Mac mini is running but isn't taking map jobs yet. It needs a restart to pick up pitch maps; until then these maps wait in the queue.</div>`);
+      } else if (waited > 60e3) out.push(`<p class="card-line muted sm">Waiting for the builder to finish another job first.</p>`);
+    }
+  }
+  if (failed) out.push(`<div class="banner err sm">${esc(mapFailed(failed))}${done ? " The last good build is shown." : ""}</div>`);
+  if (done) {
+    out.push(`<p class="card-line muted sm">${esc(`Built ${fmtDateTime(done.generated_at)}${done.data_as_of ? ` · data through ${fmtDate(done.data_as_of)}` : ""}`)}</p>`);
+    if (meta.latest_catalog && done.catalog && done.catalog !== meta.latest_catalog) {
+      out.push(`<div class="banner info sm">Metrics have been added since these maps were built. Rebuild them to include the new ones.</div>`);
+    } else if (!open && Number(view.season) >= new Date().getFullYear() && Date.now() - toDate(done.generated_at) > 7 * 864e5) {
+      out.push(`<div class="banner info sm">${esc(`Built ${relTime(done.generated_at)}, so later matches aren't in it. Rebuild to bring it up to date.`)}</div>`);
+    }
+  }
+  return out.join("");
+}
+
+function wireMapsSearch(root) {
+  const inp = $("#maps-q", root), box = $("#maps-res", root);
+  let results = [], hl = 0;
+  const href = (p) => (p.impect_id ? `#/maps/${p.id}` : `#/player/${p.id}`);
+  const draw = () => {
+    box.hidden = !results.length;
+    box.innerHTML = results.map((p, i) => `<a href="${href(p)}" class="${i === hl ? "hl" : ""} ${p.impect_id ? "" : "off"}">${photo(p)}<span class="ci"><span class="nm">${esc(p.name)}</span>
+      <span class="csub">${esc(p.impect_id ? [p.position, p.club].filter(Boolean).join(" · ") : "Not linked to Impect · link them on their profile")}</span></span></a>`).join("");
+  };
+  inp.addEventListener("input", () => {
+    const q = inp.value.trim();
+    const hits = q ? S.players.filter((p) => matchText(p, q)) : [];
+    results = [...hits.filter((p) => p.impect_id), ...hits.filter((p) => !p.impect_id)].slice(0, 8);
+    hl = 0;
+    draw();
+  });
+  inp.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { hl = Math.min(hl + 1, results.length - 1); draw(); e.preventDefault(); }
+    else if (e.key === "ArrowUp") { hl = Math.max(hl - 1, 0); draw(); e.preventDefault(); }
+    else if (e.key === "Enter" && results[hl]) { location.hash = href(results[hl]); inp.value = ""; results = []; draw(); inp.blur(); }
+    else if (e.key === "Escape") { inp.value = ""; results = []; draw(); inp.blur(); }
+  });
+  inp.addEventListener("blur", () => setTimeout(() => (box.hidden = true), 150));
+  box.addEventListener("mousedown", (e) => e.preventDefault());
+}
+
+async function loadRecentMaps(body) {
+  body.innerHTML = `<div class="loading">Loading…</div>`;
+  let maps;
+  try { ({ maps } = await api("GET", "/api/maps/recent")); } catch (e) {
+    if (body.isConnected) body.innerHTML = `<div class="banner err">${esc(e.message)}</div>`;
+    return;
+  }
+  if (!body.isConnected) return;
+  body.innerHTML = `<section class="panel maps-recent"><header class="panel-h"><h2>Recently built</h2><span class="muted sm">Open any of these straight away</span></header>
+    ${maps.length ? `<div class="maps-rec-list">${maps.map((m) => `<a class="maps-rec" href="#/maps/${m.player_id}" data-pid="${m.player_id}" data-it="${m.iteration_id}" data-pos="${esc(m.position)}">
+      ${photo({ name: m.name, photo_url: m.photo_url })}<span class="ci"><span class="nm">${esc(m.name)}</span><span class="csub">${esc(`${m.position} · ${m.season} ${m.competition}`)}</span></span>
+      <span class="muted sm">${esc(relTime(m.generated_at))}</span></a>`).join("")}</div>`
+    : `<p class="empty">No maps have been built yet. Find a player above to build their first.</p>`}</section>`;
+  body.onclick = (e) => {
+    const a = e.target.closest("a[data-pid]");
+    if (a) mapsPick.set(Number(a.dataset.pid), { iteration_id: Number(a.dataset.it), position: a.dataset.pos });
+  };
+}
+
+// Seasons and positions from the builds alone, for when Impect can't be reached to list them.
+function mapViewsFromBuilds(maps) {
+  const seasons = new Map();
+  for (const m of maps.filter((x) => x.status === "done")) {
+    const s = seasons.get(m.iteration_id) || { iteration_id: m.iteration_id, competition: m.competition, season: m.season, positions: [] };
+    if (!s.positions.some((o) => o.code === m.position)) s.positions.push({ code: m.position, label: m.position });
+    seasons.set(m.iteration_id, s);
+  }
+  return [...seasons.values()];
+}
+
+async function renderMaps(main, arg) {
+  clearTimeout(mapsTimer);
+  let p = arg ? S.byId.get(Number(arg)) : null;
+  // Someone may have added the player since this page loaded its list.
+  if (arg && !p) { try { p = (await api("GET", `/api/players/${Number(arg)}`)).player; } catch {} }
+  if (route().view !== "maps" || route().arg !== arg) return;
+  setTitle(p ? `${p.name} · Maps` : "Pitch maps");
+  main.innerHTML = `<div class="page maps-page">
+    ${arg ? `<a class="back" href="#/maps">← All pitch maps</a>` : ""}
+    <div class="page-h"><div><h1>Pitch maps</h1><div class="sub">Where a player's open-play actions happen, from Impect match events. Pick up to three metrics on each map.</div></div></div>
+    <section class="panel maps-controls">
+      <div class="maps-top">
+        ${p ? `<a class="maps-who" href="#/player/${p.id}" title="Open the profile">${photo(p, "lg")}<span class="ci"><span class="nm">${esc(p.name)}</span><span class="csub">${esc([p.position, p.club, p.league].filter(Boolean).join(" · "))}</span></span></a>` : ""}
+        <div class="maps-find"><input id="maps-q" type="search" autocomplete="off" placeholder="${p ? "Find another player…" : "Find a player linked to Impect"}" aria-label="Find a player"><div class="maps-res" id="maps-res" hidden></div></div>
+      </div>
+      ${p?.impect_id ? `<div class="maps-pick">
+        <select id="maps-season" aria-label="Season" disabled><option>Loading seasons…</option></select>
+        <select id="maps-pos" aria-label="Position" disabled></select>
+        <button type="button" class="btn" id="maps-go" hidden></button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="maps-png" disabled title="Save both maps with the chosen metrics as a picture">Download PNG</button>
+      </div>` : ""}
+      <div class="maps-status" id="maps-status"></div>
+    </section>
+    <div id="maps-body"></div>
+  </div>`;
+  const root = main.firstElementChild;
+  const body = $("#maps-body", root), status = $("#maps-status", root);
+  wireMapsSearch(root);
+  if (!arg) return loadRecentMaps(body);
+  if (!p) { body.innerHTML = `<div class="empty-state">That player isn't in PINE. Find another above.</div>`; return; }
+  if (!p.impect_id) {
+    body.innerHTML = `<div class="empty-state">${esc(p.name)} isn't linked to Impect, so there are no match events to map. <a href="#/player/${p.id}">Link them on their profile</a>.</div>`;
+    return;
+  }
+  const [optsRes, listRes] = await Promise.allSettled([api("GET", `/api/players/${p.id}/card-options`), api("GET", `/api/players/${p.id}/maps`)]);
+  if (!root.isConnected) return;
+  if (listRes.status === "rejected") { status.innerHTML = `<div class="banner err sm">${esc(listRes.reason.message)}</div>`; return; }
+  let list = listRes.value;
+  const opts = optsRes.status === "fulfilled" ? optsRes.value : null;
+  const views = opts ? opts.seasons : mapViewsFromBuilds(list.maps);
+  const seasonSel = $("#maps-season", root), posSel = $("#maps-pos", root), go = $("#maps-go", root), png = $("#maps-png", root);
+  if (!views.length) {
+    seasonSel.innerHTML = "";
+    status.innerHTML = opts ? "" : `<div class="banner err sm">${esc(optsRes.reason.message)}</div>`;
+    body.innerHTML = `<div class="empty-state">${opts ? "No outfield Impect minutes in our leagues to map." : "Seasons can't be listed right now, and nothing has been built for this player yet."}</div>`;
+    return;
+  }
+  const offered = (x) => views.some((s) => s.iteration_id === x?.iteration_id && s.positions.some((o) => o.code === x.position));
+  const lastBuilt = list.maps.find((m) => m.status === "done");
+  const sel = { ...(offered(mapsPick.get(p.id)) ? mapsPick.get(p.id)
+    : offered(lastBuilt) ? { iteration_id: lastBuilt.iteration_id, position: lastBuilt.position }
+    : opts?.default || { iteration_id: views[0].iteration_id, position: views[0].positions[0].code }) };
+  const season = () => views.find((s) => s.iteration_id === sel.iteration_id);
+  seasonSel.innerHTML = views.map((s) => `<option value="${s.iteration_id}">${esc(s.season)} · ${esc(s.competition)}</option>`).join("");
+  seasonSel.disabled = posSel.disabled = false;
+  const fillPositions = () => {
+    posSel.innerHTML = season().positions.map((o) => `<option value="${o.code}">${o.code} · ${esc(o.label)}${o.match_share != null ? ` · ${o.match_share.toFixed(1)} matches` : ""}</option>`).join("");
+    seasonSel.value = sel.iteration_id;
+    posSel.value = sel.position;
+  };
+  let shown = null; // the build on screen, so polling doesn't redraw it
+  let ticket = 0;
+  const state = () => {
+    const mine = list.maps.filter((m) => m.iteration_id === sel.iteration_id && m.position === sel.position);
+    return { done: mine.find((m) => m.status === "done"), open: mine.find(mapOpen), failed: mine[0]?.status === "failed" ? mine[0] : null };
+  };
+  const drawStatus = () => {
+    const st = state();
+    const outdated = st.done && list.latest_catalog && st.done.catalog && st.done.catalog !== list.latest_catalog;
+    status.innerHTML = (opts ? "" : `<div class="banner warn sm">Seasons can't be listed right now (${esc(optsRes.reason.message)}), so only built maps are shown.</div>`)
+      + mapsStatusHTML(season(), st, list);
+    go.hidden = !opts;
+    go.disabled = Boolean(st.open);
+    go.textContent = st.open ? "Building…" : st.done ? "Rebuild" : st.failed ? "Try again" : "Build maps";
+    go.classList.toggle("primary", !st.done || Boolean(outdated));
+    return st;
+  };
+  const showMaps = (data) => {
+    const picks = picksFor(data);
+    png.disabled = false;
+    png.onclick = async () => {
+      png.disabled = true;
+      try { await downloadMapsPng(data, picks); } catch (err) { oops(err); }
+      png.disabled = false;
+    };
+    const ms = data.sample.match_share;
+    body.innerHTML = `<p class="maps-meta">${esc(`${data.player.name} · ${data.player.club} · ${data.player.league} ${data.player.season} · ${data.position} · ${data.sample.matches} match${data.sample.matches === 1 ? "" : "es"}, ${ms.toFixed(1)} match shares`)}</p>
+      <div class="maps-grid">${["use", "defend"].map((side) => mapPanel(data, side, picks[side])).join("")}</div>
+      <p class="maps-note muted sm">Open play only; set pieces are left out. Attacking upward. The darker shading holds half of the player's actions on that map and the lighter shading four fifths; with 20 or fewer, each action is a dot. Hover a metric for its definition.</p>`;
+    const repaint = (side, focusKey) => {
+      const old = $(`.map-panel[data-side="${side}"]`, body);
+      const scroll = $(".map-metrics", old).scrollTop;
+      old.outerHTML = mapPanel(data, side, picks[side]);
+      const panel = $(`.map-panel[data-side="${side}"]`, body);
+      $(".map-metrics", panel).scrollTop = scroll;
+      if (focusKey) $(`input[data-metric="${focusKey}"]`, panel)?.focus();
+      storePicks(data.group, picks);
+    };
+    body.onchange = (e) => {
+      const box = e.target.closest("input[data-metric]");
+      if (!box) return;
+      const slots = picks[box.dataset.side], key = box.dataset.metric;
+      if (box.checked) {
+        const free = slots.indexOf(null);
+        if (free < 0) { box.checked = false; return; }
+        slots[free] = key;
+      } else slots[slots.indexOf(key)] = null;
+      repaint(box.dataset.side, key);
+    };
+    body.onclick = (e) => {
+      const side = e.target.closest("[data-reset]")?.dataset.reset;
+      if (!side) return;
+      picks[side] = cardPicks(data, side);
+      repaint(side);
+    };
+  };
+  const draw = async () => {
+    mapsPick.set(p.id, { ...sel });
+    const { done, open, failed } = drawStatus();
+    if (done?.id === shown) return;
+    const mine = ++ticket;
+    shown = done?.id ?? null;
+    png.disabled = true;
+    body.onchange = body.onclick = null;
+    if (!done) {
+      body.innerHTML = open ? `<div class="empty-state">Building these maps. They'll appear here when they're ready; you can leave this page meanwhile.</div>`
+        : failed ? "" : `<div class="empty-state">No maps for this season and position yet. Build them with the button above; it usually takes under a minute.</div>`;
+      return;
+    }
+    let data = mapsJson.get(done.id);
+    if (!data) {
+      body.innerHTML = `<div class="loading">Loading maps…</div>`;
+      try { data = await api("GET", `/api/maps/${done.id}/json`); } catch (e) {
+        if (mine === ticket && root.isConnected) { shown = null; body.innerHTML = `<div class="banner err">${esc(e.message)}</div>`; }
+        return;
+      }
+      mapsJson.set(done.id, data);
+      if (mapsJson.size > 40) mapsJson.delete(mapsJson.keys().next().value);
+      if (mine !== ticket || !root.isConnected) return;
+    }
+    showMaps(data);
+  };
+  // Poll while any of this player's maps are waiting or building; stop when none are or the page is gone.
+  const watch = () => {
+    clearTimeout(mapsTimer);
+    if (!root.isConnected || !list.maps.some(mapOpen)) return;
+    mapsTimer = setTimeout(async () => {
+      let fresh;
+      try { fresh = await api("GET", `/api/players/${p.id}/maps`); } catch { return watch(); }
+      if (!root.isConnected) return;
+      for (const m of fresh.maps) {
+        const was = list.maps.find((x) => x.id === m.id);
+        if (!was || !mapOpen(was) || mapOpen(m)) continue;
+        if (m.status === "done") toast(`Maps ready: ${m.position}, ${m.season}`);
+        else toast(`Maps for ${m.position}, ${m.season} failed: ${mapFailed(m)}`, true);
+      }
+      list = fresh;
+      draw();
+      watch();
+    }, 2500);
+  };
+  seasonSel.addEventListener("change", () => { sel.iteration_id = Number(seasonSel.value); sel.position = season().positions[0].code; fillPositions(); draw(); });
+  posSel.addEventListener("change", () => { sel.position = posSel.value; draw(); });
+  go.addEventListener("click", async () => {
+    go.disabled = true;
+    try {
+      const res = await api("POST", `/api/players/${p.id}/maps`, sel);
+      list = { ...list, ...res, maps: [res.map, ...list.maps.filter((m) => m.id !== res.map.id)] };
+      draw();
+      watch();
+    } catch (err) { oops(err); go.disabled = false; }
+  });
+  fillPositions();
+  draw();
   watch();
 }
 
