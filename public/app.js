@@ -1672,11 +1672,12 @@ async function renderMaps(main, arg) {
   if (route().view !== "maps" || route().arg !== arg) return;
   setTitle(p ? `${p.name} · Maps` : "Pitch maps");
   main.innerHTML = `<div class="page maps-page">
+    ${arg ? `<a class="back" href="#/maps">← All pitch maps</a>` : ""}
     <div class="page-h"><div><h1>Pitch maps</h1><div class="sub">Where a player's open-play actions happen, from Impect match events. Pick up to three metrics on each map.</div></div></div>
     <section class="panel maps-controls">
       <div class="maps-top">
         ${p ? `<a class="maps-who" href="#/player/${p.id}" title="Open the profile">${photo(p, "lg")}<span class="ci"><span class="nm">${esc(p.name)}</span><span class="csub">${esc([p.position, p.club, p.league].filter(Boolean).join(" · "))}</span></span></a>` : ""}
-        <div class="maps-find"><input id="maps-q" type="search" autocomplete="off" placeholder="${p ? "Another player…" : "Find a player linked to Impect"}" aria-label="Find a player"><div class="maps-res" id="maps-res" hidden></div></div>
+        <div class="maps-find"><input id="maps-q" type="search" autocomplete="off" placeholder="${p ? "Find another player…" : "Find a player linked to Impect"}" aria-label="Find a player"><div class="maps-res" id="maps-res" hidden></div></div>
       </div>
       ${p?.impect_id ? `<div class="maps-pick">
         <select id="maps-season" aria-label="Season" disabled><option>Loading seasons…</option></select>
