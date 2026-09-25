@@ -1,5 +1,5 @@
 // PINE front end: single page, no build step.
-// Routes: #/board  #/players  #/player/:id  #/maps(/:id)  #/impect  #/activity  #/staff
+// Routes: #/board  #/players  #/player/:id  #/impect  #/activity  #/staff
 // Shared links come in as /p/:id, which the server rewrites to #/player/:id before this boots.
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -271,7 +271,6 @@ function renderShell() {
     <nav class="nav" id="nav">
       <a href="#/board" data-v="board">Big Board</a>
       <a href="#/players" data-v="players">Database</a>
-      <a href="#/maps" data-v="maps">Maps</a>
       <a href="#/impect" data-v="impect">Impect</a>
       <a href="#/activity" data-v="activity">Activity</a>
       ${S.me.is_admin ? `<a href="#/staff" data-v="staff">Staff</a>` : ""}
@@ -345,13 +344,15 @@ async function render() {
   const { view, arg } = route();
   $$("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.v === view || (view === "player" && a.dataset.v === "players")));
   $("#upd").hidden = true;
-  const views = { board: renderBoard, players: renderTable, player: renderPlayer, maps: renderMaps, impect: renderImpect, activity: renderActivity, staff: renderStaff };
+  const views = { board: renderBoard, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
+  // Pitch maps had their own tab for a day; its links now open the player's page, where the maps live.
+  if (view === "maps") { location.hash = arg ? `#/player/${arg}` : "#/players"; return; }
   if (!views[view]) { location.hash = "#/board"; return; }
   // replaceState fires nothing, so this can't loop back into render().
   const want = canonicalUrl({ view, arg });
   if (location.pathname + location.hash !== want) history.replaceState(null, "", want);
-  // The player and maps views retitle themselves.
-  setTitle({ board: "Big Board", players: "Database", maps: "Pitch maps", impect: "Impect", activity: "Activity", staff: "Staff" }[view]);
+  // The player view retitles itself once the profile loads.
+  setTitle({ board: "Big Board", players: "Database", impect: "Impect", activity: "Activity", staff: "Staff" }[view]);
   await views[view]($("#main"), arg);
 }
 
@@ -909,6 +910,7 @@ async function renderPlayer(main, idArg) {
           <div class="row end" style="margin-top:6px"><button type="button" class="btn sm" id="save-summary">Save summary</button></div>
         </section>
         ${p.impect_id ? `<section class="panel" id="card-panel"><header class="panel-h"><h2>Player card</h2></header><div class="loading sm">Loading…</div></section>` : ""}
+        ${p.impect_id ? `<section class="panel" id="maps-panel"><header class="panel-h"><h2>Pitch maps</h2></header><div class="loading sm">Loading…</div></section>` : ""}
         ${p.impect_id ? `<section class="panel" id="kpi-panel"><header class="panel-h"><h2>Impect KPI profile</h2></header><div class="loading sm">Loading…</div></section>` : ""}
         <section class="panel"><header class="panel-h"><h2>Staff evaluations</h2></header><div class="evals">${d.staff.map(evalHTML).join("")}</div></section>
       </div>
@@ -928,6 +930,7 @@ async function renderPlayer(main, idArg) {
   loadPhysicalPanel(root, p);
   loadImpectPanel(root, p);
   if (p.impect_id) loadCardPanel(root, p);
+  if (p.impect_id) loadMapsPanel(root, p);
 }
 
 /* ---------- impect KPI profile ---------- */
@@ -1296,6 +1299,17 @@ const cardPdf = (c, label, cls = "btn sm") => `<a class="${cls}" href="/api/card
 const cardImg = (c) => c.has_image ? `<a class="card-img" href="/api/cards/${c.id}/pdf" target="_blank" rel="noopener" title="Open the PDF">
   <img src="/api/cards/${c.id}/png" width="1600" height="1088" decoding="async" alt="${esc(`Player card: ${c.position}, ${c.season} ${c.competition}`)}"></a>` : "";
 const cardPick = new Map(); // player id -> last season/position picked, kept across re-renders
+// The seasons and positions a player's card and maps can be made for. Both panels ask as the page loads,
+// so they share one Impect lookup (a failed one isn't kept).
+const seasonsAsked = new Map(); // player id -> { at, promise }
+function playerSeasons(id) {
+  const hit = seasonsAsked.get(id);
+  if (hit && Date.now() - hit.at < 60e3) return hit.promise;
+  const promise = api("GET", `/api/players/${id}/card-options`);
+  promise.catch(() => seasonsAsked.delete(id));
+  seasonsAsked.set(id, { at: Date.now(), promise });
+  return promise;
+}
 let cardTimer = null;
 
 async function loadCardPanel(root, p) {
@@ -1304,7 +1318,7 @@ async function loadCardPanel(root, p) {
   let cards, opts;
   try {
     ({ cards } = await api("GET", `/api/players/${p.id}/cards`));
-    opts = await api("GET", `/api/players/${p.id}/card-options`);
+    opts = await playerSeasons(p.id);
   } catch (e) {
     // Impect unreachable: say so, but keep finished cards one click away.
     el.innerHTML = `${head}<div class="banner err sm">${esc(e.message)}</div>${(cards || []).filter((c) => c.status === "done").map((c) =>
@@ -1317,7 +1331,7 @@ async function loadCardPanel(root, p) {
   const offered = (x) => opts.seasons.some((s) => s.iteration_id === x?.iteration_id && s.positions.some((o) => o.code === x.position));
   const sel = { ...(offered(cardPick.get(p.id)) ? cardPick.get(p.id) : opts.default) };
   const season = () => opts.seasons.find((s) => s.iteration_id === sel.iteration_id);
-  el.innerHTML = `<header class="panel-h"><h2>Player card</h2><a class="sm" href="#/maps/${p.id}">Pitch maps →</a>${S.me.is_admin ? `<button type="button" class="btn sm" id="card-go"></button>` : ""}</header>
+  el.innerHTML = `<header class="panel-h"><h2>Player card</h2>${S.me.is_admin ? `<button type="button" class="btn sm" id="card-go"></button>` : ""}</header>
     <div class="card-pick">
       <select id="card-season" aria-label="Season">${opts.seasons.map((s) => `<option value="${s.iteration_id}">${esc(s.season)} · ${esc(s.competition)}</option>`).join("")}</select>
       <select id="card-pos" aria-label="Position"></select>
@@ -1392,7 +1406,7 @@ async function loadCardPanel(root, p) {
   watch();
 }
 
-/* ---------- pitch maps (#/maps/:id): the card's two maps, with up to three chosen metrics on each ---------- */
+/* ---------- pitch maps (a player page panel): the card's two maps, with up to three chosen metrics on each ---------- */
 const MAP_SIDES = { use: "In attack", defend: "Defensive actions" };
 const MAP_SHADE = { use: "#76518e", defend: "#b06127" };
 // The glyph of each pick on a map. The first two are the card's, and a map opens on the card's two
@@ -1494,15 +1508,15 @@ function pitchInner(data, side, slots, clip) {
 const sameSlots = (a, b) => a.every((k, i) => k === b[i]);
 const actions = (n) => `${n.toLocaleString()} action${n === 1 ? "" : "s"}`;
 
-function mapPanel(data, side, slots) {
+function mapBox(data, side, slots) {
   const layer = data.layers[side];
   const mine = data.metrics.filter((m) => m.side === side);
   const full = slots.every(Boolean);
   const chosen = slots.map((k) => k && mine.find((m) => m.key === k));
   const legend = chosen.map((m, i) => (m ? `<span class="lg">${glyphIcon(side, i)}<span class="lg-l">${esc(m.label)}</span><b>${m.points.length.toLocaleString()}</b></span>` : "")).join("");
   const described = chosen.filter(Boolean).map((m) => `${m.label} ${m.points.length}`).join(", ");
-  return `<section class="panel map-panel" data-side="${side}">
-    <header class="panel-h"><span class="map-swatch" style="background:${MAP_SHADE[side]}"></span><h2>${MAP_SIDES[side]}</h2>
+  return `<section class="map-box" data-side="${side}">
+    <header class="map-h"><span class="map-swatch" style="background:${MAP_SHADE[side]}"></span><h3>${MAP_SIDES[side]}</h3>
       <span class="muted sm">${actions(layer.n)}${layer.sparse ? " · sparse" : ""}</span>
       <button type="button" class="btn sm ghost" data-reset="${side}" ${sameSlots(slots, cardPicks(data, side)) ? "disabled" : ""} title="Go back to the two metrics the player card shows for this position">Card's metrics</button></header>
     <div class="map-body">
@@ -1608,51 +1622,6 @@ function mapsStatusHTML(view, { done, open, failed }, meta) {
   return out.join("");
 }
 
-function wireMapsSearch(root) {
-  const inp = $("#maps-q", root), box = $("#maps-res", root);
-  let results = [], hl = 0;
-  const href = (p) => (p.impect_id ? `#/maps/${p.id}` : `#/player/${p.id}`);
-  const draw = () => {
-    box.hidden = !results.length;
-    box.innerHTML = results.map((p, i) => `<a href="${href(p)}" class="${i === hl ? "hl" : ""} ${p.impect_id ? "" : "off"}">${photo(p)}<span class="ci"><span class="nm">${esc(p.name)}</span>
-      <span class="csub">${esc(p.impect_id ? [p.position, p.club].filter(Boolean).join(" · ") : "Not linked to Impect · link them on their profile")}</span></span></a>`).join("");
-  };
-  inp.addEventListener("input", () => {
-    const q = inp.value.trim();
-    const hits = q ? S.players.filter((p) => matchText(p, q)) : [];
-    results = [...hits.filter((p) => p.impect_id), ...hits.filter((p) => !p.impect_id)].slice(0, 8);
-    hl = 0;
-    draw();
-  });
-  inp.addEventListener("keydown", (e) => {
-    if (e.key === "ArrowDown") { hl = Math.min(hl + 1, results.length - 1); draw(); e.preventDefault(); }
-    else if (e.key === "ArrowUp") { hl = Math.max(hl - 1, 0); draw(); e.preventDefault(); }
-    else if (e.key === "Enter" && results[hl]) { location.hash = href(results[hl]); inp.value = ""; results = []; draw(); inp.blur(); }
-    else if (e.key === "Escape") { inp.value = ""; results = []; draw(); inp.blur(); }
-  });
-  inp.addEventListener("blur", () => setTimeout(() => (box.hidden = true), 150));
-  box.addEventListener("mousedown", (e) => e.preventDefault());
-}
-
-async function loadRecentMaps(body) {
-  body.innerHTML = `<div class="loading">Loading…</div>`;
-  let maps;
-  try { ({ maps } = await api("GET", "/api/maps/recent")); } catch (e) {
-    if (body.isConnected) body.innerHTML = `<div class="banner err">${esc(e.message)}</div>`;
-    return;
-  }
-  if (!body.isConnected) return;
-  body.innerHTML = `<section class="panel maps-recent"><header class="panel-h"><h2>Recently built</h2><span class="muted sm">Open any of these straight away</span></header>
-    ${maps.length ? `<div class="maps-rec-list">${maps.map((m) => `<a class="maps-rec" href="#/maps/${m.player_id}" data-pid="${m.player_id}" data-it="${m.iteration_id}" data-pos="${esc(m.position)}">
-      ${photo({ name: m.name, photo_url: m.photo_url })}<span class="ci"><span class="nm">${esc(m.name)}</span><span class="csub">${esc(`${m.position} · ${m.season} ${m.competition}`)}</span></span>
-      <span class="muted sm">${esc(relTime(m.generated_at))}</span></a>`).join("")}</div>`
-    : `<p class="empty">No maps have been built yet. Find a player above to build their first.</p>`}</section>`;
-  body.onclick = (e) => {
-    const a = e.target.closest("a[data-pid]");
-    if (a) mapsPick.set(Number(a.dataset.pid), { iteration_id: Number(a.dataset.it), position: a.dataset.pos });
-  };
-}
-
 // Seasons and positions from the builds alone, for when Impect can't be reached to list them.
 function mapViewsFromBuilds(maps) {
   const seasons = new Map();
@@ -1664,62 +1633,36 @@ function mapViewsFromBuilds(maps) {
   return [...seasons.values()];
 }
 
-async function renderMaps(main, arg) {
-  clearTimeout(mapsTimer);
-  let p = arg ? S.byId.get(Number(arg)) : null;
-  // Someone may have added the player since this page loaded its list.
-  if (arg && !p) { try { p = (await api("GET", `/api/players/${Number(arg)}`)).player; } catch {} }
-  if (route().view !== "maps" || route().arg !== arg) return;
-  setTitle(p ? `${p.name} · Maps` : "Pitch maps");
-  main.innerHTML = `<div class="page maps-page">
-    ${arg ? `<a class="back" href="#/maps">← All pitch maps</a>` : ""}
-    <div class="page-h"><div><h1>Pitch maps</h1><div class="sub">Where a player's open-play actions happen, from Impect match events. Pick up to three metrics on each map.</div></div></div>
-    <section class="panel maps-controls">
-      <div class="maps-top">
-        ${p ? `<a class="maps-who" href="#/player/${p.id}" title="Open the profile">${photo(p, "lg")}<span class="ci"><span class="nm">${esc(p.name)}</span><span class="csub">${esc([p.position, p.club, p.league].filter(Boolean).join(" · "))}</span></span></a>` : ""}
-        <div class="maps-find"><input id="maps-q" type="search" autocomplete="off" placeholder="${p ? "Find another player…" : "Find a player linked to Impect"}" aria-label="Find a player"><div class="maps-res" id="maps-res" hidden></div></div>
-      </div>
-      ${p?.impect_id ? `<div class="maps-pick">
-        <select id="maps-season" aria-label="Season" disabled><option>Loading seasons…</option></select>
-        <select id="maps-pos" aria-label="Position" disabled></select>
-        <button type="button" class="btn" id="maps-go" hidden></button>
-        <span class="spacer"></span>
-        <button type="button" class="btn" id="maps-png" disabled title="Save both maps with the chosen metrics as a picture">Download PNG</button>
-      </div>` : ""}
-      <div class="maps-status" id="maps-status"></div>
-    </section>
-    <div id="maps-body"></div>
-  </div>`;
-  const root = main.firstElementChild;
-  const body = $("#maps-body", root), status = $("#maps-status", root);
-  wireMapsSearch(root);
-  if (!arg) return loadRecentMaps(body);
-  if (!p) { body.innerHTML = `<div class="empty-state">That player isn't in PINE. Find another above.</div>`; return; }
-  if (!p.impect_id) {
-    body.innerHTML = `<div class="empty-state">${esc(p.name)} isn't linked to Impect, so there are no match events to map. <a href="#/player/${p.id}">Link them on their profile</a>.</div>`;
-    return;
-  }
-  const [optsRes, listRes] = await Promise.allSettled([api("GET", `/api/players/${p.id}/card-options`), api("GET", `/api/players/${p.id}/maps`)]);
-  if (!root.isConnected) return;
-  if (listRes.status === "rejected") { status.innerHTML = `<div class="banner err sm">${esc(listRes.reason.message)}</div>`; return; }
+async function loadMapsPanel(root, p) {
+  const el = $("#maps-panel", root);
+  const head = (button = "") => `<header class="panel-h"><h2>Pitch maps</h2><span class="muted sm">Where their open-play actions happen</span>${button}</header>`;
+  const [optsRes, listRes] = await Promise.allSettled([playerSeasons(p.id), api("GET", `/api/players/${p.id}/maps`)]);
+  if (!el.isConnected) return;
+  if (listRes.status === "rejected") { el.innerHTML = `${head()}<div class="banner err sm">${esc(listRes.reason.message)}</div>`; return; }
   let list = listRes.value;
   const opts = optsRes.status === "fulfilled" ? optsRes.value : null;
   const views = opts ? opts.seasons : mapViewsFromBuilds(list.maps);
-  const seasonSel = $("#maps-season", root), posSel = $("#maps-pos", root), go = $("#maps-go", root), png = $("#maps-png", root);
   if (!views.length) {
-    seasonSel.innerHTML = "";
-    status.innerHTML = opts ? "" : `<div class="banner err sm">${esc(optsRes.reason.message)}</div>`;
-    body.innerHTML = `<div class="empty-state">${opts ? "No outfield Impect minutes in our leagues to map." : "Seasons can't be listed right now, and nothing has been built for this player yet."}</div>`;
+    el.innerHTML = `${head()}${opts ? `<p class="empty">No outfield Impect minutes in our leagues to map.</p>`
+      : `<div class="banner err sm">${esc(optsRes.reason.message)}</div><p class="empty">Nothing has been built for this player yet.</p>`}`;
     return;
   }
-  const offered = (x) => views.some((s) => s.iteration_id === x?.iteration_id && s.positions.some((o) => o.code === x.position));
+  el.innerHTML = `${head(`<button type="button" class="btn sm" id="maps-go" hidden></button>`)}
+    <div class="card-pick maps-pick">
+      <select id="maps-season" aria-label="Season">${views.map((v) => `<option value="${v.iteration_id}">${esc(v.season)} · ${esc(v.competition)}</option>`).join("")}</select>
+      <select id="maps-pos" aria-label="Position"></select>
+      <button type="button" class="btn sm" id="maps-png" disabled title="Save both maps with the chosen metrics as a picture">Download PNG</button>
+    </div>
+    <div class="maps-status" id="maps-status"></div>
+    <div id="maps-body"></div>`;
+  const seasonSel = $("#maps-season", el), posSel = $("#maps-pos", el), go = $("#maps-go", el), png = $("#maps-png", el);
+  const status = $("#maps-status", el), body = $("#maps-body", el);
+  const offered = (x) => views.some((v) => v.iteration_id === x?.iteration_id && v.positions.some((o) => o.code === x.position));
   const lastBuilt = list.maps.find((m) => m.status === "done");
   const sel = { ...(offered(mapsPick.get(p.id)) ? mapsPick.get(p.id)
     : offered(lastBuilt) ? { iteration_id: lastBuilt.iteration_id, position: lastBuilt.position }
     : opts?.default || { iteration_id: views[0].iteration_id, position: views[0].positions[0].code }) };
-  const season = () => views.find((s) => s.iteration_id === sel.iteration_id);
-  seasonSel.innerHTML = views.map((s) => `<option value="${s.iteration_id}">${esc(s.season)} · ${esc(s.competition)}</option>`).join("");
-  seasonSel.disabled = posSel.disabled = false;
+  const season = () => views.find((v) => v.iteration_id === sel.iteration_id);
   const fillPositions = () => {
     posSel.innerHTML = season().positions.map((o) => `<option value="${o.code}">${o.code} · ${esc(o.label)}${o.match_share != null ? ` · ${o.match_share.toFixed(1)} matches` : ""}</option>`).join("");
     seasonSel.value = sel.iteration_id;
@@ -1751,16 +1694,16 @@ async function renderMaps(main, arg) {
       png.disabled = false;
     };
     const ms = data.sample.match_share;
-    body.innerHTML = `<p class="maps-meta">${esc(`${data.player.name} · ${data.player.club} · ${data.player.league} ${data.player.season} · ${data.position} · ${data.sample.matches} match${data.sample.matches === 1 ? "" : "es"}, ${ms.toFixed(1)} match shares`)}</p>
-      <div class="maps-grid">${["use", "defend"].map((side) => mapPanel(data, side, picks[side])).join("")}</div>
-      <p class="maps-note muted sm">Open play only; set pieces are left out. Attacking upward. The darker shading holds half of the player's actions on that map and the lighter shading four fifths; with 20 or fewer, each action is a dot. Hover a metric for its definition.</p>`;
+    body.innerHTML = `<p class="maps-meta">${esc(`${data.player.league} ${data.player.season} · ${data.position} · ${data.sample.matches} match${data.sample.matches === 1 ? "" : "es"}, ${ms.toFixed(1)} match shares`)}</p>
+      <div class="maps-grid">${["use", "defend"].map((side) => mapBox(data, side, picks[side])).join("")}</div>
+      <p class="maps-note muted sm">Open play only; set pieces are left out. Attacking upward. The darker shading holds half of the player's actions on that map and the lighter shading four fifths; with 20 or fewer, each action is a dot. Up to three metrics per map; hover one for its definition.</p>`;
     const repaint = (side, focusKey) => {
-      const old = $(`.map-panel[data-side="${side}"]`, body);
+      const old = $(`.map-box[data-side="${side}"]`, body);
       const scroll = $(".map-metrics", old).scrollTop;
-      old.outerHTML = mapPanel(data, side, picks[side]);
-      const panel = $(`.map-panel[data-side="${side}"]`, body);
-      $(".map-metrics", panel).scrollTop = scroll;
-      if (focusKey) $(`input[data-metric="${focusKey}"]`, panel)?.focus();
+      old.outerHTML = mapBox(data, side, picks[side]);
+      const box = $(`.map-box[data-side="${side}"]`, body);
+      $(".map-metrics", box).scrollTop = scroll;
+      if (focusKey) $(`input[data-metric="${focusKey}"]`, box)?.focus();
       storePicks(data.group, picks);
     };
     body.onchange = (e) => {
@@ -1790,31 +1733,33 @@ async function renderMaps(main, arg) {
     png.disabled = true;
     body.onchange = body.onclick = null;
     if (!done) {
-      body.innerHTML = open ? `<div class="empty-state">Building these maps. They'll appear here when they're ready; you can leave this page meanwhile.</div>`
-        : failed ? "" : `<div class="empty-state">No maps for this season and position yet. Build them with the button above; it usually takes under a minute.</div>`;
+      body.innerHTML = open ? `<p class="empty">Building these maps. They'll appear here when they're ready; you can leave this page meanwhile.</p>`
+        : failed ? "" : `<p class="empty">No maps for this season and position yet. Build them with the button above; it usually takes under a minute.</p>`;
       return;
     }
     let data = mapsJson.get(done.id);
     if (!data) {
-      body.innerHTML = `<div class="loading">Loading maps…</div>`;
+      body.innerHTML = `<div class="loading sm">Loading maps…</div>`;
       try { data = await api("GET", `/api/maps/${done.id}/json`); } catch (e) {
-        if (mine === ticket && root.isConnected) { shown = null; body.innerHTML = `<div class="banner err">${esc(e.message)}</div>`; }
+        if (mine === ticket && el.isConnected) { shown = null; body.innerHTML = `<div class="banner err sm">${esc(e.message)}</div>`; }
         return;
       }
       mapsJson.set(done.id, data);
       if (mapsJson.size > 40) mapsJson.delete(mapsJson.keys().next().value);
-      if (mine !== ticket || !root.isConnected) return;
+      if (mine !== ticket || !el.isConnected) return;
     }
     showMaps(data);
   };
-  // Poll while any of this player's maps are waiting or building; stop when none are or the page is gone.
+  // Poll while any of this player's maps are waiting or building; stop when none are, or when the panel
+  // is gone (a re-render's new panel owns the timer from then on).
   const watch = () => {
+    if (!el.isConnected) return;
     clearTimeout(mapsTimer);
-    if (!root.isConnected || !list.maps.some(mapOpen)) return;
+    if (!list.maps.some(mapOpen)) return;
     mapsTimer = setTimeout(async () => {
       let fresh;
       try { fresh = await api("GET", `/api/players/${p.id}/maps`); } catch { return watch(); }
-      if (!root.isConnected) return;
+      if (!el.isConnected) return;
       for (const m of fresh.maps) {
         const was = list.maps.find((x) => x.id === m.id);
         if (!was || !mapOpen(was) || mapOpen(m)) continue;
