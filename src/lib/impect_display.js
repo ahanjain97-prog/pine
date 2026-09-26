@@ -7,8 +7,8 @@
 export const PHASES = [
   { id: "gk", name: "Goalkeeping", desc: "Stopping shots, claiming high balls and sweeping behind the line" },
   { id: "build", name: "On-Ball", desc: "Keeping, moving and progressing the ball" },
-  { id: "attack", name: "Final third", desc: "Getting on the ball high up, creating and shooting" },
-  { id: "defend", name: "Defending & duels", desc: "Pressing, winning the ball back, ground and aerial contests" },
+  { id: "attack", name: "Final third", desc: "Creating chances, shooting and finishing" },
+  { id: "defend", name: "Off-Ball", desc: "Getting open to receive, pressing, winning the ball back, and duels at both ends" },
 ];
 const OTHER = { id: "other", name: "Other", desc: "" };
 
@@ -35,16 +35,16 @@ const CATEGORY_DISPLAY = {
   "Carrying and pressure escape": ["Carrying & dribbling", "build", "Carrying the ball towards goal, the threat it adds, and beating opponents."],
   "Carrying and attacking 1v1": ["Carrying & dribbling", "build", "Carrying the ball towards goal, the threat it adds, and beating opponents."],
 
-  "Receiving and positioning": ["Receiving & movement", "attack", "Getting on the ball between the lines and in the box, and the threat added on receipt."],
-  "Receiving and movement": ["Receiving & movement", "attack", "Getting on the ball between the lines and in the box, and the threat added on receipt."],
-  "Wide receiving and overlaps": ["Wide receiving & overlaps", "attack", "Getting on the ball out wide and from deep runs, and the threat added on receipt."],
-  "Receiving and box movement": ["Receiving & box movement", "attack", "Getting on the ball between the lines, in behind and in the box."],
   "Chance creation": ["Chance creation", "attack", "Shot assists, expected assists and shot-creating actions."],
   "Crossing and chance creation": ["Crossing & chance creation", "attack", "Crosses, shot assists, expected assists and shot-creating actions."],
   "Shooting threat": ["Shooting", "attack", "How often the player shoots and hits the target, and the quality of those chances."],
   "Finishing quality": ["Finishing", "attack", "Scoring and hitting the target relative to the quality of the chances."],
   "Set-piece and box threat": ["Set-piece & box threat", "attack", "Attacking headers, presence in the box, and shots."],
 
+  "Receiving and positioning": ["Receiving & movement", "defend", "Getting on the ball between the lines and in the box, and the threat added on receipt."],
+  "Receiving and movement": ["Receiving & movement", "defend", "Getting on the ball between the lines and in the box, and the threat added on receipt."],
+  "Wide receiving and overlaps": ["Wide receiving & overlaps", "defend", "Getting on the ball out wide and from deep runs, and the threat added on receipt."],
+  "Receiving and box movement": ["Receiving & box movement", "defend", "Getting on the ball between the lines, in behind and in the box."],
   "Pressing activity": ["Pressing", "defend", "How often the player presses: in the opponent's build-up, between the lines and after losing the ball."],
   "Pressing and ball winning": ["Pressing & ball winning", "defend", "Presses, plus ball wins and interceptions."],
   "Interceptions and recoveries": ["Interceptions & recoveries", "defend", "Ball wins, interceptions, loose and second balls, and blocks."],
