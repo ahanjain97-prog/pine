@@ -7,6 +7,7 @@
 import { impectGet, iterations as impectIterations, getImpectPlayer } from "./impect.js";
 import { CATEGORIES, POSITION_MAP, POSITION_LABEL, MIN_MATCH_SHARE, ALL_METRICS } from "./impect_categories.js";
 import { benchmark, fixedFloor } from "./impect_benchmark.js";
+import { readDisk, writeDisk } from "./disk_cache.js";
 import { categoryDisplay, phasesFor, metricKind, METRIC_KINDS, shortLeague } from "./impect_display.js";
 
 export const BENCHMARK_LEAGUES = ["USL Championship", "MLS Next Pro", "USL League One"];
@@ -107,7 +108,11 @@ export async function mapLimit(items, limit, fn) {
 }
 
 /* ---------- cohort: every player in one competition season ---------- */
-const cohorts = new Map(); // iterationId -> { at, data } | { promise }
+// A cohort takes ~10s per league season to download, so it is kept on disk and served straight away;
+// one older than TTL_MS is still served while a fresh copy downloads in the background.
+const cohorts = new Map(); // iterationId -> cohort, most recently used last
+const building = new Map(); // iterationId -> promise of a fresh cohort
+const MAX_IN_MEMORY = 8; // ~15 MB each; the rest are re-read from disk when asked for
 
 async function fetchSquad(iterationId, squad, defs) {
   const [kpiRows, scoreRows] = await Promise.all([
@@ -116,7 +121,8 @@ async function fetchSquad(iterationId, squad, defs) {
     impectGet(`/v5/customerapi/iterations/${iterationId}/squads/${squad.id}/player-scores`, { store: false }),
   ]);
   const scoreByKey = new Map(scoreRows.map((r) => [`${r.playerId}|${r.position}`, r]));
-  return kpiRows.map((r) => {
+  const shares = scoreRows.map((r) => ({ playerId: r.playerId, position: r.position, matchShare: Number(r.matchShare) || 0 }));
+  const rows = kpiRows.map((r) => {
     const metrics = {};
     for (const { kpiId, value } of r.kpis || []) {
       const m = defs.kpiById.get(kpiId);
@@ -135,6 +141,7 @@ async function fetchSquad(iterationId, squad, defs) {
       metrics,
     };
   });
+  return { rows, shares };
 }
 
 async function buildCohort(iterationId) {
@@ -142,9 +149,19 @@ async function buildCohort(iterationId) {
   const squads = await impectGet(`/v5/customerapi/iterations/${iterationId}/squads`);
   const perSquad = await mapLimit(squads, 4, (s) => fetchSquad(iterationId, s, defs));
 
+  // Every player's match share at every Impect position, goalkeepers included (card options read it).
+  const shares = new Map();
+  for (const { shares: rows } of perSquad) {
+    for (const r of rows) {
+      const mine = shares.get(r.playerId) || {};
+      mine[r.position] = (mine[r.position] || 0) + r.matchShare;
+      shares.set(r.playerId, mine);
+    }
+  }
+
   // Season totals per player and broad position: match-share-weighted means, per-metric denominators.
   const byKey = new Map();
-  for (const rows of perSquad) {
+  for (const { rows } of perSquad) {
     for (const r of rows) {
       const group = POSITION_MAP[r.position];
       if (!group) continue;
@@ -181,24 +198,59 @@ async function buildCohort(iterationId) {
     byGroup.get(p.group).push(p);
   }
 
-  return { at: Date.now(), iterationId, byGroup };
+  return { at: Date.now(), iterationId, byGroup, shares };
 }
 
-async function cohort(iterationId) {
-  const hit = cohorts.get(iterationId);
-  if (hit?.data && Date.now() - hit.data.at < TTL_MS) return hit.data;
-  if (hit?.promise) return hit.promise;
+const COHORT_FORMAT = 2; // bump when the cohort's shape changes, so old disk copies are rebuilt
+const toDisk = (co) => ({ format: COHORT_FORMAT, at: co.at, iterationId: co.iterationId, byGroup: [...co.byGroup], shares: [...co.shares] });
+const fromDisk = (d) => (d?.format === COHORT_FORMAT
+  ? { at: d.at, iterationId: d.iterationId, byGroup: new Map(d.byGroup), shares: new Map(d.shares) } : null);
+
+function remember(iterationId, co) {
+  cohorts.delete(iterationId);
+  cohorts.set(iterationId, co);
+  while (cohorts.size > MAX_IN_MEMORY) cohorts.delete(cohorts.keys().next().value);
+  return co;
+}
+
+// Downloads a fresh cohort (one download per league season at a time) and saves it.
+function refreshCohort(iterationId) {
+  if (building.has(iterationId)) return building.get(iterationId);
   const promise = buildCohort(iterationId)
-    .then((data) => {
-      cohorts.set(iterationId, { data });
-      return data;
+    .then((co) => {
+      remember(iterationId, co);
+      writeDisk(`cohort-${iterationId}`, toDisk(co));
+      return co;
     })
-    .catch((e) => {
-      cohorts.delete(iterationId);
-      throw e;
-    });
-  cohorts.set(iterationId, { promise });
+    .finally(() => building.delete(iterationId));
+  building.set(iterationId, promise);
   return promise;
+}
+
+// The cached cohort if there is one (memory, then disk), however old; null if none.
+function cachedCohort(iterationId) {
+  const hit = cohorts.get(iterationId);
+  if (hit) return remember(iterationId, hit);
+  const disk = fromDisk(readDisk(`cohort-${iterationId}`));
+  return disk ? remember(iterationId, disk) : null;
+}
+
+export async function cohort(iterationId) {
+  const co = cachedCohort(iterationId);
+  if (!co) return refreshCohort(iterationId);
+  if (Date.now() - co.at > TTL_MS) refreshCohort(iterationId).catch((e) => console.warn(`[impect] cohort ${iterationId} refresh failed: ${e.message}`));
+  return co;
+}
+
+// Metric labels and directions: two small Impect calls, fetched ahead so the first KPI view doesn't wait.
+export const warmDefinitions = () => definitions();
+
+// Keeps a league season ready before anyone asks: downloads it if there is no copy younger than maxAgeMs.
+export async function warmCohort(iterationId, maxAgeMs = TTL_MS / 2) {
+  const co = cachedCohort(iterationId);
+  if (co && Date.now() - co.at < maxAgeMs) return false;
+  await refreshCohort(iterationId);
+  return true;
 }
 
 const round = (v, n = 2) => (v == null || !Number.isFinite(v) ? null : Math.round(v * 10 ** n) / 10 ** n);

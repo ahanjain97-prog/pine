@@ -1,5 +1,6 @@
 // Impect Customer API: player pool across our iterations, used for search/import and to link PINE players.
 import { norm } from "./physical.js";
+import { readDisk, writeDisk } from "./disk_cache.js";
 
 const HOST = "https://api.impect.com";
 const TOKEN_URL = "https://login.impect.com/auth/realms/production/protocol/openid-connect/token";
@@ -80,8 +81,29 @@ export async function iterations() {
 }
 
 // Every player we have access to, one entry per Impect player id, with the iterations they appear in.
+// Every player in our Impect competitions. Kept on disk like the cohorts: a copy of any age is served
+// at once, and one older than TTL_MS is replaced in the background.
+function poolFromDisk() {
+  if (!poolCache) {
+    const disk = readDisk("player-pool");
+    if (disk?.players) poolCache = disk;
+  }
+  return poolCache;
+}
+
 export async function playerPool() {
-  if (poolCache && Date.now() - poolCache.at < TTL_MS) return poolCache;
+  if (!poolFromDisk()) return buildPool();
+  if (Date.now() - poolCache.at > TTL_MS) buildPool().catch((e) => console.warn(`[impect] player pool refresh failed: ${e.message}`));
+  return poolCache;
+}
+
+export async function warmPool(maxAgeMs = TTL_MS / 2) {
+  if (poolFromDisk() && Date.now() - poolCache.at < maxAgeMs) return false;
+  await buildPool();
+  return true;
+}
+
+function buildPool() {
   if (poolPromise) return poolPromise;
   poolPromise = (async () => {
     const [its, countries] = await Promise.all([iterations(), impectGet("/v5/customerapi/countries")]);
@@ -129,13 +151,10 @@ export async function playerPool() {
       };
     });
     poolCache = { at: Date.now(), players, iterations: its };
+    writeDisk("player-pool", poolCache);
     return poolCache;
-  })();
-  try {
-    return await poolPromise;
-  } finally {
-    poolPromise = null;
-  }
+  })().finally(() => { poolPromise = null; });
+  return poolPromise;
 }
 
 const strip = ({ _n, _alt, ...rest }) => rest;

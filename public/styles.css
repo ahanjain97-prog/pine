@@ -265,6 +265,9 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 13px; }
 .note-meta button:hover { color: var(--accent); }
 .empty { color: var(--muted); font-size: 12.5px; margin: 0; }
 .phys { border: 1px solid var(--line); border-radius: 9px; padding: 0; margin-bottom: 8px; }
+/* In the Physical tab each linked season is a card, side by side when there's room. */
+.phys-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; align-items: start; }
+.phys-grid .phys { margin-bottom: 0; }
 .phys summary { list-style: none; display: flex; align-items: center; gap: 10px; padding: 9px 11px; cursor: pointer; }
 .phys summary::-webkit-details-marker { display: none; }
 .phys[open] summary { border-bottom: 1px solid var(--line); }

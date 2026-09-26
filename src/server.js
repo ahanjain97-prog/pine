@@ -19,9 +19,10 @@ import { TM_FIELDS, manualTmOverrides, releaseTmOverrides, tmConflicts, tmSyncFi
 import { loadPhysical, matchPhysical, repairKeys, resolveAutoLinks, searchPhysical, rowsByKeys, teamOverlap, meta as physMeta } from "./lib/physical.js";
 import {
   impectConfigured, iterations as impectIterations, searchImpect, getImpectPlayer, matchImpect,
-  shortLists as impectShortLists, shortListPlayerMeta,
+  shortLists as impectShortLists, shortListPlayerMeta, warmPool,
 } from "./lib/impect.js";
-import { playerKpiCard } from "./lib/impect_kpi.js";
+import { BENCHMARK_LEAGUES, playerKpiCard, warmCohort, warmDefinitions } from "./lib/impect_kpi.js";
+import { configureDiskCache } from "./lib/disk_cache.js";
 import { playerCardOptions } from "./lib/card_options.js";
 import { MAX_CARD_BYTES, DAILY_CARD_LIMIT, cardErrorCode, cardProgress, claimCard, isPdf, isPng, saveCardFile, sqlTime } from "./lib/cards.js";
 import {
@@ -46,6 +47,34 @@ if (!existsSync(DB_FILE) && existsSync(SEED_DB)) {
 const db = openDb(DB_FILE);
 const BACKUP_DIR = join(dirname(DB_FILE), "backups");
 startDailyBackups(db, BACKUP_DIR);
+
+// Impect downloads (league-season cohorts, the player pool) live on the volume next to the database,
+// so deploys don't make the next person wait half a minute per season. Every season of our three
+// leagues is kept ready in the background, checked at startup and then every six hours: the current
+// season is re-downloaded when it is over six hours old, finished seasons once a week.
+configureDiskCache(join(dirname(DB_FILE), "cache"));
+const HOUR = 60 * 60 * 1000;
+async function warmImpect() {
+  if (!impectConfigured()) return;
+  const started = Date.now();
+  const refreshed = [];
+  try {
+    await warmDefinitions();
+    if (await warmPool()) refreshed.push("player pool");
+    const leagues = (await impectIterations()).filter((i) => BENCHMARK_LEAGUES.includes(i.competition) && i.type !== "Cup");
+    const newest = leagues.map((i) => String(i.season)).sort().at(-1);
+    // One league season at a time, oldest first so the current season is what stays in memory.
+    for (const it of leagues.sort((x, y) => String(x.season).localeCompare(String(y.season)))) {
+      const maxAge = String(it.season) === newest ? 6 * HOUR : 7 * 24 * HOUR;
+      if (await warmCohort(it.id, maxAge)) refreshed.push(`${it.competition} ${it.season}`);
+    }
+    console.log(`[impect] warm in ${Math.round((Date.now() - started) / 1000)}s; downloaded: ${refreshed.join(", ") || "nothing (all fresh)"}`);
+  } catch (e) {
+    console.warn(`[impect] warm-up failed: ${e.message}`);
+  }
+}
+setTimeout(warmImpect, 5_000);
+setInterval(warmImpect, 6 * HOUR);
 // Player card PDFs, one folder per player, on the same volume as the database.
 const CARDS_DIR = join(dirname(DB_FILE), "cards");
 // Pitch map exports (gzipped JSON), one folder per player, likewise.

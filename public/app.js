@@ -908,34 +908,30 @@ async function renderPlayer(main, idArg) {
           <textarea id="summary" rows="3" data-draft data-orig="${esc(p.summary || "")}" placeholder="Overall summary, fit, next steps…">${esc(p.summary || "")}</textarea>
           <div class="row end" style="margin-top:6px"><button type="button" class="btn sm" id="save-summary">Save summary</button></div>
         </section>
-        <div class="p-pair">
-          <section class="panel"><header class="panel-h"><h2>Big board</h2></header>${rolesPanel(p)}</section>
-          ${d.lists.length ? `<section class="panel"><header class="panel-h"><h2>Lists</h2></header><div class="row">${d.lists.map((l) => `<span class="chip">${esc(l.name)}</span>`).join("")}</div></section>` : ""}
-        </div>
         <section class="panel"><header class="panel-h"><h2>Staff evaluations</h2></header><div class="evals">${d.staff.map(evalHTML).join("")}</div></section>
       </div>
       <div>
         ${p.tm_url ? "" : `<section class="panel" id="tm-panel"><header class="panel-h"><h2>Transfermarkt</h2></header><div class="loading sm">Searching Transfermarkt…</div></section>`}
-        <section class="panel" id="phys-panel"><header class="panel-h"><h2>Physical data</h2></header><div class="loading sm">Loading…</div></section>
+        <section class="panel"><header class="panel-h"><h2>Big board</h2></header>${rolesPanel(p)}</section>
+        ${d.lists.length ? `<section class="panel"><header class="panel-h"><h2>Lists</h2></header><div class="row">${d.lists.map((l) => `<span class="chip">${esc(l.name)}</span>`).join("")}</div></section>` : ""}
         <section class="panel" id="impect-panel"><header class="panel-h"><h2>Impect</h2></header><div class="loading sm">Loading…</div></section>
         <section class="panel"><header class="panel-h"><h2>History</h2></header>${historyHTML(d.activity)}</section>
       </div>
     </div>
-    ${p.impect_id ? `<section class="panel analytics" id="analytics">
+    <section class="panel analytics" id="analytics">
       <header class="an-head">
-        <div class="an-tabs" role="tablist">${AN_TABS.map(([k, label], i) =>
+        <div class="an-tabs" role="tablist">${anTabs(p).map(([k, label], i) =>
           `<button type="button" role="tab" data-an-tab="${k}" class="${i ? "" : "on"}" aria-selected="${i ? "false" : "true"}">${label}</button>`).join("")}</div>
         <div class="an-ctx" id="an-ctx"></div>
       </header>
-      ${AN_TABS.map(([k], i) => `<div class="an-body" id="${k}-panel" ${i ? "hidden" : ""}><div class="loading sm">Loading…</div></div>`).join("")}
-    </section>` : ""}
+      ${anTabs(p).map(([k], i) => `<div class="an-body" id="${k}-panel" ${i ? "hidden" : ""}><div class="loading sm">Loading…</div></div>`).join("")}
+    </section>
   </div>`;
   const root = main.firstElementChild;
   wirePlayer(root, d);
   if (!p.tm_url) loadTmPanel(root, p);
-  loadPhysicalPanel(root, p);
   loadImpectPanel(root, p);
-  if (p.impect_id) wireAnalytics(root, p);
+  wireAnalytics(root, p);
 }
 
 /* ---------- impect KPI profile ---------- */
@@ -993,7 +989,11 @@ function historyHTML(activity) {
 }
 
 /* ---------- analytics tabs: one season and position for the KPI profile, pitch maps and card ---------- */
-const AN_TABS = [["kpi", "KPI profile"], ["maps", "Pitch maps"], ["card", "Player card"]];
+const AN_TABS = [["kpi", "KPI profile"], ["physical", "Physical"], ["maps", "Pitch maps"], ["card", "Player card"]];
+// Only the Physical tab works without an Impect link.
+const anTabs = (p) => (p.impect_id ? AN_TABS : AN_TABS.filter(([k]) => k === "physical"));
+// Physical data has its own seasons and teams, so the Impect season/position picker hides on that tab.
+const AN_USES_PICKER = new Set(["kpi", "maps", "card"]);
 // Card position -> KPI benchmark group. The KPI reference pools both flanks, so LW and RW are one group.
 const KPI_GROUP = { CB: "CB", LB: "FB", RB: "FB", DM: "DM", CM: "CM", AM: "AM", LW: "W", RW: "W", CF: "ST" };
 // sel is null when Impect can't offer any season and position (a goalkeeper, say): each panel then
@@ -1015,13 +1015,15 @@ async function wireAnalytics(root, p) {
       b.setAttribute("aria-selected", String(on));
       $(`#${b.dataset.anTab}-panel`, root).hidden = !on;
     }
+    ctx.hidden = !AN_USES_PICKER.has(key);
     if (an.loaded.has(key)) return;
     an.loaded.add(key);
-    ({ kpi: loadKpiPanel, card: loadCardPanel, maps: loadMapsPanel })[key](root, p);
+    ({ kpi: loadKpiPanel, physical: loadPhysicalPanel, card: loadCardPanel, maps: loadMapsPanel })[key](root, p);
   };
   for (const b of tabs) b.addEventListener("click", () => show(b.dataset.anTab));
-  // The KPI profile doesn't need the card options, which can take half a minute on a cold server.
-  show("kpi");
+  // The first tab opens straight away; the KPI profile doesn't wait for the season list.
+  show(tabs[0].dataset.anTab);
+  if (!p.impect_id) return;
 
   ctx.innerHTML = `<span class="loading sm">Seasons…</span>`;
   let opts = null;
@@ -1192,7 +1194,7 @@ function wirePlayer(root, d) {
   const p = d.player;
   root.addEventListener("click", async (e) => {
     const t = e.target.closest("button");
-    if (!t || t.closest("#phys-panel, #impect-panel")) return;
+    if (!t || t.closest("#physical-panel, #impect-panel")) return;
     try {
       if (t.id === "back") { if (history.length > 1) history.back(); else location.hash = "#/board"; return; }
       if (t.dataset.decision !== undefined) { await api("PUT", `/api/players/${p.id}/decision`, { decision: t.dataset.decision || null }); return await afterMutation(); }
@@ -1308,22 +1310,22 @@ function physCand(r, checked) {
 }
 
 async function loadPhysicalPanel(root, p) {
-  const el = $("#phys-panel", root);
+  const el = $("#physical-panel", root);
   let d;
   try { d = await api("GET", `/api/players/${p.id}/physical`); } catch (e) {
-    el.innerHTML = `<header class="panel-h"><h2>Physical data</h2></header><p class="empty">Couldn't load physical data: ${esc(e.message)}</p>`;
+    el.innerHTML = `<p class="empty">Couldn't load physical data: ${esc(e.message)}</p>`;
     return;
   }
   const draw = (editing) => {
     const shown = new Set([...d.linked, ...d.candidates].map((r) => r.key));
-    el.innerHTML = `<header class="panel-h"><h2>Physical data</h2>${d.linked.length && !d.confirmed ? `<span class="muted sm">Auto-matched</span>` : ""}
-      <button type="button" class="btn sm ghost" data-phys-toggle>${editing ? "Cancel" : d.linked.length ? "Change" : "Link"}</button></header>
+    el.innerHTML = `<div class="an-actions">${d.linked.length && !d.confirmed ? `<span class="muted sm">Auto-matched</span>` : ""}
+      <button type="button" class="btn sm ghost" data-phys-toggle>${editing ? "Cancel" : d.linked.length ? "Change links" : "Link"}</button></div>
       ${editing ? `<p class="hint">Tick every season row that belongs to this player.</p>
           <div>${d.linked.map((r) => physCand(r, true)).join("")}${d.candidates.map((r) => physCand(r, false)).join("")}${!shown.size ? `<p class="empty">No name matches. Search below.</p>` : ""}</div>
           <input type="search" id="phys-q" placeholder="Search by name or team…" style="width:100%;margin-top:8px" aria-label="Search physical database">
           <div id="phys-res"></div>
           <div class="row end" style="margin-top:10px"><button type="button" class="btn sm primary" data-phys-save>Save links</button></div>`
-        : d.linked.length ? d.linked.map((r, i) => physCard(r, d.meta, i === 0)).join("")
+        : d.linked.length ? `<div class="phys-grid">${d.linked.map((r) => physCard(r, d.meta, true)).join("")}</div>`
         : `<p class="empty">No physical data linked.${d.candidates.length ? ` ${d.candidates.length} possible match${d.candidates.length > 1 ? "es" : ""}; click Link to review.` : " The physical database covers MLS NEXT Pro, USL Championship, USL League One and CPL players with 600+ minutes."}</p>`}
       <p class="sm muted" style="margin:8px 0 0"><a href="${esc(d.meta.site)}" target="_blank" rel="noopener">Physical database ↗</a></p>`;
     const q = $("#phys-q", el);

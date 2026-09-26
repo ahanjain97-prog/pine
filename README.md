@@ -57,6 +57,13 @@ median of the player's own league and a percentile against that league alone. Th
 descriptions live in `src/lib/impect_display.js`, and a test fails if a regenerated study adds a category
 without one.
 
+Impect data for a league season (every squad's KPIs and scores, about 10 seconds to download) and the Impect
+player pool are kept on disk next to the database, under `cache/`, so a deploy or restart doesn't make the next
+viewer wait. A copy of any age is served at once and replaced in the background when stale. The server checks
+every season of our three leagues at startup and every six hours: the current season is re-downloaded when it
+is over six hours old, finished seasons once a week. The season list for player cards and pitch maps is read
+from the same data rather than downloaded again.
+
 Run `npm test` for benchmark and mocked-API regression tests, and `npm run check` for syntax checks.
 
 ## Configuration (`.env`, never committed)
@@ -82,9 +89,10 @@ Run `npm test` for benchmark and mocked-API regression tests, and `npm run check
   or international. Green cards aren't on Transfermarkt, so a permanent resident shows as INTL.
 - **Database** (`#/players`): sortable and filterable table of everyone, with CSV export.
 - **Player page**: the header holds Transfermarkt facts, the club decision and the staff verdict tally. Below it,
-  the shared summary, big board roles and lists, and one evaluation section per staff member (only you can
-  write in yours), with physical data, the Impect link and history alongside. Underneath, one season and
-  position picker drives three tabs: the KPI profile, pitch maps and player card.
+  the shared summary and one evaluation section per staff member (only you can
+  write in yours), with big board roles, lists, the Impect link and history alongside. Underneath are tabs for
+  the KPI profile, physical data, pitch maps and player card; one season and position picker drives the three
+  Impect tabs (physical data has its own seasons). A tab loads the first time it is opened.
 - **Player card**: a PDF made outside PINE, shown on the player page as a picture that opens the PDF.
   Pick a season (league seasons in our three leagues, never the cup) and a position (any with at least
   one Impect match share that season); an admin presses Generate. That queues a job; the card worker on
@@ -140,7 +148,8 @@ src/roles.js                   Positions/roles, Impect list-name -> role hints
 src/lib/transfermarkt.js       Profile + search scraping
 src/lib/tm_match.js            Bulk Transfermarkt matching (confirms by date of birth)
 src/lib/impect.js              Impect login, player pool, matching, Scouting short lists
-src/lib/impect_kpi.js          Live KPI category percentiles per player
+src/lib/impect_kpi.js          Live KPI category percentiles per player; league-season cohorts (disk-backed)
+src/lib/disk_cache.js          Keeps Impect downloads on disk across restarts
 src/lib/impect_categories.js   KPI category definitions (generated from the metric-stability study)
 src/lib/impect_display.js      How the KPI profile names, groups and explains those categories
 src/lib/card_options.js        Which player card seasons and positions can be requested

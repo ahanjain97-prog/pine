@@ -2,10 +2,9 @@
 // and in each, the card positions with at least one match share. The card worker renders the PDF;
 // PINE only decides what may be requested.
 
-import { impectGet, iterations as impectIterations, getImpectPlayer } from "./impect.js";
-import { BENCHMARK_LEAGUES, mapLimit } from "./impect_kpi.js";
+import { iterations as impectIterations, getImpectPlayer } from "./impect.js";
+import { BENCHMARK_LEAGUES, cohort, mapLimit } from "./impect_kpi.js";
 
-const TTL_MS = 12 * 60 * 60 * 1000;
 export const MIN_CARD_SHARE = 1;
 
 // Card positions in pitch order (also the tie-break order).
@@ -57,32 +56,18 @@ export function cardOptions(iterations, shares) {
 }
 
 /* ---------- match shares for every player in one iteration ---------- */
-const indexes = new Map(); // iterationId -> { data } | { promise }
-
-async function buildIndex(iterationId) {
-  const index = new Map();
-  const squads = await impectGet(`/v5/customerapi/iterations/${iterationId}/squads`);
-  // player-scores rows carry position and matchShare and are a quarter the size of player-kpis.
-  await mapLimit(squads, 4, async (s) =>
-    addShares(index, await impectGet(`/v5/customerapi/iterations/${iterationId}/squads/${s.id}/player-scores`, { store: false })));
-  return { at: Date.now(), index };
-}
+// Read from the KPI cohort, which already downloads every squad's player-scores for the season (and
+// keeps them on disk), instead of downloading them a second time.
+const indexes = new WeakMap(); // cohort -> playerId -> card position -> match share
 
 async function sharesIndex(iterationId) {
-  const hit = indexes.get(iterationId);
-  if (hit?.data && Date.now() - hit.data.at < TTL_MS) return hit.data.index;
-  if (hit?.promise) return hit.promise;
-  const promise = buildIndex(iterationId)
-    .then((data) => {
-      indexes.set(iterationId, { data });
-      return data.index;
-    })
-    .catch((e) => {
-      indexes.delete(iterationId);
-      throw e;
-    });
-  indexes.set(iterationId, { promise });
-  return promise;
+  const co = await cohort(iterationId);
+  if (!indexes.has(co)) {
+    const rows = [...co.shares].flatMap(([playerId, byPosition]) =>
+      Object.entries(byPosition).map(([position, matchShare]) => ({ playerId, position, matchShare })));
+    indexes.set(co, addShares(new Map(), rows));
+  }
+  return indexes.get(co);
 }
 
 export async function playerCardOptions(impectId) {
