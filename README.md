@@ -81,9 +81,10 @@ Run `npm test` for benchmark and mocked-API regression tests, and `npm run check
   = club decision, dots = the six staff verdicts, DOM / INTL = domestic (US citizen, from Transfermarkt citizenship)
   or international. Green cards aren't on Transfermarkt, so a permanent resident shows as INTL.
 - **Database** (`#/players`): sortable and filterable table of everyone, with CSV export.
-- **Player page**: Transfermarkt info (sync button), club decision, staff verdict summary, board roles
-  (with up/down ranking), shared summary, Impect KPI profile, player card, pitch maps, one evaluation section per staff member (only you
-  can write in yours), physical percentiles, Impect link, lists, and history.
+- **Player page**: the header holds Transfermarkt facts, the club decision and the staff verdict tally. Below it,
+  the shared summary, big board roles and lists, and one evaluation section per staff member (only you can
+  write in yours), with physical data, the Impect link and history alongside. Underneath, one season and
+  position picker drives three tabs: the KPI profile, pitch maps and player card.
 - **Player card**: a PDF made outside PINE, shown on the player page as a picture that opens the PDF.
   Pick a season (league seasons in our three leagues, never the cup) and a position (any with at least
   one Impect match share that season); an admin presses Generate. That queues a job; the card worker on

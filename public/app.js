@@ -903,34 +903,39 @@ async function renderPlayer(main, idArg) {
 
     <div class="p-grid">
       <div>
-        <section class="panel"><header class="panel-h"><h2>Big board</h2></header>${rolesPanel(p)}</section>
         <section class="panel">
           <header class="panel-h"><h2>Summary</h2><span class="muted sm">Shared club summary</span></header>
           <textarea id="summary" rows="3" data-draft data-orig="${esc(p.summary || "")}" placeholder="Overall summary, fit, next steps…">${esc(p.summary || "")}</textarea>
           <div class="row end" style="margin-top:6px"><button type="button" class="btn sm" id="save-summary">Save summary</button></div>
         </section>
-        ${p.impect_id ? `<section class="panel" id="kpi-panel"><header class="panel-h"><h2>Impect KPI profile</h2></header><div class="loading sm">Loading…</div></section>` : ""}
-        ${p.impect_id ? `<section class="panel" id="card-panel"><header class="panel-h"><h2>Player card</h2></header><div class="loading sm">Loading…</div></section>` : ""}
-        ${p.impect_id ? `<section class="panel" id="maps-panel"><header class="panel-h"><h2>Pitch maps</h2></header><div class="loading sm">Loading…</div></section>` : ""}
+        <div class="p-pair">
+          <section class="panel"><header class="panel-h"><h2>Big board</h2></header>${rolesPanel(p)}</section>
+          ${d.lists.length ? `<section class="panel"><header class="panel-h"><h2>Lists</h2></header><div class="row">${d.lists.map((l) => `<span class="chip">${esc(l.name)}</span>`).join("")}</div></section>` : ""}
+        </div>
         <section class="panel"><header class="panel-h"><h2>Staff evaluations</h2></header><div class="evals">${d.staff.map(evalHTML).join("")}</div></section>
       </div>
       <div>
         ${p.tm_url ? "" : `<section class="panel" id="tm-panel"><header class="panel-h"><h2>Transfermarkt</h2></header><div class="loading sm">Searching Transfermarkt…</div></section>`}
         <section class="panel" id="phys-panel"><header class="panel-h"><h2>Physical data</h2></header><div class="loading sm">Loading…</div></section>
         <section class="panel" id="impect-panel"><header class="panel-h"><h2>Impect</h2></header><div class="loading sm">Loading…</div></section>
-        ${d.lists.length ? `<section class="panel"><header class="panel-h"><h2>Lists</h2></header><div class="row">${d.lists.map((l) => `<span class="chip">${esc(l.name)}</span>`).join("")}</div></section>` : ""}
-        <section class="panel"><header class="panel-h"><h2>History</h2></header><ul class="feed">${d.activity.map((a) => `<li><span><b>${esc(actor(a))}</b> ${describe(a, true)}</span><span class="when" title="${esc(fmtDateTime(a.created_at))}">${esc(relTime(a.created_at))}</span></li>`).join("") || `<li class="empty">No history yet.</li>`}</ul></section>
+        <section class="panel"><header class="panel-h"><h2>History</h2></header>${historyHTML(d.activity)}</section>
       </div>
     </div>
+    ${p.impect_id ? `<section class="panel analytics" id="analytics">
+      <header class="an-head">
+        <div class="an-tabs" role="tablist">${AN_TABS.map(([k, label], i) =>
+          `<button type="button" role="tab" data-an-tab="${k}" class="${i ? "" : "on"}" aria-selected="${i ? "false" : "true"}">${label}</button>`).join("")}</div>
+        <div class="an-ctx" id="an-ctx"></div>
+      </header>
+      ${AN_TABS.map(([k], i) => `<div class="an-body" id="${k}-panel" ${i ? "hidden" : ""}><div class="loading sm">Loading…</div></div>`).join("")}
+    </section>` : ""}
   </div>`;
   const root = main.firstElementChild;
   wirePlayer(root, d);
-  if (p.impect_id) loadKpiPanel(root, p);
   if (!p.tm_url) loadTmPanel(root, p);
   loadPhysicalPanel(root, p);
   loadImpectPanel(root, p);
-  if (p.impect_id) loadCardPanel(root, p);
-  if (p.impect_id) loadMapsPanel(root, p);
+  if (p.impect_id) wireAnalytics(root, p);
 }
 
 /* ---------- impect KPI profile ---------- */
@@ -978,10 +983,85 @@ function kpiPhase(ph, d) {
   </section>`;
 }
 
+// The five latest entries; older ones fold away so History doesn't outgrow the page beside it.
+function historyHTML(activity) {
+  const li = (a) => `<li><span><b>${esc(actor(a))}</b> ${describe(a, true)}</span><span class="when" title="${esc(fmtDateTime(a.created_at))}">${esc(relTime(a.created_at))}</span></li>`;
+  if (!activity.length) return `<ul class="feed"><li class="empty">No history yet.</li></ul>`;
+  const rest = activity.slice(5);
+  return `<ul class="feed">${activity.slice(0, 5).map(li).join("")}</ul>${rest.length
+    ? `<details class="more-history"><summary>${rest.length} earlier</summary><ul class="feed">${rest.map(li).join("")}</ul></details>` : ""}`;
+}
+
+/* ---------- analytics tabs: one season and position for the KPI profile, pitch maps and card ---------- */
+const AN_TABS = [["kpi", "KPI profile"], ["maps", "Pitch maps"], ["card", "Player card"]];
+// Card position -> KPI benchmark group. The KPI reference pools both flanks, so LW and RW are one group.
+const KPI_GROUP = { CB: "CB", LB: "FB", RB: "FB", DM: "DM", CM: "CM", AM: "AM", LW: "W", RW: "W", CF: "ST" };
+// sel is null when Impect can't offer any season and position (a goalkeeper, say): each panel then
+// falls back to driving itself.
+const an = { sel: null, seasons: [], handlers: {}, loaded: new Set(), kpiShown: null };
+const anSeason = () => an.seasons.find((s) => s.iteration_id === an.sel?.iteration_id);
+const anOffers = (x, seasons = an.seasons) =>
+  seasons.some((s) => s.iteration_id === x?.iteration_id && s.positions.some((o) => o.code === x.position));
+
+async function wireAnalytics(root, p) {
+  Object.assign(an, { sel: null, seasons: [], handlers: {}, loaded: new Set(), kpiShown: null });
+  const ctx = $("#an-ctx", root);
+  const tabs = $$("[data-an-tab]", root);
+  // A tab's panel is only fetched the first time it is opened; pitch maps in particular are heavy.
+  const show = (key) => {
+    for (const b of tabs) {
+      const on = b.dataset.anTab === key;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-selected", String(on));
+      $(`#${b.dataset.anTab}-panel`, root).hidden = !on;
+    }
+    if (an.loaded.has(key)) return;
+    an.loaded.add(key);
+    ({ kpi: loadKpiPanel, card: loadCardPanel, maps: loadMapsPanel })[key](root, p);
+  };
+  for (const b of tabs) b.addEventListener("click", () => show(b.dataset.anTab));
+  // The KPI profile doesn't need the card options, which can take half a minute on a cold server.
+  show("kpi");
+
+  ctx.innerHTML = `<span class="loading sm">Seasons…</span>`;
+  let opts = null;
+  try { opts = await playerSeasons(p.id); } catch { /* each panel reports the failure itself */ }
+  if (!root.isConnected) return;
+  if (!opts?.seasons.length) { ctx.innerHTML = ""; return; }
+  an.seasons = opts.seasons;
+  // Keep whatever the KPI tab is already showing when the picker offers it, so it doesn't reload.
+  const k = an.kpiShown;
+  const same = k && opts.seasons.find((x) => x.iteration_id === k.iteration_id)?.positions.find((o) => KPI_GROUP[o.code] === k.group);
+  an.sel = same ? { iteration_id: k.iteration_id, position: same.code } : { ...opts.default };
+  drawAnCtx(ctx);
+  $("#analytics", root).classList.add("has-ctx");
+  if (!same) an.handlers.kpi?.({ ...an.sel });
+}
+
+function drawAnCtx(ctx) {
+  const season = anSeason();
+  ctx.innerHTML = `<select id="an-season" aria-label="Season">${an.seasons.map((s) =>
+      `<option value="${s.iteration_id}" ${s.iteration_id === an.sel.iteration_id ? "selected" : ""}>${esc(s.season)} · ${esc(s.competition)}</option>`).join("")}</select>
+    <select id="an-pos" aria-label="Position">${season.positions.map((o) =>
+      `<option value="${o.code}" ${o.code === an.sel.position ? "selected" : ""}>${o.code} · ${esc(o.label)} · ${o.match_share.toFixed(1)} matches</option>`).join("")}</select>`;
+  $("#an-season", ctx).addEventListener("change", (e) => {
+    an.sel.iteration_id = Number(e.target.value);
+    an.sel.position = anSeason().positions[0].code;
+    drawAnCtx(ctx);
+    anChanged();
+  });
+  $("#an-pos", ctx).addEventListener("change", (e) => { an.sel.position = e.target.value; anChanged(); });
+}
+
+const anChanged = () => { for (const fn of Object.values(an.handlers)) fn?.({ ...an.sel }); };
+
 function loadKpiPanel(root, p) {
   const el = $("#kpi-panel", root);
-  const head = (extra = "") => `<header class="panel-h"><h2>Impect KPI profile</h2>${extra}</header>`;
+  // The tab strip names the panel; only a fallback season picker (no shared one) goes up here.
+  const head = (extra = "") => (extra ? `<div class="an-actions">${extra}</div>` : "");
+  let ticket = 0;
   const draw = async (iterationId, position) => {
+    const mine = ++ticket;
     el.innerHTML = `${head()}<div class="loading sm">Scoring against the pooled positional benchmark…</div>`;
     let d;
     const qs = new URLSearchParams();
@@ -989,12 +1069,13 @@ function loadKpiPanel(root, p) {
     if (position) qs.set("position", position);
     const q = qs.toString();
     try { d = await api("GET", `/api/players/${p.id}/impect-kpis${q ? `?${q}` : ""}`); } catch (e) {
-      el.innerHTML = `${head()}<div class="banner err sm">${esc(e.message)}</div>`;
+      if (mine === ticket) el.innerHTML = `${head()}<div class="banner err sm">${esc(e.message)}</div>`;
       return;
     }
-    const picker = (d.available_iterations || []).length > 1
-      ? `<select id="kpi-it" aria-label="Season">${d.available_iterations.map((i) => `<option value="${i.id}" ${d.iteration?.id === i.id ? "selected" : ""}>${esc(i.competition)} ${esc(i.season)}</option>`).join("")}</select>`
-      : "";
+    if (mine !== ticket || !el.isConnected) return; // a newer season or position was picked meanwhile
+    an.kpiShown = d.empty ? null : { iteration_id: d.iteration.id, group: d.position };
+    const picker = (d.available_iterations || []).length < 2 ? ""
+      : `<select id="kpi-it" aria-label="Season">${d.available_iterations.map((i) => `<option value="${i.id}" ${d.iteration?.id === i.id ? "selected" : ""}>${esc(i.competition)} ${esc(i.season)}</option>`).join("")}</select>`;
     if (d.empty) {
       el.innerHTML = `${head(picker)}<p class="empty">${esc(d.reason)}</p>`;
     } else {
@@ -1012,9 +1093,9 @@ function loadKpiPanel(root, p) {
             Values are Impect rates per match share; ratios and scores are shown as supplied. Medians and the ${esc(d.iteration.short)} column use ${esc(d.iteration.competition)} ${esc(peers)} only.</p>
           <p>Transfers count once in the reference, using their largest qualified league sample. Oldest reference fetch: ${esc(new Date(d.cohort_built_at).toLocaleString())}. Cached for up to 12 hours.</p>
         </div>
-        ${(d.positions || []).length > 1 ? `<div class="kpi-positions" role="group" aria-label="Position benchmarked"><span class="muted sm">Benchmark as</span>${d.positions.map((o) =>
+        ${(d.positions || []).length < 2 ? "" : `<div class="kpi-positions" role="group" aria-label="Position benchmarked"><span class="muted sm">Benchmark as</span>${d.positions.map((o) =>
           `<button type="button" class="${o.group === d.position ? "on" : ""}${o.eligible ? "" : " thin"}" data-kpi-pos="${esc(o.group)}" aria-pressed="${o.group === d.position}"
-            title="${esc(o.impect_positions.map((x) => `${x.name.replace(/_/g, " ").toLowerCase()} ${x.match_share}`).join(", "))}${o.eligible ? "" : " (below the minimum)"}">${esc(o.label)} <span>· ${o.match_share} matches</span></button>`).join("")}</div>` : ""}
+            title="${esc(o.impect_positions.map((x) => `${x.name.replace(/_/g, " ").toLowerCase()} ${x.match_share}`).join(", "))}${o.eligible ? "" : " (below the minimum)"}">${esc(o.label)} <span>· ${o.match_share} matches</span></button>`).join("")}</div>`}
         ${!d.eligible ? `<p class="banner warn">Small sample: ${d.match_share} matches (${d.minutes.toLocaleString()} min) at this position, below the ${d.min_share_used} required for the reference group. Percentiles are shown but are less reliable.</p>` : ""}
         ${d.missing_benchmark_competitions?.length ? `<p class="sm muted">Unavailable for this season: ${esc(d.missing_benchmark_competitions.join(", "))}.</p>` : ""}
         <div class="kpi-axis" aria-hidden="true"><span></span><span class="kpi-scale"><span>0</span><span>50<span class="kpi-scale-m"> · median</span></span><span>100</span></span></div>
@@ -1029,7 +1110,8 @@ function loadKpiPanel(root, p) {
       $("#kpi-how", el).hidden = !open;
     });
   };
-  draw();
+  an.handlers.kpi = (sel) => draw(sel.iteration_id, KPI_GROUP[sel.position] || null);
+  if (an.sel) an.handlers.kpi(an.sel); else draw();
 }
 
 /* ---------- transfermarkt suggestions (players added without a link) ---------- */
@@ -1349,7 +1431,7 @@ let cardTimer = null;
 
 async function loadCardPanel(root, p) {
   const el = $("#card-panel", root);
-  const head = `<header class="panel-h"><h2>Player card</h2></header>`;
+  const head = "";
   let cards, opts;
   try {
     ({ cards } = await api("GET", `/api/players/${p.id}/cards`));
@@ -1363,21 +1445,13 @@ async function loadCardPanel(root, p) {
   if (!el.isConnected) return;
   if (!opts.seasons.length) { el.innerHTML = `${head}<p class="empty">No outfield Impect minutes to build a card from.</p>`; return; }
 
-  const offered = (x) => opts.seasons.some((s) => s.iteration_id === x?.iteration_id && s.positions.some((o) => o.code === x.position));
-  const sel = { ...(offered(cardPick.get(p.id)) ? cardPick.get(p.id) : opts.default) };
-  const season = () => opts.seasons.find((s) => s.iteration_id === sel.iteration_id);
-  el.innerHTML = `<header class="panel-h"><h2>Player card</h2>${S.me.is_admin ? `<button type="button" class="btn sm" id="card-go"></button>` : ""}</header>
-    <div class="card-pick">
-      <select id="card-season" aria-label="Season">${opts.seasons.map((s) => `<option value="${s.iteration_id}">${esc(s.season)} · ${esc(s.competition)}</option>`).join("")}</select>
-      <select id="card-pos" aria-label="Position"></select>
-    </div>
+  // The season and position come from the tab strip above; cardPick remembers the last one seen.
+  const offered = (x) => anOffers(x, opts.seasons);
+  const first = [an.sel, cardPick.get(p.id)].find(offered) || opts.default;
+  const sel = { ...first };
+  el.innerHTML = `${S.me.is_admin ? `<div class="an-actions"><button type="button" class="btn sm" id="card-go"></button></div>` : ""}
     <div id="card-body"></div>`;
-  const seasonSel = $("#card-season", el), posSel = $("#card-pos", el), body = $("#card-body", el), go = $("#card-go", el);
-  const fillPositions = () => {
-    posSel.innerHTML = season().positions.map((o) => `<option value="${o.code}">${o.code} · ${esc(o.label)} · ${o.match_share.toFixed(1)} matches</option>`).join("");
-    seasonSel.value = sel.iteration_id;
-    posSel.value = sel.position;
-  };
+  const body = $("#card-body", el), go = $("#card-go", el);
   const drawBody = () => {
     const mine = cards.filter((c) => c.iteration_id === sel.iteration_id && c.position === sel.position);
     const done = mine.filter((c) => c.status === "done");
@@ -1422,9 +1496,12 @@ async function loadCardPanel(root, p) {
       watch();
     }, 3000);
   };
-  const pick = () => { cardPick.set(p.id, { ...sel }); drawBody(); };
-  seasonSel.addEventListener("change", () => { sel.iteration_id = Number(seasonSel.value); sel.position = season().positions[0].code; fillPositions(); pick(); });
-  posSel.addEventListener("change", () => { sel.position = posSel.value; pick(); });
+  an.handlers.card = (next) => {
+    if (!offered(next)) { body.innerHTML = `<p class="empty">No player card for this season and position.</p>`; return; }
+    Object.assign(sel, next);
+    cardPick.set(p.id, { ...sel });
+    drawBody();
+  };
   go?.addEventListener("click", async () => {
     go.disabled = true;
     try {
@@ -1436,7 +1513,6 @@ async function loadCardPanel(root, p) {
       watch();
     } catch (err) { oops(err); go.disabled = false; }
   });
-  fillPositions();
   drawBody();
   watch();
 }
@@ -1670,7 +1746,7 @@ function mapViewsFromBuilds(maps) {
 
 async function loadMapsPanel(root, p) {
   const el = $("#maps-panel", root);
-  const head = (button = "") => `<header class="panel-h"><h2>Pitch maps</h2><span class="muted sm">Where their open-play actions happen</span>${button}</header>`;
+  const head = (button = "") => `<p class="an-sub">Where their open-play actions happen</p>${button ? `<div class="an-actions">${button}</div>` : ""}`;
   const [optsRes, listRes] = await Promise.allSettled([playerSeasons(p.id), api("GET", `/api/players/${p.id}/maps`)]);
   if (!el.isConnected) return;
   if (listRes.status === "rejected") { el.innerHTML = `${head()}<div class="banner err sm">${esc(listRes.reason.message)}</div>`; return; }
@@ -1682,27 +1758,18 @@ async function loadMapsPanel(root, p) {
       : `<div class="banner err sm">${esc(optsRes.reason.message)}</div><p class="empty">Nothing has been built for this player yet.</p>`}`;
     return;
   }
-  el.innerHTML = `${head(`<button type="button" class="btn sm" id="maps-go" hidden></button>`)}
-    <div class="card-pick maps-pick">
-      <select id="maps-season" aria-label="Season">${views.map((v) => `<option value="${v.iteration_id}">${esc(v.season)} · ${esc(v.competition)}</option>`).join("")}</select>
-      <select id="maps-pos" aria-label="Position"></select>
-      <button type="button" class="btn sm" id="maps-png" disabled title="Save both maps with the chosen metrics as a picture">Download PNG</button>
-    </div>
+  el.innerHTML = `${head(`<button type="button" class="btn sm" id="maps-go" hidden></button>
+      <button type="button" class="btn sm" id="maps-png" disabled title="Save both maps with the chosen metrics as a picture">Download PNG</button>`)}
     <div class="maps-status" id="maps-status"></div>
     <div id="maps-body"></div>`;
-  const seasonSel = $("#maps-season", el), posSel = $("#maps-pos", el), go = $("#maps-go", el), png = $("#maps-png", el);
+  const go = $("#maps-go", el), png = $("#maps-png", el);
   const status = $("#maps-status", el), body = $("#maps-body", el);
-  const offered = (x) => views.some((v) => v.iteration_id === x?.iteration_id && v.positions.some((o) => o.code === x.position));
+  // The season and position come from the tab strip above, unless only built maps are known.
+  const offered = (x) => anOffers(x, views);
   const lastBuilt = list.maps.find((m) => m.status === "done");
-  const sel = { ...(offered(mapsPick.get(p.id)) ? mapsPick.get(p.id)
-    : offered(lastBuilt) ? { iteration_id: lastBuilt.iteration_id, position: lastBuilt.position }
-    : opts?.default || { iteration_id: views[0].iteration_id, position: views[0].positions[0].code }) };
+  const sel = { ...([an.sel, mapsPick.get(p.id), lastBuilt && { iteration_id: lastBuilt.iteration_id, position: lastBuilt.position }].find(offered)
+    || opts?.default || { iteration_id: views[0].iteration_id, position: views[0].positions[0].code }) };
   const season = () => views.find((v) => v.iteration_id === sel.iteration_id);
-  const fillPositions = () => {
-    posSel.innerHTML = season().positions.map((o) => `<option value="${o.code}">${o.code} · ${esc(o.label)}${o.match_share != null ? ` · ${o.match_share.toFixed(1)} matches` : ""}</option>`).join("");
-    seasonSel.value = sel.iteration_id;
-    posSel.value = sel.position;
-  };
   let shown = null; // the build on screen, so polling doesn't redraw it
   let ticket = 0;
   const state = () => {
@@ -1806,8 +1873,12 @@ async function loadMapsPanel(root, p) {
       watch();
     }, 2500);
   };
-  seasonSel.addEventListener("change", () => { sel.iteration_id = Number(seasonSel.value); sel.position = season().positions[0].code; fillPositions(); draw(); });
-  posSel.addEventListener("change", () => { sel.position = posSel.value; draw(); });
+  an.handlers.maps = (next) => {
+    if (!offered(next)) { status.innerHTML = ""; body.innerHTML = `<p class="empty">No pitch maps for this season and position.</p>`; go.hidden = true; png.disabled = true; return; }
+    Object.assign(sel, next);
+    shown = null;
+    draw();
+  };
   go.addEventListener("click", async () => {
     go.disabled = true;
     try {
@@ -1817,7 +1888,6 @@ async function loadMapsPanel(root, p) {
       watch();
     } catch (err) { oops(err); go.disabled = false; }
   });
-  fillPositions();
   draw();
   watch();
 }
