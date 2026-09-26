@@ -6,7 +6,7 @@
 
 export const PHASES = [
   { id: "gk", name: "Goalkeeping", desc: "Stopping shots, claiming high balls and sweeping behind the line" },
-  { id: "build", name: "Build-up play", desc: "Keeping, moving and progressing the ball" },
+  { id: "build", name: "On-Ball", desc: "Keeping, moving and progressing the ball" },
   { id: "attack", name: "Final third", desc: "Getting on the ball high up, creating and shooting" },
   { id: "defend", name: "Defending & duels", desc: "Pressing, winning the ball back, ground and aerial contests" },
 ];

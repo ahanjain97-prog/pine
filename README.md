@@ -49,7 +49,7 @@ the team's goal threat per match rather than a count of actions, several "percen
 and a few ratios don't say what is divided by what. Those are relabelled in `DISPLAY_OVERRIDES`
 (`src/lib/impect_kpi.js`), and a test fails if a new percent/ratio/pXT metric arrives without one.
 
-The panel groups categories by phase of play (build-up, final third, defending and duels) and shows one
+The panel groups categories by phase of play (on-ball, final third, defending and duels) and shows one
 name for each idea at every position: the study calls the same five passing metrics "Build-up circulation"
 at centre-back and "Circulation and tempo" in midfield, and the page calls both "Circulation". Opening a
 category splits its metrics into how well, how much, mistakes and Impect's own scores, each with the
