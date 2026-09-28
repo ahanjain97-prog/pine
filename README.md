@@ -86,7 +86,8 @@ Run `npm test` for benchmark and mocked-API regression tests, and `npm run check
 - **Big Board** (`#/board`): pitch layout of all 11 positions and 25 roles from the depth chart. Drag cards
   to rank within a role or move between roles; drag to "Not on the board" to take a player off. Card stripe
   = club decision, dots = the six staff verdicts, DOM / INTL = domestic (US citizen, from Transfermarkt citizenship)
-  or international. Green cards aren't on Transfermarkt, so a permanent resident shows as INTL.
+  or international. Green cards aren't on Transfermarkt and its citizenship is sometimes wrong, so Edit details
+  on the player page can set the roster status to Domestic or International by hand; syncs leave that alone.
 - **Database** (`#/players`): sortable and filterable table of everyone, with CSV export.
 - **Player page**: the header holds Transfermarkt facts, the club decision and the staff verdict tally. Below it,
   the shared summary and one evaluation section per staff member (only you can

@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS players(
   photo_url TEXT, shirt_number INTEGER,
   tm_id TEXT UNIQUE, tm_url TEXT, tm_synced_at TEXT,
   tm_overrides TEXT NOT NULL DEFAULT '[]',
+  roster_status TEXT CHECK (roster_status IN ('domestic','international')),
   impect_id INTEGER UNIQUE, impect_squad TEXT, impect_competition TEXT,
   phys_keys TEXT NOT NULL DEFAULT '[]',
   phys_confirmed INTEGER NOT NULL DEFAULT 0,
@@ -150,6 +151,9 @@ export function openDb(file) {
   raw.exec("DROP TABLE IF EXISTS login_codes"); // old email-code sign-in
   if (!raw.prepare("PRAGMA table_info(players)").all().some((c) => c.name === "tm_overrides")) {
     raw.exec("ALTER TABLE players ADD COLUMN tm_overrides TEXT NOT NULL DEFAULT '[]'");
+  }
+  if (!raw.prepare("PRAGMA table_info(players)").all().some((c) => c.name === "roster_status")) {
+    raw.exec("ALTER TABLE players ADD COLUMN roster_status TEXT CHECK (roster_status IN ('domestic','international'))");
   }
   if (!raw.prepare("PRAGMA table_info(cards)").all().some((c) => c.name === "progress")) {
     raw.exec("ALTER TABLE cards ADD COLUMN progress TEXT");
