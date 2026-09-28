@@ -92,8 +92,11 @@ const fail = (status, message, extra) => { throw new HttpError(status, message, 
 
 const EDITABLE = [
   "name", "birthdate", "birthplace", "height_cm", "foot", "position", "club", "league", "joined", "contract_expires",
-  "loan_from", "agent", "market_value_display", "national_team", "photo_url", "summary",
+  "loan_from", "agent", "market_value_display", "national_team", "photo_url", "summary", "roster_status",
 ];
+// Domestic/international is worked out from citizenship in the browser; roster_status pins it by hand
+// (green cards, or Transfermarkt getting citizenship wrong). Syncs never touch it.
+const ROSTER_STATUSES = ["domestic", "international"];
 const JSON_COLS = ["citizenship", "other_positions", "phys_keys", "tm_overrides"];
 
 function ageFrom(birthdate) {
@@ -449,6 +452,7 @@ app.patch("/api/players/:id", async (c) => {
   for (const k of Object.keys(fields)) if (typeof fields[k] === "string" && !fields[k].trim()) fields[k] = null;
   if (fields.height_cm != null) fields.height_cm = Number(fields.height_cm) || null;
   if ("name" in fields && !String(fields.name || "").trim()) fail(400, "Name is required");
+  if (fields.roster_status != null && !ROSTER_STATUSES.includes(fields.roster_status)) fail(400, "Roster status must be domestic or international");
   const edited = Object.keys(fields);
   fields.tm_overrides = manualTmOverrides(p, fields);
   updatePlayer(p.id, fields);

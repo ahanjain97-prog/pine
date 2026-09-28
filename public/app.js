@@ -401,14 +401,20 @@ function posBox(pos) {
 
 // Domestic = US citizen, from Transfermarkt citizenship (players not linked to Transfermarkt carry
 // Impect's German country names). People from Puerto Rico and the other territories listed are US
-// citizens. Green cards aren't on Transfermarkt, so a permanent resident still shows as international.
+// citizens. Green cards aren't on Transfermarkt and its citizenship is sometimes wrong, so Edit details
+// can set the roster status by hand (roster_status), which wins over citizenship.
 const US_CITIZENSHIPS = new Set(["United States", "Vereinigte Staaten", "Puerto Rico", "US Virgin Islands",
   "Amerikanische Jungferninseln", "Guam", "Northern Mariana Islands", "Nördliche Marianen"]);
+const ROSTER_STATUSES = ["domestic", "international"];
+const rosterFromCitizenship = (p) => (p.citizenship?.length ? (p.citizenship.some((c) => US_CITIZENSHIPS.has(c)) ? "domestic" : "international") : null);
+const rosterStatus = (p) => p.roster_status || rosterFromCitizenship(p);
 function rosterBadge(p) {
-  const cit = p.citizenship || [];
-  if (!cit.length) return "";
-  const dom = cit.some((c) => US_CITIZENSHIPS.has(c));
-  return `<span class="roster ${dom ? "dom" : "intl"}" title="${dom ? "Domestic" : "International"}: ${esc(cit.join(", "))}">${dom ? "DOM" : "INTL"}</span>`;
+  const status = rosterStatus(p);
+  if (!status) return "";
+  const dom = status === "domestic";
+  const cit = (p.citizenship || []).join(", ");
+  const why = p.roster_status ? `set manually${cit ? ` (citizenship: ${cit})` : ""}` : cit;
+  return `<span class="roster ${dom ? "dom" : "intl"}" title="${dom ? "Domestic" : "International"}: ${esc(why)}">${dom ? "DOM" : "INTL"}</span>`;
 }
 
 function boardCard(p, role) {
@@ -669,9 +675,14 @@ function openEditPlayer(p) {
     ["loan_from", "On loan from", "text"], ["agent", "Agent", "text"], ["market_value_display", "Market value", "text"],
     ["national_team", "National team", "text"], ["photo_url", "Photo URL", "url"],
   ];
+  const auto = rosterFromCitizenship(p);
   const m = modal(`<header class="m-h"><h2>Edit ${esc(p.name)}</h2><button type="button" class="icon-btn" data-close aria-label="Close">×</button></header>
-    <form id="ep"><div class="form-grid">${F.map(([k, l, t]) => `<div><label class="lbl" for="ep-${k}">${l}</label><input id="ep-${k}" name="${k}" type="${t}" value="${esc(p[k] ?? "")}"></div>`).join("")}</div>
-    ${p.tm_id ? `<p class="hint" style="margin-top:10px">Manual changes are preserved when you sync from Transfermarkt later.</p>` : ""}
+    <form id="ep"><div class="form-grid">${F.map(([k, l, t]) => `<div><label class="lbl" for="ep-${k}">${l}</label><input id="ep-${k}" name="${k}" type="${t}" value="${esc(p[k] ?? "")}"></div>`).join("")}
+      <div><label class="lbl" for="ep-roster_status">Roster status</label><select id="ep-roster_status" name="roster_status">
+        <option value="">${auto ? `Auto: ${cap(auto)}` : "Auto (no citizenship)"}</option>
+        ${ROSTER_STATUSES.map((s) => `<option value="${s}" ${p.roster_status === s ? "selected" : ""}>${cap(s)}</option>`).join("")}
+      </select></div></div>
+    <p class="hint" style="margin-top:10px">Roster status follows citizenship unless you pick Domestic or International, e.g. for a green-card holder.${p.tm_id ? " Manual changes are preserved when you sync from Transfermarkt later." : ""}</p>
     <div class="m-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>`, { wide: true });
   $("#ep", m).addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -873,6 +884,7 @@ async function renderPlayer(main, idArg) {
           ${fact("Height", p.height_cm ? `${p.height_cm} cm` : null)}
           ${fact("Foot", cap(p.foot))}
           ${fact("Citizenship", p.citizenship.join(", "))}
+          ${fact("Roster status", rosterStatus(p) && `${cap(rosterStatus(p))}${p.roster_status ? ` <span class="muted">(set manually)</span>` : ""}`, true)}
           ${fact("Other positions", p.other_positions.join(", "))}
           ${fact("Contract expires", p.contract_expires ? `<span class="${contractSoon(p.contract_expires) ? "warn" : ""}">${esc(fmtDate(p.contract_expires))}</span>` : null, true)}
           ${fact("Joined", fmtDate(p.joined))}
