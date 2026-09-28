@@ -575,7 +575,7 @@ app.post("/api/board/move", async (c) => {
   }
   return c.json({ ok: true });
 });
-// Top targets: the Shortlist board is the big board filtered to the entries flagged here.
+// Top targets: the Short Board is the big board filtered to the entries flagged here.
 app.post("/api/board/shortlist", async (c) => {
   const user = c.get("user");
   const { player_id, role, on } = await c.req.json();

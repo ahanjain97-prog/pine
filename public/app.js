@@ -121,7 +121,7 @@ const roleLabel = (code) => { const r = roleInfo(code); return r ? `${r.position
 const roleShort = (code) => { const r = roleInfo(code); return r ? `${r.position} #${r.num}` : String(code || ""); };
 const rankIn = (p, role) => p.roles.find((r) => r.role === role)?.rank ?? 1e9;
 const playersInRole = (role) => S.players.filter((p) => p.roles.some((r) => r.role === role)).sort((a, b) => rankIn(a, role) - rankIn(b, role));
-// Top targets keep the big board's order; the Shortlist board is that board filtered to them.
+// Top targets keep the big board's order; the Short Board is that board filtered to them.
 const isTopTarget = (p, role) => Boolean(p.roles.find((r) => r.role === role)?.shortlist);
 const targetsInRole = (role) => playersInRole(role).filter((p) => isTopTarget(p, role));
 const initials = (n) => String(n || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
@@ -273,7 +273,7 @@ function renderShell() {
     <a class="brand" href="#/board"><img class="club-crest" src="/hop-crest.png?v=1" alt="Portland Hearts of Pine" width="31" height="36"><span class="brand-divider" aria-hidden="true"></span>${LOGO}<span class="wordmark">PINE</span><span class="tagline">Player Identification Network Evaluation</span></a>
     <nav class="nav" id="nav">
       <a href="#/board" data-v="board">Big Board</a>
-      <a href="#/shortlist" data-v="shortlist">Shortlist</a>
+      <a href="#/short-board" data-v="short-board">Short Board</a>
       <a href="#/players" data-v="players">Database</a>
       <a href="#/impect" data-v="impect">Impect</a>
       <a href="#/activity" data-v="activity">Activity</a>
@@ -335,7 +335,7 @@ function route() {
   const hash = location.hash.replace(/^#\/?/, "");
   if (hash) {
     const [view, arg] = hash.split("/");
-    return { view, arg };
+    return { view: view === "shortlist" ? "short-board" : view, arg }; // the tab's old address
   }
   const shared = location.pathname.match(/^\/p\/(\d+)/);
   return shared ? { view: "player", arg: shared[1] } : { view: "board", arg: undefined };
@@ -348,7 +348,7 @@ async function render() {
   const { view, arg } = route();
   $$("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.v === view || (view === "player" && a.dataset.v === "players")));
   $("#upd").hidden = true;
-  const views = { board: renderBoard, shortlist: renderShortlist, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
+  const views = { board: renderBoard, "short-board": renderShortBoard, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
   // Pitch maps had their own tab for a day; its links now open the player's page, where the maps live.
   if (view === "maps") { location.hash = arg ? `#/player/${arg}` : "#/players"; return; }
   if (!views[view]) { location.hash = "#/board"; return; }
@@ -387,12 +387,12 @@ function renderBoard(main) {
   wireBoard(main.firstElementChild);
 }
 
-function renderShortlist(main) {
+function renderShortBoard(main) {
   const targets = S.players.filter((p) => p.roles.some((r) => r.shortlist));
   const count = (d) => targets.filter((p) => p.decision === d).length;
   main.innerHTML = `<div class="page">
     <div class="page-h">
-      <div><h1>Shortlist</h1>
+      <div><h1>Short Board</h1>
         <div class="board-stats"><span><b>${targets.length}</b> top target${targets.length === 1 ? "" : "s"}</span>
           <span><b>${count("pass")}</b> pass</span><span><b>${count("hold")}</b> hold</span><span><b>${count("fail")}</b> fail</span></div></div>
       <div class="spacer"></div>
@@ -446,7 +446,7 @@ function boardCard(p, role, targetsOnly = false) {
   // The whole card is a link, so the star is a span with a button role; the board's click handler
   // intercepts it before the link fires.
   const star = role ? `<span class="star ${on ? "on" : ""}" data-star="${role}" role="button" tabindex="0"
-    aria-pressed="${on}" title="${on ? "Remove from the shortlist" : "Add to the shortlist as a top target"}">${on ? "★" : "☆"}</span>` : "";
+    aria-pressed="${on}" title="${on ? "Remove from the Short Board" : "Add to the Short Board as a top target"}">${on ? "★" : "☆"}</span>` : "";
   return `<a class="pcard ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" ${targetsOnly ? "" : 'draggable="true"'} data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
     ${role ? `<span class="rank">${rankIn(p, role) + 1}</span>` : ""}${photo(p)}
     <span class="ci"><div class="nm">${esc(p.name)}</div><div class="nm-row"><span class="csub">${esc(sub)}</span>${rosterBadge(p)}</div></span>${verdictDots(p.verdicts)}${star}</a>`;
@@ -1223,7 +1223,7 @@ function rolesPanel(p) {
     const n = playersInRole(r.role).length || 1;
     return `<div class="role-row"><span class="chip">${esc(roleLabel(r.role))}</span><span class="muted sm">Rank <b>${r.rank + 1}</b> of ${n}</span><span class="spacer"></span>
       <button type="button" class="icon-btn star-btn ${r.shortlist ? "on" : ""}" data-role-star="${r.role}" aria-pressed="${Boolean(r.shortlist)}"
-        title="${r.shortlist ? "On the shortlist as a top target" : "Add to the shortlist as a top target"}" aria-label="Top target at ${esc(roleLabel(r.role))}">${r.shortlist ? "★" : "☆"}</button>
+        title="${r.shortlist ? "On the Short Board as a top target" : "Add to the Short Board as a top target"}" aria-label="Top target at ${esc(roleLabel(r.role))}">${r.shortlist ? "★" : "☆"}</button>
       <button type="button" class="icon-btn" data-role-move="${r.role}:-1" title="Move up" aria-label="Move up" ${r.rank === 0 ? "disabled" : ""}>↑</button>
       <button type="button" class="icon-btn" data-role-move="${r.role}:1" title="Move down" aria-label="Move down" ${r.rank >= n - 1 ? "disabled" : ""}>↓</button>
       <button type="button" class="icon-btn" data-role-rm="${r.role}" title="Remove from this role" aria-label="Remove from this role">×</button></div>`;
@@ -2174,7 +2174,7 @@ function describe(a, onPlayerPage = false) {
     }
     case "added_role": return `added ${who} to ${esc(roleLabel(d.role))}`;
     case "shortlisted": return `made ${who} a top target at ${esc(roleLabel(d.role))}`;
-    case "unshortlisted": return `took ${who} off the shortlist at ${esc(roleLabel(d.role))}`;
+    case "unshortlisted": return `took ${who} off the Short Board at ${esc(roleLabel(d.role))}`;
     case "removed_role": return `removed ${who} from ${esc(roleLabel(d.role))}`;
     case "synced_tm": return `synced ${who} from Transfermarkt`;
     case "linked_tm": return `linked ${who} to Transfermarkt`;
