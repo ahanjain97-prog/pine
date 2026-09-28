@@ -124,7 +124,7 @@ function hydrate(p) {
 
 const PLAYER_SELECT = `
   SELECT p.*,
-    (SELECT json_group_array(json_object('role', b.role, 'rank', b.rank)) FROM board_entries b WHERE b.player_id = p.id) AS roles_json,
+    (SELECT json_group_array(json_object('role', b.role, 'rank', b.rank, 'shortlist', b.shortlist)) FROM board_entries b WHERE b.player_id = p.id) AS roles_json,
     (SELECT json_group_object(u.name, v.verdict) FROM verdicts v JOIN users u ON u.id = v.user_id WHERE v.player_id = p.id) AS verdicts_json,
     (SELECT count(*) FROM notes n WHERE n.player_id = p.id) AS note_count,
     (SELECT max(n.created_at) FROM notes n WHERE n.player_id = p.id) AS last_note_at,
@@ -574,6 +574,18 @@ app.post("/api/board/move", async (c) => {
     logActivity(db, user.id, p.id, "moved_on_board", { from: from_role || null, to: to_role, spot, from_spot: fromSpot });
   }
   return c.json({ ok: true });
+});
+// Top targets: the Shortlist board is the big board filtered to the entries flagged here.
+app.post("/api/board/shortlist", async (c) => {
+  const user = c.get("user");
+  const { player_id, role, on } = await c.req.json();
+  const p = getPlayer(player_id);
+  if (!ROLES[role]) fail(400, `Unknown role ${role}`);
+  const entry = db.get("SELECT 1 FROM board_entries WHERE player_id = ? AND role = ?", p.id, role)
+    || fail(400, `${p.name} isn't on the big board at ${role}`);
+  db.run("UPDATE board_entries SET shortlist = ? WHERE player_id = ? AND role = ?", on ? 1 : 0, p.id, role);
+  logActivity(db, user.id, p.id, on ? "shortlisted" : "unshortlisted", { role });
+  return c.json({ player: getPlayer(p.id) });
 });
 app.post("/api/players/:id/roles", async (c) => {
   const user = c.get("user");

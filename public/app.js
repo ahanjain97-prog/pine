@@ -121,6 +121,9 @@ const roleLabel = (code) => { const r = roleInfo(code); return r ? `${r.position
 const roleShort = (code) => { const r = roleInfo(code); return r ? `${r.position} #${r.num}` : String(code || ""); };
 const rankIn = (p, role) => p.roles.find((r) => r.role === role)?.rank ?? 1e9;
 const playersInRole = (role) => S.players.filter((p) => p.roles.some((r) => r.role === role)).sort((a, b) => rankIn(a, role) - rankIn(b, role));
+// Top targets keep the big board's order; the Shortlist board is that board filtered to them.
+const isTopTarget = (p, role) => Boolean(p.roles.find((r) => r.role === role)?.shortlist);
+const targetsInRole = (role) => playersInRole(role).filter((p) => isTopTarget(p, role));
 const initials = (n) => String(n || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
 const photo = (p, size = "") => p.photo_url
   ? `<img class="ph ${size}" src="${esc(p.photo_url)}" alt="" loading="lazy" data-ini="${esc(initials(p.name))}">`
@@ -270,6 +273,7 @@ function renderShell() {
     <a class="brand" href="#/board"><img class="club-crest" src="/hop-crest.png?v=1" alt="Portland Hearts of Pine" width="31" height="36"><span class="brand-divider" aria-hidden="true"></span>${LOGO}<span class="wordmark">PINE</span><span class="tagline">Player Identification Network Evaluation</span></a>
     <nav class="nav" id="nav">
       <a href="#/board" data-v="board">Big Board</a>
+      <a href="#/shortlist" data-v="shortlist">Shortlist</a>
       <a href="#/players" data-v="players">Database</a>
       <a href="#/impect" data-v="impect">Impect</a>
       <a href="#/activity" data-v="activity">Activity</a>
@@ -344,7 +348,7 @@ async function render() {
   const { view, arg } = route();
   $$("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.v === view || (view === "player" && a.dataset.v === "players")));
   $("#upd").hidden = true;
-  const views = { board: renderBoard, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
+  const views = { board: renderBoard, shortlist: renderShortlist, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
   // Pitch maps had their own tab for a day; its links now open the player's page, where the maps live.
   if (view === "maps") { location.hash = arg ? `#/player/${arg}` : "#/players"; return; }
   if (!views[view]) { location.hash = "#/board"; return; }
@@ -374,7 +378,7 @@ function renderBoard(main) {
         <input id="bf-q" type="search" placeholder="Filter the board…" value="${esc(f.q)}" aria-label="Filter the board">
       </div>
     </div>
-    <div class="pitch-wrap"><div class="pitch">${S.config.positions.map(posBox).join("")}</div></div>
+    <div class="pitch-wrap"><div class="pitch">${S.config.positions.map((pos) => posBox(pos)).join("")}</div></div>
     <section class="panel tray">
       <header class="panel-h"><h2>Not on the board</h2><span class="muted sm">${unassigned.length} player${unassigned.length === 1 ? "" : "s"} · drag onto a role, or drag a card here to take it off</span></header>
       <div class="tray-body" data-tray="1">${unassigned.map((p) => boardCard(p, null)).join("") || `<p class="empty">Everyone in PINE has a role on the board.</p>`}</div>
@@ -383,17 +387,36 @@ function renderBoard(main) {
   wireBoard(main.firstElementChild);
 }
 
-function posBox(pos) {
-  const total = new Set(pos.roles.flatMap(([c]) => playersInRole(c).map((p) => p.id))).size;
+function renderShortlist(main) {
+  const targets = S.players.filter((p) => p.roles.some((r) => r.shortlist));
+  const count = (d) => targets.filter((p) => p.decision === d).length;
+  main.innerHTML = `<div class="page">
+    <div class="page-h">
+      <div><h1>Shortlist</h1>
+        <div class="board-stats"><span><b>${targets.length}</b> top target${targets.length === 1 ? "" : "s"}</span>
+          <span><b>${count("pass")}</b> pass</span><span><b>${count("hold")}</b> hold</span><span><b>${count("fail")}</b> fail</span></div></div>
+      <div class="spacer"></div>
+      <div class="filters"><span class="muted sm">Star a player on the Big Board to add them here. Order follows the big board.</span></div>
+    </div>
+    ${targets.length ? "" : `<p class="empty">No top targets yet. On the <a href="#/board">Big Board</a>, click the ☆ on a player's card to add them.</p>`}
+    <div class="pitch-wrap"><div class="pitch">${S.config.positions.map((pos) => posBox(pos, true)).join("")}</div></div>
+  </div>`;
+  wireStars(main.firstElementChild);
+}
+
+function posBox(pos, targetsOnly = false) {
+  const inRole = targetsOnly ? targetsInRole : playersInRole;
+  const total = new Set(pos.roles.flatMap(([c]) => inRole(c).map((p) => p.id))).size;
   return `<section class="pos" style="grid-area:${pos.area}">
     <header class="pos-h"><span class="pos-code">${pos.code}</span><span class="pos-label">${esc(pos.label)}</span><span class="pos-n">${total}</span></header>
     <div class="lanes">${pos.roles.map(([code, label]) => {
-      const list = playersInRole(code);
+      const list = inRole(code);
       const num = roleInfo(code).num;
       return `<div class="lane">
         <div class="lane-h"><span class="lane-t" title="${esc(pos.code)} #${num}: ${esc(label)}"><b>#${num}</b>${esc(label)}</span><span class="lane-n">${list.length}</span>
-          <button type="button" class="icon-btn" data-add-role="${code}" title="Add a player to ${esc(label)}" aria-label="Add a player to ${esc(pos.code)} ${esc(label)}">+</button></div>
-        <div class="lane-body" data-role="${code}">${list.map((p) => boardCard(p, code)).join("") || `<div class="lane-empty">Drop players here</div>`}</div>
+          ${targetsOnly ? "" : `<button type="button" class="icon-btn" data-add-role="${code}" title="Add a player to ${esc(label)}" aria-label="Add a player to ${esc(pos.code)} ${esc(label)}">+</button>`}</div>
+        <div class="lane-body" ${targetsOnly ? "" : `data-role="${code}"`}>${list.map((p) => boardCard(p, code, targetsOnly)).join("")
+          || `<div class="lane-empty">${targetsOnly ? "No top targets yet" : "Drop players here"}</div>`}</div>
       </div>`;
     }).join("")}</div>
   </section>`;
@@ -417,11 +440,40 @@ function rosterBadge(p) {
   return `<span class="roster ${dom ? "dom" : "intl"}" title="${dom ? "Domestic" : "International"}: ${esc(why)}">${dom ? "DOM" : "INTL"}</span>`;
 }
 
-function boardCard(p, role) {
+function boardCard(p, role, targetsOnly = false) {
   const sub = [p.age, p.club].filter((x) => x != null && x !== "").join(" · ") || p.position || "";
-  return `<a class="pcard ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
+  const on = role ? isTopTarget(p, role) : false;
+  // The whole card is a link, so the star is a span with a button role; the board's click handler
+  // intercepts it before the link fires.
+  const star = role ? `<span class="star ${on ? "on" : ""}" data-star="${role}" role="button" tabindex="0"
+    aria-pressed="${on}" title="${on ? "Remove from the shortlist" : "Add to the shortlist as a top target"}">${on ? "★" : "☆"}</span>` : "";
+  return `<a class="pcard ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" ${targetsOnly ? "" : 'draggable="true"'} data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
     ${role ? `<span class="rank">${rankIn(p, role) + 1}</span>` : ""}${photo(p)}
-    <span class="ci"><div class="nm">${esc(p.name)}</div><div class="nm-row"><span class="csub">${esc(sub)}</span>${rosterBadge(p)}</div></span>${verdictDots(p.verdicts)}</a>`;
+    <span class="ci"><div class="nm">${esc(p.name)}</div><div class="nm-row"><span class="csub">${esc(sub)}</span>${rosterBadge(p)}</div></span>${verdictDots(p.verdicts)}${star}</a>`;
+}
+
+// Star clicks and Enter/Space on a star, on either board.
+function wireStars(root) {
+  const toggle = async (el) => {
+    const role = el.dataset.star, pid = Number(el.closest(".pcard").dataset.pid);
+    el.classList.add("busy");
+    try {
+      await api("POST", "/api/board/shortlist", { player_id: pid, role, on: !isTopTarget(S.byId.get(pid), role) });
+      await afterMutation();
+    } catch (err) { oops(err); el.classList.remove("busy"); }
+  };
+  root.addEventListener("click", (e) => {
+    const el = e.target.closest("[data-star]");
+    if (!el) return;
+    e.preventDefault();
+    toggle(el);
+  });
+  root.addEventListener("keydown", (e) => {
+    const el = e.target.closest?.("[data-star]");
+    if (!el || (e.key !== "Enter" && e.key !== " ")) return;
+    e.preventDefault();
+    toggle(el);
+  });
 }
 
 function applyBoardFilter(root) {
@@ -439,6 +491,7 @@ function cardAfter(zone, y) {
 
 function wireBoard(root) {
   applyBoardFilter(root);
+  wireStars(root);
   $("#bf-dec", root).addEventListener("click", (e) => {
     const b = e.target.closest("button[data-k]");
     if (!b) return;
@@ -1169,6 +1222,8 @@ function rolesPanel(p) {
   const rows = p.roles.map((r) => {
     const n = playersInRole(r.role).length || 1;
     return `<div class="role-row"><span class="chip">${esc(roleLabel(r.role))}</span><span class="muted sm">Rank <b>${r.rank + 1}</b> of ${n}</span><span class="spacer"></span>
+      <button type="button" class="icon-btn star-btn ${r.shortlist ? "on" : ""}" data-role-star="${r.role}" aria-pressed="${Boolean(r.shortlist)}"
+        title="${r.shortlist ? "On the shortlist as a top target" : "Add to the shortlist as a top target"}" aria-label="Top target at ${esc(roleLabel(r.role))}">${r.shortlist ? "★" : "☆"}</button>
       <button type="button" class="icon-btn" data-role-move="${r.role}:-1" title="Move up" aria-label="Move up" ${r.rank === 0 ? "disabled" : ""}>↑</button>
       <button type="button" class="icon-btn" data-role-move="${r.role}:1" title="Move down" aria-label="Move down" ${r.rank >= n - 1 ? "disabled" : ""}>↓</button>
       <button type="button" class="icon-btn" data-role-rm="${r.role}" title="Remove from this role" aria-label="Remove from this role">×</button></div>`;
@@ -1236,6 +1291,11 @@ function wirePlayer(root, d) {
         const role = $("#add-role-sel", root).value;
         if (!role) return;
         await api("POST", `/api/players/${p.id}/roles`, { role });
+        return await afterMutation();
+      }
+      if (t.dataset.roleStar) {
+        const role = t.dataset.roleStar;
+        await api("POST", "/api/board/shortlist", { player_id: p.id, role, on: !p.roles.find((r) => r.role === role)?.shortlist });
         return await afterMutation();
       }
       if (t.dataset.roleRm) { await api("DELETE", `/api/players/${p.id}/roles/${t.dataset.roleRm}`); return await afterMutation(); }
@@ -2113,6 +2173,8 @@ function describe(a, onPlayerPage = false) {
       return `moved ${who} to ${spot != null ? `spot ${spot + 1} in ` : ""}${role}${d.from && d.from !== d.to ? ` from ${esc(roleShort(d.from))}` : ""}`;
     }
     case "added_role": return `added ${who} to ${esc(roleLabel(d.role))}`;
+    case "shortlisted": return `made ${who} a top target at ${esc(roleLabel(d.role))}`;
+    case "unshortlisted": return `took ${who} off the shortlist at ${esc(roleLabel(d.role))}`;
     case "removed_role": return `removed ${who} from ${esc(roleLabel(d.role))}`;
     case "synced_tm": return `synced ${who} from Transfermarkt`;
     case "linked_tm": return `linked ${who} to Transfermarkt`;

@@ -192,6 +192,12 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .pcard.v-pass { border-left-color: var(--pass); } .pcard.v-hold { border-left-color: var(--hold); } .pcard.v-fail { border-left-color: var(--fail); }
 .pcard.v-fail .nm { color: var(--muted); }
 .pcard.dragging { opacity: .4; }
+/* Shortlist star: dim on the card until hovered or set, so it doesn't compete with the name. */
+.pcard .star { flex: none; font-size: 14px; line-height: 1; color: var(--muted); opacity: 0; cursor: pointer; padding: 0 1px; }
+.pcard:hover .star, .pcard .star.on, .pcard .star:focus-visible { opacity: 1; }
+.pcard .star.on { color: var(--hold); }
+.pcard .star.busy { opacity: .4; cursor: default; }
+.icon-btn.star-btn.on { color: var(--hold); }
 .pcard .rank { font: 700 12px var(--disp); color: var(--muted); width: 14px; text-align: center; flex: none; }
 .ph { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; object-position: 50% 12%; background: var(--none-bg); flex: none; }
 .ph.ini { display: grid; place-items: center; font-size: 10.5px; font-weight: 700; color: var(--ink-2); }

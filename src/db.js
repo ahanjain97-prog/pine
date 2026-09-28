@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS board_entries(
   player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
   role TEXT NOT NULL,
   rank INTEGER NOT NULL,
+  shortlist INTEGER NOT NULL DEFAULT 0, -- a top target for this role: shown on the Shortlist board
   PRIMARY KEY(player_id, role)
 );
 CREATE INDEX IF NOT EXISTS board_role ON board_entries(role, rank);
@@ -154,6 +155,9 @@ export function openDb(file) {
   }
   if (!raw.prepare("PRAGMA table_info(players)").all().some((c) => c.name === "roster_status")) {
     raw.exec("ALTER TABLE players ADD COLUMN roster_status TEXT CHECK (roster_status IN ('domestic','international'))");
+  }
+  if (!raw.prepare("PRAGMA table_info(board_entries)").all().some((c) => c.name === "shortlist")) {
+    raw.exec("ALTER TABLE board_entries ADD COLUMN shortlist INTEGER NOT NULL DEFAULT 0");
   }
   if (!raw.prepare("PRAGMA table_info(cards)").all().some((c) => c.name === "progress")) {
     raw.exec("ALTER TABLE cards ADD COLUMN progress TEXT");
