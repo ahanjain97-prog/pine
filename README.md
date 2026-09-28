@@ -91,7 +91,8 @@ Run `npm test` for benchmark and mocked-API regression tests, and `npm run check
 - **Short Board** (`#/short-board`): the same pitch, positions and roles as the big board, showing only the
   top targets. A player becomes one by the ☆ on their board card (or the ☆ beside a role on their player
   page), per role, so the same player can be a target at one role and not another. Order follows the big
-  board. Stored as `board_entries.shortlist`; not to be confused with the Impect Scouting short lists on
+  board, and dragging a card here reorders it there too (within its own role; move between roles on the
+  big board). Stored as `board_entries.shortlist`, which `src/lib/board.js` carries across reorders; not to be confused with the Impect Scouting short lists on
   the Impect page, which are an import source.
 - **Database** (`#/players`): sortable and filterable table of everyone, with CSV export.
 - **Player page**: the header holds Transfermarkt facts, the club decision and the staff verdict tally. Below it,
@@ -151,6 +152,7 @@ src/server.js                  Hono app, all /api routes, serves public/
 src/db.js                      SQLite schema, staff seed, activity log
 src/auth.js                    Password sign-in, one-time setup links, session cookies
 src/roles.js                   Positions/roles, Impect list-name -> role hints
+src/lib/board.js               Board entries: add, reorder, and keep top-target stars
 src/lib/transfermarkt.js       Profile + search scraping
 src/lib/tm_match.js            Bulk Transfermarkt matching (confirms by date of birth)
 src/lib/impect.js              Impect login, player pool, matching, Scouting short lists

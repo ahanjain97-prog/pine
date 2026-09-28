@@ -396,12 +396,12 @@ function renderShortBoard(main) {
         <div class="board-stats"><span><b>${targets.length}</b> top target${targets.length === 1 ? "" : "s"}</span>
           <span><b>${count("pass")}</b> pass</span><span><b>${count("hold")}</b> hold</span><span><b>${count("fail")}</b> fail</span></div></div>
       <div class="spacer"></div>
-      <div class="filters"><span class="muted sm">Star a player on the Big Board to add them here. Order follows the big board.</span></div>
+      <div class="filters"><span class="muted sm">Star a player on the Big Board to add them here. Drag to reorder: the big board follows.</span></div>
     </div>
     ${targets.length ? "" : `<p class="empty">No top targets yet. On the <a href="#/board">Big Board</a>, click the ☆ on a player's card to add them.</p>`}
     <div class="pitch-wrap"><div class="pitch">${S.config.positions.map((pos) => posBox(pos, true)).join("")}</div></div>
   </div>`;
-  wireStars(main.firstElementChild);
+  wireBoard(main.firstElementChild, { short: true });
 }
 
 function posBox(pos, targetsOnly = false) {
@@ -415,7 +415,7 @@ function posBox(pos, targetsOnly = false) {
       return `<div class="lane">
         <div class="lane-h"><span class="lane-t" title="${esc(pos.code)} #${num}: ${esc(label)}"><b>#${num}</b>${esc(label)}</span><span class="lane-n">${list.length}</span>
           ${targetsOnly ? "" : `<button type="button" class="icon-btn" data-add-role="${code}" title="Add a player to ${esc(label)}" aria-label="Add a player to ${esc(pos.code)} ${esc(label)}">+</button>`}</div>
-        <div class="lane-body" ${targetsOnly ? "" : `data-role="${code}"`}>${list.map((p) => boardCard(p, code, targetsOnly)).join("")
+        <div class="lane-body" data-role="${code}" ${targetsOnly ? 'data-short="1"' : ""}>${list.map((p) => boardCard(p, code, targetsOnly)).join("")
           || `<div class="lane-empty">${targetsOnly ? "No top targets yet" : "Drop players here"}</div>`}</div>
       </div>`;
     }).join("")}</div>
@@ -447,7 +447,7 @@ function boardCard(p, role, targetsOnly = false) {
   // intercepts it before the link fires.
   const star = role ? `<span class="star ${on ? "on" : ""}" data-star="${role}" role="button" tabindex="0"
     aria-pressed="${on}" title="${on ? "Remove from the Short Board" : "Add to the Short Board as a top target"}">${on ? "★" : "☆"}</span>` : "";
-  return `<a class="pcard ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" ${targetsOnly ? "" : 'draggable="true"'} data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
+  return `<a class="pcard ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
     ${role ? `<span class="rank">${rankIn(p, role) + 1}</span>` : ""}${photo(p)}
     <span class="ci"><div class="nm">${esc(p.name)}</div><div class="nm-row"><span class="csub">${esc(sub)}</span>${rosterBadge(p)}</div></span>${verdictDots(p.verdicts)}${star}</a>`;
 }
@@ -484,23 +484,42 @@ function applyBoardFilter(root) {
   });
 }
 
+// Where a drop lands in the role's big-board order. On the Short Board you only see the top targets,
+// so "before this target" means "immediately before them on the big board", and a drop past the last
+// one puts the player straight after it rather than behind every unstarred player.
+function dropIndexFor(role, pid, beforePid, short) {
+  const others = playersInRole(role).filter((p) => p.id !== pid);
+  if (beforePid != null) {
+    const at = others.findIndex((p) => p.id === beforePid);
+    if (at >= 0) return at;
+  }
+  if (!short) return others.length;
+  const lastTarget = others.filter((p) => isTopTarget(p, role)).pop();
+  return lastTarget ? others.indexOf(lastTarget) + 1 : others.length;
+}
+
 function cardAfter(zone, y) {
   return $$(".pcard:not(.dragging)", zone).filter((c) => !c.hidden)
     .find((c) => { const r = c.getBoundingClientRect(); return y < r.top + r.height / 2; }) || null;
 }
 
-function wireBoard(root) {
-  applyBoardFilter(root);
+function wireBoard(root, { short = false } = {}) {
   wireStars(root);
-  $("#bf-dec", root).addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-k]");
-    if (!b) return;
-    S.board.decision = b.dataset.k;
-    $$("#bf-dec button", root).forEach((x) => x.classList.toggle("on", x === b));
+  if (!short) {
     applyBoardFilter(root);
-  });
-  $("#bf-league", root).addEventListener("change", (e) => { S.board.league = e.target.value; applyBoardFilter(root); });
-  $("#bf-q", root).addEventListener("input", (e) => { S.board.q = e.target.value; applyBoardFilter(root); });
+    $("#bf-dec", root).addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-k]");
+      if (!b) return;
+      S.board.decision = b.dataset.k;
+      $$("#bf-dec button", root).forEach((x) => x.classList.toggle("on", x === b));
+      applyBoardFilter(root);
+    });
+    $("#bf-league", root).addEventListener("change", (e) => { S.board.league = e.target.value; applyBoardFilter(root); });
+    $("#bf-q", root).addEventListener("input", (e) => { S.board.q = e.target.value; applyBoardFilter(root); });
+  }
+  // A card can only be reordered inside its own lane on the Short Board: moving between roles, or off
+  // the board, stays on the Big Board where every role's players are visible.
+  const accepts = (zone) => !zone.dataset.short || zone.dataset.role === S.dragging?.from;
   root.addEventListener("click", (e) => {
     const b = e.target.closest("[data-add-role]");
     if (b) { e.preventDefault(); openRolePicker(b.dataset.addRole); }
@@ -520,7 +539,7 @@ function wireBoard(root) {
   root.addEventListener("dragover", (e) => {
     if (!S.dragging) return;
     const zone = e.target.closest(".lane-body, [data-tray]");
-    if (!zone) return;
+    if (!zone || !accepts(zone)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     if (!zone.classList.contains("over")) { $$(".over", root).forEach((x) => x.classList.remove("over")); zone.classList.add("over"); }
@@ -537,14 +556,13 @@ function wireBoard(root) {
   root.addEventListener("drop", async (e) => {
     if (!S.dragging) return;
     const zone = e.target.closest(".lane-body, [data-tray]");
-    if (!zone) return;
+    if (!zone || !accepts(zone)) return;
     e.preventDefault();
     const { pid, from } = S.dragging;
     let req = null;
     if (zone.matches(".lane-body")) {
       const before = cardAfter(zone, e.clientY);
-      const others = $$(".pcard", zone).filter((c) => Number(c.dataset.pid) !== pid);
-      const index = before ? others.indexOf(before) : others.length;
+      const index = dropIndexFor(zone.dataset.role, pid, before ? Number(before.dataset.pid) : null, Boolean(zone.dataset.short));
       req = api("POST", "/api/board/move", { player_id: pid, from_role: from, to_role: zone.dataset.role, index });
     } else if (from) {
       req = api("DELETE", `/api/players/${pid}/roles/${from}`);

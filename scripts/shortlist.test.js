@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb } from '../src/db.js';
+import { addRole, moveOnBoard, spotIn } from '../src/lib/board.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'pine-shortlist-'));
 test.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -37,4 +38,39 @@ test('an existing board survives the upgrade with everyone off the shortlist', (
   // Opening it again (a later deploy) leaves the flag alone.
   const again = openDb(file);
   assert.equal(again.get('SELECT shortlist FROM board_entries WHERE player_id = 7').shortlist, 1);
+});
+
+// Reordering rewrites a role's rows. Before this was covered, one drag on the big board emptied that
+// role's Short Board.
+test('reordering a role keeps everyone their top-target star', () => {
+  const db = openDb(':memory:');
+  const names = ['Ana', 'Ben', 'Cal', 'Dee'];
+  names.forEach((n, i) => {
+    db.run('INSERT INTO players(id, name) VALUES (?,?)', i + 1, n);
+    db.run("INSERT INTO board_entries(player_id, role, rank, shortlist) VALUES (?, 'CDM1', ?, ?)", i + 1, i, i % 2 ? 1 : 0);
+  });
+  const board = (role) => db.all(
+    `SELECT p.name, b.shortlist FROM board_entries b JOIN players p ON p.id = b.player_id WHERE b.role = ? ORDER BY b.rank`, role)
+    .map((r) => `${r.name}${r.shortlist ? '*' : ''}`);
+  assert.deepEqual(board('CDM1'), ['Ana', 'Ben*', 'Cal', 'Dee*']);
+
+  moveOnBoard(db, 4, 'CDM1', 'CDM1', 0); // drag Dee to the top
+  assert.deepEqual(board('CDM1'), ['Dee*', 'Ana', 'Ben*', 'Cal'], 'stars follow their players');
+
+  moveOnBoard(db, 3, 'CDM1', 'CDM2', 0); // Cal moves to another role
+  assert.deepEqual(board('CDM1'), ['Dee*', 'Ana', 'Ben*']);
+  assert.deepEqual(board('CDM2'), ['Cal']);
+
+  db.run("UPDATE board_entries SET shortlist = 1 WHERE player_id = 3 AND role = 'CDM2'");
+  moveOnBoard(db, 3, 'CDM2', 'CDM1', 1); // and back, still a target
+  assert.deepEqual(board('CDM1'), ['Dee*', 'Cal*', 'Ana', 'Ben*'], 'the star comes with them');
+});
+
+test('a player added to a role is not a top target until starred', () => {
+  const db = openDb(':memory:');
+  db.run("INSERT INTO players(id, name) VALUES (1, 'New Name')");
+  addRole(db, 1, 'FWD1');
+  assert.equal(db.get("SELECT shortlist FROM board_entries WHERE player_id = 1").shortlist, 0);
+  assert.equal(spotIn(db, 1, 'FWD1'), 0);
+  assert.equal(spotIn(db, 1, 'FWD2'), null);
 });

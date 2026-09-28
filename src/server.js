@@ -29,6 +29,7 @@ import {
   MAX_MAPS_BYTES, DAILY_MAPS_LIMIT, OPEN_MAPS_PER_USER, MapsError, claimMap, mapErrorCode, mapProgress, normalizeMaps,
   removeMapsFiles, saveMapsFile,
 } from "./lib/maps.js";
+import { addRole as addRoleTo, compactRanks as compactRanksIn, moveOnBoard as moveOnBoardTo, spotIn as spotInRole } from "./lib/board.js";
 import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
@@ -154,37 +155,6 @@ function updatePlayer(id, fields) {
   );
 }
 
-function addRole(playerId, role) {
-  if (!ROLES[role]) fail(400, `Unknown role ${role}`);
-  const max = db.get("SELECT coalesce(max(rank), -1) AS m FROM board_entries WHERE role = ?", role).m;
-  db.run("INSERT OR IGNORE INTO board_entries(player_id, role, rank) VALUES (?,?,?)", playerId, role, max + 1);
-}
-
-function moveOnBoard(playerId, fromRole, toRole, index) {
-  if (!ROLES[toRole]) fail(400, `Unknown role ${toRole}`);
-  db.tx(() => {
-    if (fromRole && fromRole !== toRole) db.run("DELETE FROM board_entries WHERE player_id = ? AND role = ?", playerId, fromRole);
-    const ids = db.all("SELECT player_id FROM board_entries WHERE role = ? AND player_id <> ? ORDER BY rank", toRole, playerId).map((r) => r.player_id);
-    ids.splice(Math.max(0, Math.min(Number(index) || 0, ids.length)), 0, playerId);
-    db.run("DELETE FROM board_entries WHERE role = ?", toRole);
-    ids.forEach((pid, i) => db.run("INSERT INTO board_entries(player_id, role, rank) VALUES (?,?,?)", pid, toRole, i));
-  });
-  return spotIn(playerId, toRole);
-}
-
-// 0-based position of a player within a role (ranks can have gaps), or null if they aren't in it.
-function spotIn(playerId, role) {
-  const r = db.get(
-    "SELECT (SELECT count(*) FROM board_entries o WHERE o.role = b.role AND o.rank < b.rank) AS spot FROM board_entries b WHERE b.player_id = ? AND b.role = ?",
-    playerId, role);
-  return r ? r.spot : null;
-}
-
-function compactRanks(role) {
-  db.all("SELECT player_id FROM board_entries WHERE role = ? ORDER BY rank", role)
-    .forEach((r, i) => db.run("UPDATE board_entries SET rank = ? WHERE player_id = ? AND role = ?", i, r.player_id, role));
-}
-
 // Physical + Impect links found automatically when a player is created or re-synced.
 async function autoLink(playerId) {
   const p = getPlayer(playerId);
@@ -263,6 +233,11 @@ const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => obj[k] !== und
 // Public base URL for links we hand out (sign-in links, share links). APP_URL wins so links
 // minted behind a proxy still point at the real host.
 const siteOrigin = (c) => String(process.env.APP_URL || new URL(c.req.url).origin).replace(/\/+$/, "");
+
+const addRole = (playerId, role) => addRoleTo(db, playerId, role);
+const spotIn = (playerId, role) => spotInRole(db, playerId, role);
+const compactRanks = (role) => compactRanksIn(db, role);
+const moveOnBoard = (playerId, fromRole, toRole, index) => moveOnBoardTo(db, playerId, fromRole, toRole, index);
 
 const app = new Hono();
 
@@ -565,6 +540,7 @@ app.delete("/api/notes/:id", (c) => {
 app.post("/api/board/move", async (c) => {
   const user = c.get("user");
   const { player_id, from_role, to_role, index } = await c.req.json();
+  if (!ROLES[to_role]) fail(400, `Unknown role ${to_role}`);
   const p = getPlayer(player_id);
   const fromSpot = from_role ? spotIn(p.id, from_role) : null;
   const spot = moveOnBoard(p.id, from_role || null, to_role, index);
@@ -591,6 +567,7 @@ app.post("/api/players/:id/roles", async (c) => {
   const user = c.get("user");
   const p = getPlayer(c.req.param("id"));
   const { role } = await c.req.json();
+  if (!ROLES[role]) fail(400, `Unknown role ${role}`);
   addRole(p.id, role);
   logActivity(db, user.id, p.id, "added_role", { role });
   return c.json({ player: getPlayer(p.id) });
