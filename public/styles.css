@@ -6,6 +6,8 @@
   --none: #A9B0AB; --none-bg: #ECEEEC;
   --pitch-a: #3B8A4C; --pitch-b: #429359; --pitch-line: rgba(255, 255, 255, .5); --pos-bg: rgba(255, 255, 255, .95);
   --b0: #DA3A3F; --b1: #EF9C9F; --b2: #9AA1AC; --b3: #7ED289; --b4: #39B15A;
+  --pc-att: #C2307A; --pc-mid: #0B8599; --pc-def: #2D5BC8; --pc-gk: #7A47C2; --pc-ink: #FFFFFF;
+  --pc-wash: 11%; --pc-box: 0%; /* how strongly a position's hue tints its lane headers and box */
   --shadow: 0 1px 2px rgba(20, 30, 25, .06), 0 6px 18px rgba(20, 30, 25, .07);
   --radius: 10px;
   --disp: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
@@ -20,6 +22,8 @@
     --pass: #3CC27A; --pass-bg: rgba(60, 194, 122, .15); --hold: #E6AF43; --hold-bg: rgba(230, 175, 67, .15);
     --fail: #EE6C61; --fail-bg: rgba(238, 108, 97, .15); --none: #66716B; --none-bg: rgba(255, 255, 255, .06);
     --pitch-a: #1F4A2A; --pitch-b: #245231; --pitch-line: rgba(255, 255, 255, .22); --pos-bg: rgba(21, 29, 25, .96);
+    --pc-att: #F37DB8; --pc-mid: #4CC9DA; --pc-def: #86A8F6; --pc-gk: #B994F2; --pc-ink: #0B1220;
+    --pc-wash: 20%; --pc-box: 6%; /* dark surfaces swallow colour, so it's laid on thicker */
     --shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 6px 18px rgba(0, 0, 0, .3);
     color-scheme: dark;
   }
@@ -170,17 +174,18 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
     ".  .  .   gk  gk  .   .   ."; }
 .pitch::before { content: ""; position: absolute; inset: 10px; border: 2px solid var(--pitch-line); border-radius: 8px; pointer-events: none; }
 .pitch::after { content: ""; position: absolute; left: 10px; right: 10px; top: 50%; border-top: 2px solid var(--pitch-line); pointer-events: none; }
-.pos { position: relative; z-index: 1; background: var(--pos-bg); border-radius: 12px; box-shadow: 0 2px 10px rgba(0, 0, 0, .18); min-width: 0; }
+.pos { position: relative; z-index: 1; background: var(--pos-bg); border-radius: 12px; box-shadow: 0 2px 10px rgba(0, 0, 0, .18); min-width: 0;
+  border-top: 3px solid var(--pc, var(--line-2)); background: color-mix(in srgb, var(--pc, transparent) var(--pc-box), var(--pos-bg)); }
 .pos-h { display: flex; align-items: center; gap: 8px; padding: 8px 10px 4px; }
-.pos-code { background: var(--navy); color: #fff; font-family: var(--disp); font-weight: 700; font-size: 15px; letter-spacing: .05em; border-radius: 999px; padding: 1px 12px; }
-@media (prefers-color-scheme: dark) { .pos-code { background: var(--navy-2); } }
+.pos-code { background: var(--pc, var(--navy)); color: var(--pc-ink); font-family: var(--disp); font-weight: 700; font-size: 15px; letter-spacing: .05em; border-radius: 999px; padding: 1px 12px; }
 .pos-label { font-size: 12px; color: var(--muted); font-weight: 600; }
 .pos-n { margin-left: auto; font-size: 11.5px; color: var(--muted); }
 .lanes { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; padding: 6px 8px 8px; }
 .lane { background: var(--surface-2); border: 1px solid var(--line); border-radius: 9px; min-width: 0; display: flex; flex-direction: column; }
-.lane-h { display: flex; align-items: center; gap: 6px; padding: 5px 6px 5px 9px; border-bottom: 1px solid var(--line); }
+.lane-h { display: flex; align-items: center; gap: 6px; padding: 5px 6px 5px 9px; border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--pc, transparent) var(--pc-wash), transparent); border-radius: 8px 8px 0 0; }
 .lane-t { font-size: 11.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lane-t b { font-family: var(--disp); font-size: 13px; letter-spacing: .03em; margin-right: 3px; }
+.lane-t b { font-family: var(--disp); font-size: 13px; letter-spacing: .03em; margin-right: 3px; color: var(--pc, inherit); }
 .lane-n { margin-left: auto; font-size: 11px; color: var(--muted); }
 .lane-body { padding: 6px; display: flex; flex-direction: column; gap: 5px; min-height: 46px; max-height: 420px; overflow-y: auto; }
 .lane-body.over, .tray-body.over { outline: 2px dashed var(--accent); outline-offset: -3px; border-radius: 8px; }
@@ -189,7 +194,9 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .pcard { display: flex; align-items: center; gap: 7px; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--none);
   border-radius: 7px; padding: 5px 7px 5px 5px; cursor: grab; user-select: none; min-width: 0; color: var(--ink); text-decoration: none !important; }
 .pcard:hover { border-color: var(--line-2); box-shadow: 0 2px 8px rgba(0, 0, 0, .1); }
-.pcard.v-pass { border-left-color: var(--pass); } .pcard.v-hold { border-left-color: var(--hold); } .pcard.v-fail { border-left-color: var(--fail); }
+.pcard.v-pass { border-left-color: var(--pass); background: color-mix(in srgb, var(--pass) 11%, var(--surface)); }
+.pcard.v-hold { border-left-color: var(--hold); background: color-mix(in srgb, var(--hold) 11%, var(--surface)); }
+.pcard.v-fail { border-left-color: var(--fail); background: color-mix(in srgb, var(--fail) 7%, var(--surface)); }
 .pcard.v-fail .nm { color: var(--muted); }
 .pcard.dragging { opacity: .4; }
 /* Shortlist star: dim on the card until hovered or set, so it doesn't compete with the name. */
@@ -198,9 +205,12 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .pcard .star.on { color: var(--hold); }
 .pcard .star.busy { opacity: .4; cursor: default; }
 .icon-btn.star-btn.on { color: var(--hold); }
-.pcard .rank { font: 700 12px var(--disp); color: var(--muted); width: 14px; text-align: center; flex: none; }
+.pcard .rank { font: 700 12px var(--disp); color: var(--pc, var(--muted)); width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; flex: none; }
+.pcard .rank.podium { background: color-mix(in srgb, var(--pc, var(--muted)) 20%, transparent); }
 .ph { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; object-position: 50% 12%; background: var(--none-bg); flex: none; }
-.ph.ini { display: grid; place-items: center; font-size: 10.5px; font-weight: 700; color: var(--ink-2); }
+.ph.ini { display: grid; place-items: center; font-size: 10.5px; font-weight: 700;
+  background: hsl(var(--av, 220) 60% 88%); color: hsl(var(--av, 220) 45% 30%); }
+@media (prefers-color-scheme: dark) { .ph.ini { background: hsl(var(--av, 220) 32% 26%); color: hsl(var(--av, 220) 75% 84%); } }
 .ph.lg { width: 72px; height: 72px; font-size: 20px; }
 .ph.xl { width: 112px; height: 112px; font-size: 30px; border-radius: 14px; }
 .ci { min-width: 0; flex: 1; }

@@ -125,9 +125,13 @@ const playersInRole = (role) => S.players.filter((p) => p.roles.some((r) => r.ro
 const isTopTarget = (p, role) => Boolean(p.roles.find((r) => r.role === role)?.shortlist);
 const targetsInRole = (role) => playersInRole(role).filter((p) => isTopTarget(p, role));
 const initials = (n) => String(n || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+// Initials sit on a colour picked from the name (blues, violets, pinks: never the pass/hold/fail green,
+// amber or red), so players without a photo are easier to tell apart.
+const AVATAR_HUES = [192, 205, 218, 232, 248, 264, 280, 296, 312, 328];
+const avatarHue = (name) => AVATAR_HUES[[...String(name || "")].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7) % AVATAR_HUES.length];
 const photo = (p, size = "") => p.photo_url
-  ? `<img class="ph ${size}" src="${esc(p.photo_url)}" alt="" loading="lazy" data-ini="${esc(initials(p.name))}">`
-  : `<span class="ph ini ${size}">${esc(initials(p.name))}</span>`;
+  ? `<img class="ph ${size}" src="${esc(p.photo_url)}" alt="" loading="lazy" data-ini="${esc(initials(p.name))}" style="--av:${avatarHue(p.name)}">`
+  : `<span class="ph ini ${size}" style="--av:${avatarHue(p.name)}">${esc(initials(p.name))}</span>`;
 const decisionChip = (d, lg = false) => `<span class="dchip ${d ? "v-" + d : ""} ${lg ? "lg" : ""}">${d ? cap(d) : "Undecided"}</span>`;
 const verdictChip = (v) => `<span class="dchip ${v ? "v-" + v : ""}">${v ? cap(v) : "No verdict"}</span>`;
 const fact = (label, value, html = false) => (value == null || value === "" ? "" : `<div><dt>${esc(label)}</dt><dd>${html ? value : esc(value)}</dd></div>`);
@@ -404,10 +408,14 @@ function renderShortBoard(main) {
   wireBoard(main.firstElementChild, { short: true });
 }
 
+// Board colour by line of the team: attack, midfield, defence, keeper. Kept clear of the pass/hold/fail
+// colours, which stay reserved for decisions.
+const POS_LINE = { FWD: "att", LW: "att", RW: "att", AM: "att", CM: "mid", CDM: "mid", LB: "def", RB: "def", LCB: "def", RCB: "def", GK: "gk" };
+
 function posBox(pos, targetsOnly = false) {
   const inRole = targetsOnly ? targetsInRole : playersInRole;
   const total = new Set(pos.roles.flatMap(([c]) => inRole(c).map((p) => p.id))).size;
-  return `<section class="pos" style="grid-area:${pos.area}">
+  return `<section class="pos" style="grid-area:${pos.area};--pc:var(--pc-${POS_LINE[pos.code] || "def"})">
     <header class="pos-h"><span class="pos-code">${pos.code}</span><span class="pos-label">${esc(pos.label)}</span><span class="pos-n">${total}</span></header>
     <div class="lanes">${pos.roles.map(([code, label]) => {
       const list = inRole(code);
@@ -448,7 +456,7 @@ function boardCard(p, role, targetsOnly = false) {
   const star = role ? `<span class="star ${on ? "on" : ""}" data-star="${role}" role="button" tabindex="0"
     aria-pressed="${on}" title="${on ? "Remove from the Short Board" : "Add to the Short Board as a top target"}">${on ? "★" : "☆"}</span>` : "";
   return `<a class="pcard ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
-    ${role ? `<span class="rank">${rankIn(p, role) + 1}</span>` : ""}${photo(p)}
+    ${role ? `<span class="rank ${rankIn(p, role) < 3 ? "podium" : ""}">${rankIn(p, role) + 1}</span>` : ""}${photo(p)}
     <span class="ci"><div class="nm">${esc(p.name)}</div><div class="nm-row"><span class="csub">${esc(sub)}</span>${rosterBadge(p)}</div></span>${verdictDots(p.verdicts)}${star}</a>`;
 }
 
@@ -2411,6 +2419,7 @@ document.addEventListener("error", (e) => {
   if (img.classList.contains("ph")) {
     const s = document.createElement("span");
     s.className = `${img.className} ini`;
+    s.style.cssText = img.style.cssText; // keeps its initials colour
     s.textContent = img.dataset.ini || "?";
     img.replaceWith(s);
   }
