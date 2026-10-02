@@ -62,7 +62,9 @@ player pool are kept on disk next to the database, under `cache/`, so a deploy o
 viewer wait. A copy of any age is served at once and replaced in the background when stale. The server checks
 every season of our three leagues at startup and every six hours: the current season is re-downloaded when it
 is over six hours old, finished seasons once a week. The season list for player cards and pitch maps is read
-from the same data rather than downloaded again.
+from the same data rather than downloaded again. The Impect page shows when each league season was last saved,
+and admins can press **Refresh all now** to download everything straight away (two or three minutes, in the
+background). Cups are not kept: cup games are left out of the KPI benchmarks.
 
 Run `npm test` for benchmark and mocked-API regression tests, and `npm run check` for syntax checks.
 

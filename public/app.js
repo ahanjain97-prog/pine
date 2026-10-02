@@ -2000,10 +2000,12 @@ async function renderImpect(main) {
       </div>
       <div id="ib-res" style="margin-top:10px"><p class="empty">Search by name or pick a competition. The first search loads every player from Impect, which can take up to a minute.</p></div>
     </section>
+    <section class="panel" id="ic-panel"><header class="panel-h"><h2>Impect data in PINE</h2></header><div class="loading sm">Loading…</div></section>
   </div>`;
   const root = main.firstElementChild;
   loadShortLists(root);
   loadTmMatch(root);
+  loadImpectCache(root);
 
   try {
     const { iterations } = await api("GET", "/api/impect/iterations");
@@ -2055,6 +2057,46 @@ async function renderImpect(main) {
     if (b) { b.disabled = true; return addMany([Number(b.dataset.add)]); }
     if (e.target.closest("#ib-add")) { e.target.disabled = true; return addMany($$("[data-sel]:checked", root).map((x) => Number(x.dataset.sel))); }
   });
+}
+
+// What PINE has saved from Impect, how old it is, and (admins) a button to download it all again.
+async function loadImpectCache(root) {
+  const el = $("#ic-panel", root);
+  const when = (t) => (t ? relTime(new Date(t).toISOString()) : "never");
+  let timer = null;
+  const draw = async () => {
+    let d;
+    try { d = await api("GET", "/api/impect/cache"); } catch (e) {
+      el.innerHTML = `<header class="panel-h"><h2>Impect data in PINE</h2></header><div class="banner err sm">${esc(e.message)}</div>`;
+      return;
+    }
+    if (!el.isConnected) return;
+    const r = d.refresh;
+    const total = d.leagues.length + 1; // the league seasons plus the player pool
+    const status = (x) => (x.downloading ? `<span class="dchip v-hold">Downloading</span>`
+      : x.saved_at ? `<span class="muted">Saved ${esc(when(x.saved_at))}</span>` : `<span class="warn">Not saved yet</span>`);
+    el.innerHTML = `<header class="panel-h"><h2>Impect data in PINE</h2>
+        ${S.me.is_admin ? `<button type="button" class="btn sm ${r.running ? "" : "primary"}" id="ic-go" ${r.running ? "disabled" : ""}>${r.running ? "Refreshing…" : "Refresh all now"}</button>` : ""}</header>
+      <p class="hint">PINE keeps its own copy of every league season below, so KPI profiles, player cards and pitch maps load
+        without waiting on Impect. The current season is downloaded again every 6 hours and finished seasons weekly;
+        <b>Refresh all now</b> downloads everything straight away, which takes two or three minutes.</p>
+      ${r.running ? `<p class="banner">${r.forced ? "Refreshing" : "Scheduled refresh running"}: ${esc(r.current || "starting")} · ${r.done.length} of ${total} done.</p>`
+        : r.finished_at && r.forced ? `<p class="sm muted">Last refresh finished ${esc(when(r.finished_at))}: ${r.done.length} of ${total} downloaded${r.failed.length
+          ? `, <span class="warn">${r.failed.length} failed (${esc(r.failed.map((x) => x.name).join(", "))})</span>` : ""}.</p>` : ""}
+      <div class="table-wrap"><table class="grid"><thead><tr><th>League</th><th>Season</th><th>Impect data</th></tr></thead><tbody>
+        ${d.leagues.map((x) => `<tr style="cursor:default"><td>${esc(x.competition)}</td><td>${esc(x.season)}${x.current ? ` <span class="chip">current</span>` : ""}</td><td>${status(x)}</td></tr>`).join("")}
+        <tr style="cursor:default"><td>Player pool</td><td class="muted">all</td><td>${status(d.pool)} <span class="muted sm">· search and matching</span></td></tr>
+      </tbody></table></div>
+      ${d.not_kept.length ? `<p class="sm muted" style="margin:8px 0 0">Not kept: ${esc(d.not_kept.join(", "))}. Cup games are left out of the KPI benchmarks, so nothing uses them.</p>` : ""}`;
+    $("#ic-go", el)?.addEventListener("click", async (e) => {
+      e.target.disabled = true;
+      try { await api("POST", "/api/impect/cache/refresh"); toast("Refreshing Impect data in the background"); } catch (err) { oops(err); }
+      draw();
+    });
+    clearTimeout(timer);
+    if (r.running) timer = setTimeout(draw, 3000);
+  };
+  draw();
 }
 
 async function loadShortLists(root) {
@@ -2202,6 +2244,7 @@ function describe(a, onPlayerPage = false) {
     case "edited_player": return `edited details for ${who}`;
     case "deleted_player": return `deleted ${esc(d.name || "a player")}`;
     case "imported_list": return `imported the Impect list “${esc(d.name)}” (${d.created ?? 0} new)`;
+    case "refreshed_impect": return "refreshed all the Impect data";
     case "downloaded_backup": return d.via ? "saved its daily copy of the database" : "downloaded a copy of the database";
     case "edited_staff": return `updated staff member ${esc(d.name)}`;
     case "added_staff": return `added staff member ${esc(d.name)}`;

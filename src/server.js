@@ -19,9 +19,9 @@ import { TM_FIELDS, manualTmOverrides, releaseTmOverrides, tmConflicts, tmSyncFi
 import { loadPhysical, matchPhysical, repairKeys, resolveAutoLinks, searchPhysical, rowsByKeys, teamOverlap, meta as physMeta } from "./lib/physical.js";
 import {
   impectConfigured, iterations as impectIterations, searchImpect, getImpectPlayer, matchImpect,
-  shortLists as impectShortLists, shortListPlayerMeta, warmPool,
+  shortLists as impectShortLists, shortListPlayerMeta, warmPool, poolStatus,
 } from "./lib/impect.js";
-import { BENCHMARK_LEAGUES, playerKpiCard, warmCohort, warmDefinitions } from "./lib/impect_kpi.js";
+import { BENCHMARK_LEAGUES, cohortStatus, playerKpiCard, warmCohort, warmDefinitions } from "./lib/impect_kpi.js";
 import { configureDiskCache } from "./lib/disk_cache.js";
 import { playerCardOptions } from "./lib/card_options.js";
 import { MAX_CARD_BYTES, DAILY_CARD_LIMIT, cardErrorCode, cardProgress, claimCard, isPdf, isPng, saveCardFile, sqlTime } from "./lib/cards.js";
@@ -55,23 +55,40 @@ startDailyBackups(db, BACKUP_DIR);
 // season is re-downloaded when it is over six hours old, finished seasons once a week.
 configureDiskCache(join(dirname(DB_FILE), "cache"));
 const HOUR = 60 * 60 * 1000;
-async function warmImpect() {
-  if (!impectConfigured()) return;
+// The league seasons PINE keeps: every non-cup season of the three benchmark leagues. Cup games are
+// left out of the KPI benchmarks, so nothing would read a cup's data.
+const cachedLeagues = async () =>
+  (await impectIterations()).filter((i) => BENCHMARK_LEAGUES.includes(i.competition) && i.type !== "Cup");
+
+// force: an admin asked for it on the Impect page, so everything is re-downloaded whatever its age.
+const impectRefresh = { running: false, forced: false, started_at: null, finished_at: null, current: null, done: [], failed: [] };
+async function warmImpect({ force = false } = {}) {
+  if (!impectConfigured() || impectRefresh.running) return;
+  Object.assign(impectRefresh, { running: true, forced: force, started_at: Date.now(), finished_at: null, current: null, done: [], failed: [] });
   const started = Date.now();
-  const refreshed = [];
   try {
     await warmDefinitions();
-    if (await warmPool()) refreshed.push("player pool");
-    const leagues = (await impectIterations()).filter((i) => BENCHMARK_LEAGUES.includes(i.competition) && i.type !== "Cup");
+    impectRefresh.current = "player pool";
+    if (await warmPool(force ? 0 : undefined)) impectRefresh.done.push("player pool");
+    const leagues = await cachedLeagues();
     const newest = leagues.map((i) => String(i.season)).sort().at(-1);
     // One league season at a time, oldest first so the current season is what stays in memory.
     for (const it of leagues.sort((x, y) => String(x.season).localeCompare(String(y.season)))) {
-      const maxAge = String(it.season) === newest ? 6 * HOUR : 7 * 24 * HOUR;
-      if (await warmCohort(it.id, maxAge)) refreshed.push(`${it.competition} ${it.season}`);
+      const name = `${it.competition} ${it.season}`;
+      impectRefresh.current = name;
+      const maxAge = force ? 0 : String(it.season) === newest ? 6 * HOUR : 7 * 24 * HOUR;
+      try {
+        if (await warmCohort(it.id, maxAge)) impectRefresh.done.push(name);
+      } catch (e) {
+        impectRefresh.failed.push({ name, error: e.message }); // keep going: one league failing shouldn't stop the rest
+      }
     }
-    console.log(`[impect] warm in ${Math.round((Date.now() - started) / 1000)}s; downloaded: ${refreshed.join(", ") || "nothing (all fresh)"}`);
+    console.log(`[impect] ${force ? "refresh" : "warm"} in ${Math.round((Date.now() - started) / 1000)}s; downloaded: ${impectRefresh.done.join(", ") || "nothing (all fresh)"}${impectRefresh.failed.length ? `; failed: ${impectRefresh.failed.map((f) => f.name).join(", ")}` : ""}`);
   } catch (e) {
+    impectRefresh.failed.push({ name: impectRefresh.current || "Impect", error: e.message });
     console.warn(`[impect] warm-up failed: ${e.message}`);
+  } finally {
+    Object.assign(impectRefresh, { running: false, current: null, finished_at: Date.now() });
   }
 }
 setTimeout(warmImpect, 5_000);
@@ -1021,6 +1038,31 @@ app.get("/api/activity", (c) =>
        WHERE a.action <> 'signed_in' ORDER BY a.id DESC LIMIT ?`, Math.min(Number(c.req.query("limit")) || 60, 300)),
   })
 );
+
+/* ---------- Impect data kept in PINE ---------- */
+app.get("/api/impect/cache", async (c) => {
+  const its = impectConfigured() ? await impectIterations() : [];
+  const kept = await cachedLeagues().catch(() => []);
+  const newest = kept.map((i) => String(i.season)).sort().at(-1);
+  return c.json({
+    leagues: kept
+      .map((i) => ({ id: i.id, competition: i.competition, season: String(i.season), current: String(i.season) === newest, ...cohortStatus(i.id) }))
+      .sort((a, b) => b.season.localeCompare(a.season) || a.competition.localeCompare(b.competition)),
+    pool: poolStatus(),
+    not_kept: its.filter((i) => !kept.some((k) => k.id === i.id)).map((i) => `${i.competition} ${i.season}`),
+    refresh: impectRefresh,
+  });
+});
+app.post("/api/impect/cache/refresh", (c) => {
+  const user = c.get("user");
+  if (!user.is_admin) fail(403, "Only admins can refresh the Impect data");
+  if (!impectConfigured()) fail(400, "Impect isn't configured");
+  if (!impectRefresh.running) {
+    warmImpect({ force: true }); // runs in the background; the page polls GET /api/impect/cache
+    logActivity(db, user.id, null, "refreshed_impect");
+  }
+  return c.json({ refresh: impectRefresh });
+});
 
 /* ---------- static app ---------- */
 // The page is never cached and points at versioned asset URLs, so a deploy can't leave a browser

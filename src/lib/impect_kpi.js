@@ -7,7 +7,7 @@
 import { impectGet, iterations as impectIterations, getImpectPlayer } from "./impect.js";
 import { CATEGORIES, POSITION_MAP, POSITION_LABEL, MIN_MATCH_SHARE, ALL_METRICS } from "./impect_categories.js";
 import { benchmark, fixedFloor } from "./impect_benchmark.js";
-import { readDisk, writeDisk } from "./disk_cache.js";
+import { diskSavedAt, readDisk, writeDisk } from "./disk_cache.js";
 import { categoryDisplay, phasesFor, metricKind, METRIC_KINDS, shortLeague } from "./impect_display.js";
 
 export const BENCHMARK_LEAGUES = ["USL Championship", "MLS Next Pro", "USL League One"];
@@ -240,6 +240,12 @@ export async function cohort(iterationId) {
   if (!co) return refreshCohort(iterationId);
   if (Date.now() - co.at > TTL_MS) refreshCohort(iterationId).catch((e) => console.warn(`[impect] cohort ${iterationId} refresh failed: ${e.message}`));
   return co;
+}
+
+// When a league season was last downloaded, and whether a download is under way, for the Impect page.
+// Reads the copy in memory or the file's date, never the file itself, so it doesn't disturb the cache.
+export function cohortStatus(iterationId) {
+  return { saved_at: cohorts.get(iterationId)?.at ?? diskSavedAt(`cohort-${iterationId}`), downloading: building.has(iterationId) };
 }
 
 // Metric labels and directions: two small Impect calls, fetched ahead so the first KPI view doesn't wait.

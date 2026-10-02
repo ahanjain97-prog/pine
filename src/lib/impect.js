@@ -1,6 +1,6 @@
 // Impect Customer API: player pool across our iterations, used for search/import and to link PINE players.
 import { norm } from "./physical.js";
-import { readDisk, writeDisk } from "./disk_cache.js";
+import { diskSavedAt, readDisk, writeDisk } from "./disk_cache.js";
 
 const HOST = "https://api.impect.com";
 const TOKEN_URL = "https://login.impect.com/auth/realms/production/protocol/openid-connect/token";
@@ -96,6 +96,8 @@ export async function playerPool() {
   if (Date.now() - poolCache.at > TTL_MS) buildPool().catch((e) => console.warn(`[impect] player pool refresh failed: ${e.message}`));
   return poolCache;
 }
+
+export const poolStatus = () => ({ saved_at: poolCache?.at ?? diskSavedAt("player-pool"), downloading: Boolean(poolPromise) });
 
 export async function warmPool(maxAgeMs = TTL_MS / 2) {
   if (poolFromDisk() && Date.now() - poolCache.at < maxAgeMs) return false;
