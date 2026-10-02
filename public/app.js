@@ -415,7 +415,8 @@ const POS_LINE = { FWD: "att", LW: "att", RW: "att", AM: "att", CM: "mid", CDM: 
 function posBox(pos, targetsOnly = false) {
   const inRole = targetsOnly ? targetsInRole : playersInRole;
   const total = new Set(pos.roles.flatMap(([c]) => inRole(c).map((p) => p.id))).size;
-  return `<section class="pos" style="grid-area:${pos.area};--pc:var(--pc-${POS_LINE[pos.code] || "def"})">
+  const line = POS_LINE[pos.code] || "def";
+  return `<section class="pos" style="grid-area:${pos.area};--pc:var(--pc-${line});--pc-ink:var(--pc-${line}-ink)">
     <header class="pos-h"><span class="pos-code">${pos.code}</span><span class="pos-label">${esc(pos.label)}</span><span class="pos-n">${total}</span></header>
     <div class="lanes">${pos.roles.map(([code, label]) => {
       const list = inRole(code);
