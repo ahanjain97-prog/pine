@@ -400,7 +400,7 @@ function renderShortBoard(main) {
         <div class="board-stats"><span><b>${targets.length}</b> top target${targets.length === 1 ? "" : "s"}</span>
           <span><b>${count("pass")}</b> pass</span><span><b>${count("hold")}</b> hold</span><span><b>${count("fail")}</b> fail</span></div></div>
       <div class="spacer"></div>
-      <div class="filters"><span class="muted sm">Star a player on the Big Board to add them here. Drag to reorder: the big board follows.</span></div>
+      <div class="filters"><span class="muted sm">Star a player on the Big Board to add them here. Drag to reorder, or onto another role to move or duplicate them.</span></div>
     </div>
     ${targets.length ? "" : `<p class="empty">No top targets yet. On the <a href="#/board">Big Board</a>, click the ☆ on a player's card to add them.</p>`}
     <div class="pitch-wrap"><div class="pitch">${S.config.positions.map((pos) => posBox(pos, true)).join("")}</div></div>
@@ -510,6 +510,32 @@ function dropIndexFor(role, pid, beforePid, short) {
   return lastTarget ? others.indexOf(lastTarget) + 1 : others.length;
 }
 
+// A top target dropped into another role on the Short Board: move them, or keep them in both roles
+// (a top target in each). Already a top target there? Only moving makes sense.
+function chooseMoveOrCopy(pid, from, to, index) {
+  const p = S.byId.get(pid);
+  const already = isTopTarget(p, to);
+  const m = modal(`<header class="m-h"><h2>Move or duplicate?</h2><button type="button" class="icon-btn" data-close aria-label="Close">×</button></header>
+    <p><b>${esc(p.name)}</b> is a top target at <b>${esc(roleLabel(from))}</b>. Put them at <b>${esc(roleLabel(to))}</b> by:</p>
+    <div class="choice-list">
+      <button type="button" class="choice" data-act="move"><b>Move</b><span>Take them off ${esc(roleShort(from))} and onto ${esc(roleShort(to))}.</span></button>
+      <button type="button" class="choice" data-act="copy" ${already ? "disabled" : ""}><b>Duplicate</b>
+        <span>${already ? `Already a top target at ${esc(roleShort(to))}.` : `Keep them at ${esc(roleShort(from))} and add them to ${esc(roleShort(to))} too.`}</span></button>
+    </div>
+    <div class="row end" style="margin-top:12px"><button type="button" class="btn ghost" data-close>Cancel</button></div>`);
+  $("[data-act='move']", m).focus();
+  m.addEventListener("click", async (e) => {
+    const act = e.target.closest("[data-act]:not([disabled])")?.dataset.act;
+    if (!act) return;
+    closeModal();
+    try {
+      await api("POST", "/api/board/move", { player_id: pid, from_role: from, to_role: to, index, copy: act === "copy" });
+      await afterMutation();
+      toast(act === "copy" ? `${p.name} is a top target at ${roleShort(to)} too` : `Moved ${p.name} to ${roleShort(to)}`);
+    } catch (err) { oops(err); }
+  });
+}
+
 function cardAfter(zone, y) {
   return $$(".pcard:not(.dragging)", zone).filter((c) => !c.hidden)
     .find((c) => { const r = c.getBoundingClientRect(); return y < r.top + r.height / 2; }) || null;
@@ -529,9 +555,9 @@ function wireBoard(root, { short = false } = {}) {
     $("#bf-league", root).addEventListener("change", (e) => { S.board.league = e.target.value; applyBoardFilter(root); });
     $("#bf-q", root).addEventListener("input", (e) => { S.board.q = e.target.value; applyBoardFilter(root); });
   }
-  // A card can only be reordered inside its own lane on the Short Board: moving between roles, or off
-  // the board, stays on the Big Board where every role's players are visible.
-  const accepts = (zone) => !zone.dataset.short || zone.dataset.role === S.dragging?.from;
+  // On the Short Board a card can go to any role's lane; dropping it into a different role asks whether
+  // to move the player or keep them in both (see chooseMoveOrCopy).
+  const accepts = (zone) => Boolean(zone);
   root.addEventListener("click", (e) => {
     const b = e.target.closest("[data-add-role]");
     if (b) { e.preventDefault(); openRolePicker(b.dataset.addRole); }
@@ -575,6 +601,11 @@ function wireBoard(root, { short = false } = {}) {
     if (zone.matches(".lane-body")) {
       const before = cardAfter(zone, e.clientY);
       const index = dropIndexFor(zone.dataset.role, pid, before ? Number(before.dataset.pid) : null, Boolean(zone.dataset.short));
+      if (zone.dataset.short && from && from !== zone.dataset.role) {
+        clear();
+        S.dragging = null;
+        return chooseMoveOrCopy(pid, from, zone.dataset.role, index);
+      }
       req = api("POST", "/api/board/move", { player_id: pid, from_role: from, to_role: zone.dataset.role, index });
     } else if (from) {
       req = api("DELETE", `/api/players/${pid}/roles/${from}`);
@@ -2246,6 +2277,7 @@ function describe(a, onPlayerPage = false) {
     }
     case "added_role": return `added ${who} to ${esc(roleLabel(d.role))}`;
     case "shortlisted": return `made ${who} a top target at ${esc(roleLabel(d.role))}`;
+    case "copied_on_board": return `made ${who} a top target at ${esc(roleLabel(d.to))} too${d.spot != null ? ` (spot ${d.spot + 1})` : ""}, keeping them at ${esc(roleShort(d.from))}`;
     case "unshortlisted": return `took ${who} off the Short Board at ${esc(roleLabel(d.role))}`;
     case "removed_role": return `removed ${who} from ${esc(roleLabel(d.role))}`;
     case "synced_tm": return `synced ${who} from Transfermarkt`;

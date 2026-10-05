@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb } from '../src/db.js';
-import { addRole, moveOnBoard, spotIn } from '../src/lib/board.js';
+import { addRole, copyToRole, moveOnBoard, spotIn } from '../src/lib/board.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'pine-shortlist-'));
 test.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -73,4 +73,23 @@ test('a player added to a role is not a top target until starred', () => {
   assert.equal(db.get("SELECT shortlist FROM board_entries WHERE player_id = 1").shortlist, 0);
   assert.equal(spotIn(db, 1, 'FWD1'), 0);
   assert.equal(spotIn(db, 1, 'FWD2'), null);
+});
+
+test('duplicating keeps the player in the old role and makes them a target in the new one', () => {
+  const db = openDb(':memory:');
+  const board = (role) => db.all(
+    `SELECT p.name, b.shortlist FROM board_entries b JOIN players p ON p.id = b.player_id WHERE b.role = ? ORDER BY b.rank`, role)
+    .map((r) => `${r.name}${r.shortlist ? '*' : ''}`);
+  ['Ana', 'Ben', 'Cal', 'Dee'].forEach((n, i) => db.run('INSERT INTO players(id, name) VALUES (?,?)', i + 1, n));
+  db.run("INSERT INTO board_entries(player_id, role, rank, shortlist) VALUES (1, 'CM1', 0, 1), (2, 'CM2', 0, 0), (3, 'CM2', 1, 1)");
+
+  assert.equal(copyToRole(db, 1, 'CM2', 1), 1); // Ana into CM2 between Ben and Cal
+  assert.deepEqual(board('CM1'), ['Ana*'], 'still at the old role');
+  assert.deepEqual(board('CM2'), ['Ben', 'Ana*', 'Cal*'], 'and a top target at the new one');
+
+  // Already on the board at the new role but not starred: duplicating repositions and stars them.
+  db.run("INSERT INTO board_entries(player_id, role, rank, shortlist) VALUES (4, 'CM1', 1, 1), (4, 'CM2', 3, 0)");
+  copyToRole(db, 4, 'CM2', 0);
+  assert.deepEqual(board('CM2'), ['Dee*', 'Ben', 'Ana*', 'Cal*']);
+  assert.deepEqual(board('CM1'), ['Ana*', 'Dee*']);
 });

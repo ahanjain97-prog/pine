@@ -22,23 +22,42 @@ export function compactRanks(db, role) {
     .forEach((r, i) => db.run("UPDATE board_entries SET rank = ? WHERE player_id = ? AND role = ?", i, r.player_id, role));
 }
 
+// The top-target flags in a role, by player.
+const flagsIn = (db, role) => new Map(db.all("SELECT player_id, shortlist FROM board_entries WHERE role = ?", role)
+  .map((r) => [r.player_id, r.shortlist]));
+
+// Rewrites a role with `playerId` placed at `index` among the others, keeping everyone's flag.
+function placeInRole(db, playerId, role, index, flags) {
+  const ids = db.all("SELECT player_id FROM board_entries WHERE role = ? AND player_id <> ? ORDER BY rank", role, playerId)
+    .map((r) => r.player_id);
+  ids.splice(Math.max(0, Math.min(Number(index) || 0, ids.length)), 0, playerId);
+  db.run("DELETE FROM board_entries WHERE role = ?", role);
+  ids.forEach((pid, i) =>
+    db.run("INSERT INTO board_entries(player_id, role, rank, shortlist) VALUES (?,?,?,?)", pid, role, i, flags.get(pid) ?? 0));
+}
+
 // Puts a player at `index` within `toRole`, moving them off `fromRole` when that differs. A player
 // carries their top-target flag from one role to the other.
 export function moveOnBoard(db, playerId, fromRole, toRole, index) {
   db.tx(() => {
-    const flags = new Map(db.all("SELECT player_id, shortlist FROM board_entries WHERE role = ?", toRole)
-      .map((r) => [r.player_id, r.shortlist]));
+    const flags = flagsIn(db, toRole);
     if (fromRole && fromRole !== toRole) {
       const old = db.get("SELECT shortlist FROM board_entries WHERE player_id = ? AND role = ?", playerId, fromRole);
       if (old) flags.set(playerId, old.shortlist);
       db.run("DELETE FROM board_entries WHERE player_id = ? AND role = ?", playerId, fromRole);
     }
-    const ids = db.all("SELECT player_id FROM board_entries WHERE role = ? AND player_id <> ? ORDER BY rank", toRole, playerId)
-      .map((r) => r.player_id);
-    ids.splice(Math.max(0, Math.min(Number(index) || 0, ids.length)), 0, playerId);
-    db.run("DELETE FROM board_entries WHERE role = ?", toRole);
-    ids.forEach((pid, i) =>
-      db.run("INSERT INTO board_entries(player_id, role, rank, shortlist) VALUES (?,?,?,?)", pid, toRole, i, flags.get(pid) ?? 0));
+    placeInRole(db, playerId, toRole, index, flags);
+  });
+  return spotIn(db, playerId, toRole);
+}
+
+// The Short Board's "duplicate": the player becomes a top target in `toRole` at `index` and stays
+// wherever else they already are. Already in that role? They're moved to `index` there and starred.
+export function copyToRole(db, playerId, toRole, index) {
+  db.tx(() => {
+    const flags = flagsIn(db, toRole);
+    flags.set(playerId, 1);
+    placeInRole(db, playerId, toRole, index, flags);
   });
   return spotIn(db, playerId, toRole);
 }

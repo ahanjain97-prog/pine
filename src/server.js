@@ -29,7 +29,7 @@ import {
   MAX_MAPS_BYTES, DAILY_MAPS_LIMIT, OPEN_MAPS_PER_USER, MapsError, claimMap, mapErrorCode, mapProgress, normalizeMaps,
   removeMapsFiles, saveMapsFile,
 } from "./lib/maps.js";
-import { addRole as addRoleTo, compactRanks as compactRanksIn, moveOnBoard as moveOnBoardTo, spotIn as spotInRole } from "./lib/board.js";
+import { addRole as addRoleTo, compactRanks as compactRanksIn, copyToRole as copyToRoleIn, moveOnBoard as moveOnBoardTo, spotIn as spotInRole } from "./lib/board.js";
 import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
@@ -255,6 +255,7 @@ const addRole = (playerId, role) => addRoleTo(db, playerId, role);
 const spotIn = (playerId, role) => spotInRole(db, playerId, role);
 const compactRanks = (role) => compactRanksIn(db, role);
 const moveOnBoard = (playerId, fromRole, toRole, index) => moveOnBoardTo(db, playerId, fromRole, toRole, index);
+const copyToRole = (playerId, toRole, index) => copyToRoleIn(db, playerId, toRole, index);
 
 const app = new Hono();
 
@@ -556,9 +557,16 @@ app.delete("/api/notes/:id", (c) => {
 /* ---------- board ---------- */
 app.post("/api/board/move", async (c) => {
   const user = c.get("user");
-  const { player_id, from_role, to_role, index } = await c.req.json();
+  const { player_id, from_role, to_role, index, copy = false } = await c.req.json();
   if (!ROLES[to_role]) fail(400, `Unknown role ${to_role}`);
   const p = getPlayer(player_id);
+  // Duplicate (Short Board): a top target in the new role too, still in the old one.
+  if (copy) {
+    if (!from_role || from_role === to_role) fail(400, "Pick a different role to duplicate into");
+    const spot = copyToRole(p.id, to_role, index);
+    logActivity(db, user.id, p.id, "copied_on_board", { from: from_role, to: to_role, spot });
+    return c.json({ ok: true });
+  }
   const fromSpot = from_role ? spotIn(p.id, from_role) : null;
   const spot = moveOnBoard(p.id, from_role || null, to_role, index);
   if (from_role && from_role !== to_role) compactRanks(from_role);
