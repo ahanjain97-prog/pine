@@ -47,23 +47,23 @@ test('reordering a role keeps everyone their top-target star', () => {
   const names = ['Ana', 'Ben', 'Cal', 'Dee'];
   names.forEach((n, i) => {
     db.run('INSERT INTO players(id, name) VALUES (?,?)', i + 1, n);
-    db.run("INSERT INTO board_entries(player_id, role, rank, shortlist) VALUES (?, 'CDM1', ?, ?)", i + 1, i, i % 2 ? 1 : 0);
+    db.run("INSERT INTO board_entries(player_id, role, rank, shortlist) VALUES (?, 'CM1', ?, ?)", i + 1, i, i % 2 ? 1 : 0);
   });
   const board = (role) => db.all(
     `SELECT p.name, b.shortlist FROM board_entries b JOIN players p ON p.id = b.player_id WHERE b.role = ? ORDER BY b.rank`, role)
     .map((r) => `${r.name}${r.shortlist ? '*' : ''}`);
-  assert.deepEqual(board('CDM1'), ['Ana', 'Ben*', 'Cal', 'Dee*']);
+  assert.deepEqual(board('CM1'), ['Ana', 'Ben*', 'Cal', 'Dee*']);
 
-  moveOnBoard(db, 4, 'CDM1', 'CDM1', 0); // drag Dee to the top
-  assert.deepEqual(board('CDM1'), ['Dee*', 'Ana', 'Ben*', 'Cal'], 'stars follow their players');
+  moveOnBoard(db, 4, 'CM1', 'CM1', 0); // drag Dee to the top
+  assert.deepEqual(board('CM1'), ['Dee*', 'Ana', 'Ben*', 'Cal'], 'stars follow their players');
 
-  moveOnBoard(db, 3, 'CDM1', 'CDM2', 0); // Cal moves to another role
-  assert.deepEqual(board('CDM1'), ['Dee*', 'Ana', 'Ben*']);
-  assert.deepEqual(board('CDM2'), ['Cal']);
+  moveOnBoard(db, 3, 'CM1', 'CM2', 0); // Cal moves to another role
+  assert.deepEqual(board('CM1'), ['Dee*', 'Ana', 'Ben*']);
+  assert.deepEqual(board('CM2'), ['Cal']);
 
-  db.run("UPDATE board_entries SET shortlist = 1 WHERE player_id = 3 AND role = 'CDM2'");
-  moveOnBoard(db, 3, 'CDM2', 'CDM1', 1); // and back, still a target
-  assert.deepEqual(board('CDM1'), ['Dee*', 'Cal*', 'Ana', 'Ben*'], 'the star comes with them');
+  db.run("UPDATE board_entries SET shortlist = 1 WHERE player_id = 3 AND role = 'CM2'");
+  moveOnBoard(db, 3, 'CM2', 'CM1', 1); // and back, still a target
+  assert.deepEqual(board('CM1'), ['Dee*', 'Cal*', 'Ana', 'Ben*'], 'the star comes with them');
 });
 
 test('a player added to a role is not a top target until starred', () => {
