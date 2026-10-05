@@ -424,7 +424,7 @@ function posBox(pos, targetsOnly = false) {
       return `<div class="lane">
         <div class="lane-h"><span class="lane-t" title="${esc(pos.code)} #${num}: ${esc(label)}"><b>#${num}</b>${esc(label)}</span><span class="lane-n">${list.length}</span>
           ${targetsOnly ? "" : `<button type="button" class="icon-btn" data-add-role="${code}" title="Add a player to ${esc(label)}" aria-label="Add a player to ${esc(pos.code)} ${esc(label)}">+</button>`}</div>
-        <div class="lane-body" data-role="${code}" ${targetsOnly ? 'data-short="1"' : ""}>${list.map((p) => boardCard(p, code, targetsOnly)).join("")
+        <div class="lane-body" data-role="${code}" ${targetsOnly ? 'data-short="1"' : ""}>${list.map((p, i) => boardCard(p, code, targetsOnly, i)).join("")
           || `<div class="lane-empty">${targetsOnly ? "No top targets yet" : "Drop players here"}</div>`}</div>
       </div>`;
     }).join("")}</div>
@@ -449,7 +449,10 @@ function rosterBadge(p) {
   return `<span class="roster ${dom ? "dom" : "intl"}" title="${dom ? "Domestic" : "International"}: ${esc(why)}">${dom ? "DOM" : "INTL"}</span>`;
 }
 
-function boardCard(p, role, targetsOnly = false) {
+// The number on a card is its place in the role: on the Big Board its big-board rank, on the Short Board
+// its place among the top targets (spot), so the targets read 1, 2, 3 rather than 1, 5, 6, 10.
+function boardCard(p, role, targetsOnly = false, spot = null) {
+  const place = targetsOnly && spot != null ? spot : rankIn(p, role);
   const sub = [p.age, p.club].filter((x) => x != null && x !== "").join(" · ") || p.position || "";
   const on = role ? isTopTarget(p, role) : false;
   // The whole card is a link, so the star is a span with a button role; the board's click handler
@@ -457,7 +460,7 @@ function boardCard(p, role, targetsOnly = false) {
   const star = role ? `<span class="star ${on ? "on" : ""}" data-star="${role}" role="button" tabindex="0"
     aria-pressed="${on}" title="${on ? "Remove from the Short Board" : "Add to the Short Board as a top target"}">${on ? "★" : "☆"}</span>` : "";
   return `<a class="pcard ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
-    ${role ? `<span class="rank ${rankIn(p, role) < 3 ? "podium" : ""}">${rankIn(p, role) + 1}</span>` : ""}${photo(p)}
+    ${role ? `<span class="rank ${place < 3 ? "podium" : ""}">${place + 1}</span>` : ""}${photo(p)}
     <span class="ci"><div class="nm">${esc(p.name)}</div><div class="nm-row"><span class="csub">${esc(sub)}</span>${rosterBadge(p)}</div></span>${verdictDots(p.verdicts)}${star}</a>`;
 }
 
