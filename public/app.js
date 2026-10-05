@@ -400,7 +400,7 @@ function renderShortBoard(main) {
         <div class="board-stats"><span><b>${targets.length}</b> top target${targets.length === 1 ? "" : "s"}</span>
           <span><b>${count("pass")}</b> pass</span><span><b>${count("hold")}</b> hold</span><span><b>${count("fail")}</b> fail</span></div></div>
       <div class="spacer"></div>
-      <div class="filters"><span class="muted sm">Star a player on the Big Board to add them here. Drag to reorder: the big board follows.</span></div>
+      <div class="filters"><span class="muted sm">Star a player on the Big Board to add them here. Drag to reorder or to move between roles: the big board follows.</span></div>
     </div>
     ${targets.length ? "" : `<p class="empty">No top targets yet. On the <a href="#/board">Big Board</a>, click the ☆ on a player's card to add them.</p>`}
     <div class="pitch-wrap"><div class="pitch">${S.config.positions.map((pos) => posBox(pos, true)).join("")}</div></div>
@@ -498,16 +498,20 @@ function applyBoardFilter(root) {
 
 // Where a drop lands in the role's big-board order. On the Short Board you only see the top targets,
 // so "before this target" means "immediately before them on the big board", and a drop past the last
-// one puts the player straight after it rather than behind every unstarred player.
+// one puts the player straight after it rather than behind every unstarred player. With no other
+// target in the role to go by, a player already in it keeps their spot and anyone new joins the end.
 function dropIndexFor(role, pid, beforePid, short) {
-  const others = playersInRole(role).filter((p) => p.id !== pid);
+  const all = playersInRole(role);
+  const others = all.filter((p) => p.id !== pid);
   if (beforePid != null) {
     const at = others.findIndex((p) => p.id === beforePid);
     if (at >= 0) return at;
   }
   if (!short) return others.length;
   const lastTarget = others.filter((p) => isTopTarget(p, role)).pop();
-  return lastTarget ? others.indexOf(lastTarget) + 1 : others.length;
+  if (lastTarget) return others.indexOf(lastTarget) + 1;
+  const own = all.findIndex((p) => p.id === pid);
+  return own >= 0 ? own : others.length;
 }
 
 function cardAfter(zone, y) {
@@ -529,9 +533,8 @@ function wireBoard(root, { short = false } = {}) {
     $("#bf-league", root).addEventListener("change", (e) => { S.board.league = e.target.value; applyBoardFilter(root); });
     $("#bf-q", root).addEventListener("input", (e) => { S.board.q = e.target.value; applyBoardFilter(root); });
   }
-  // A card can only be reordered inside its own lane on the Short Board: moving between roles, or off
-  // the board, stays on the Big Board where every role's players are visible.
-  const accepts = (zone) => !zone.dataset.short || zone.dataset.role === S.dragging?.from;
+  // Both boards move a card within its role or into another one (a top target stays one). Taking a
+  // player off the board needs the Big Board's "Not on the board" tray, which the Short Board doesn't have.
   root.addEventListener("click", (e) => {
     const b = e.target.closest("[data-add-role]");
     if (b) { e.preventDefault(); openRolePicker(b.dataset.addRole); }
@@ -551,7 +554,7 @@ function wireBoard(root, { short = false } = {}) {
   root.addEventListener("dragover", (e) => {
     if (!S.dragging) return;
     const zone = e.target.closest(".lane-body, [data-tray]");
-    if (!zone || !accepts(zone)) return;
+    if (!zone) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     if (!zone.classList.contains("over")) { $$(".over", root).forEach((x) => x.classList.remove("over")); zone.classList.add("over"); }
@@ -568,7 +571,7 @@ function wireBoard(root, { short = false } = {}) {
   root.addEventListener("drop", async (e) => {
     if (!S.dragging) return;
     const zone = e.target.closest(".lane-body, [data-tray]");
-    if (!zone || !accepts(zone)) return;
+    if (!zone) return;
     e.preventDefault();
     const { pid, from } = S.dragging;
     let req = null;
