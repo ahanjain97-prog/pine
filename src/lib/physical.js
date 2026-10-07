@@ -83,9 +83,6 @@ function clubMatches(row, clubs, teamTokenCount) {
 }
 
 function build(data) {
-  const ML = data.metrics.map((m) => m.l);
-  const MG = data.metrics.map((m) => m.g);
-  const groups = [...new Set(MG)];
   const seen = {};
   // Row keys mirror the site's own hash keys so deep links open the same player.
   const rows = data.rows.map((r, i) => {
@@ -97,9 +94,6 @@ function build(data) {
     seen[base] = (seen[base] || 0) + 1;
     p.key = seen[base] > 1 ? `${base}~${seen[base]}` : base;
     p.link = PHYS_SITE + "#" + encodeURIComponent(p.key);
-    const g = {}, n = {};
-    ML.forEach((_, j) => { g[MG[j]] = (g[MG[j]] || 0) + p.pct[j]; n[MG[j]] = (n[MG[j]] || 0) + 1; });
-    p.groupsPct = Object.fromEntries(groups.map((k) => [k, Math.round(g[k] / n[k])]));
     p.overall = Math.round(p.pct.reduce((a, b) => a + b, 0) / p.pct.length);
     const nm = parseSiteName(p.name);
     p._initial = nm.initial;

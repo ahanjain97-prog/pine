@@ -8,7 +8,6 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const cap = (s) => (s ? String(s)[0].toUpperCase() + String(s).slice(1) : "");
 
 const LOGO = `<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3l7 9h-3.5l6.2 8h-4.9l6.4 7.5H4.8l6.4-7.5H6.3l6.2-8H9z" fill="currentColor"/><rect x="14.5" y="27" width="3" height="3.5" fill="currentColor"/></svg>`;
-const GROUPS = ["Volume", "Repeated Efforts", "Top Speed", "Accel / Decel"];
 const GRP_NAME = { CB: "centre backs", FB: "full backs", MID: "midfielders", FWD: "forwards", GK: "goalkeepers" };
 
 const S = {
@@ -1419,6 +1418,33 @@ function bar(label, pct, raw, { format = fmtNum, title = label } = {}) {
     <span class="track"><span class="fill" style="width:${Math.max(2, pct)}%;--c:${band(pct)}"></span></span><span class="bv">${pct}</span></div>`;
 }
 
+// The physical metrics that say most about the player himself, as the physical database rates them:
+// how well each repeats season to season for the same player, and how much of it his club explains.
+// Volume, accel/decel and max speed describe the team or don't repeat, so they stay in the full list.
+const PHYS_KEY = [
+  ["Player capability", [
+    ["Sprint Count Per 90", 0.49, 12, "The least club-explained number on the card."],
+    ["Sprinting Distance Per 90 (+25)", 0.45, 12, "Top-end volume he brings himself, not the system."],
+    ["HSR Count Per 90", 0.40, 14, "Individual, but the softest repeatability of the sprint family."],
+  ]],
+  ["Mixed", [
+    ["High Intensity Count Per 90", 0.45, 17, "Bursts above 20 km/h. Part player, part system."],
+    ["High Intensity Distance Per 90", 0.43, 18, "HSR and sprint distance combined, so it inherits both."],
+    ["Running Distance Per 90 (15-20)", 0.42, 16, "Middle-gear volume. Part player, part role."],
+    ["HSR Distance Per 90 (20-25)", 0.41, 17, "Carries much the same signal as HSR count."],
+  ]],
+];
+
+function physKeyBars(r, meta) {
+  const at = new Map(meta.metrics.map((m, j) => [m.l, j]));
+  return PHYS_KEY.map(([reads, metrics]) => {
+    const bars = metrics.filter(([l]) => at.has(l)).map(([l, rep, team, why]) =>
+      bar(l.replace(" Per 90", ""), r.pct[at.get(l)], r.raw[at.get(l)],
+        { title: `${l}: ${why} Repeatability ${rep.toFixed(2)}, team share ${team}%.` }));
+    return bars.length ? `<div class="bars-h">${reads}</div>${bars.join("")}` : "";
+  }).join("");
+}
+
 function physCard(r, meta, open) {
   const pool = `${r.pool} ${GRP_NAME[r.grp] || r.grp}`;
   return `<details class="phys" ${open ? "open" : ""}>
@@ -1428,7 +1454,7 @@ function physCard(r, meta, open) {
       ${r.pool < 10 ? `<div class="banner warn sm">Only ${pool} in this pool, too few for percentiles to mean much.</div>`
         : r.pool < 20 ? `<div class="banner warn sm">Small pool (${pool}). Read the percentiles loosely.</div>`
         : `<div class="muted sm">Percentile vs ${pool} in ${esc(r.league)} ${esc(r.season)}</div>`}
-      <div class="bars group">${GROUPS.map((g) => bar(g, r.groupsPct[g])).join("")}</div>
+      <div class="bars group">${physKeyBars(r, meta)}</div>
       <details class="more"><summary>All 14 metrics</summary><div class="bars">${meta.metrics.map((m, j) => bar(m.l, r.pct[j], r.raw[j])).join("")}</div></details>
       <a class="sm" href="${esc(r.link)}" target="_blank" rel="noopener">Open full physical card ↗</a>
     </div>
