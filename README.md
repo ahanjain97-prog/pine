@@ -207,3 +207,11 @@ cd ~/pine && npm run tunnel   # terminal 2: prints the https://….trycloudflare
 ```
 
 To stop both: `lsof -ti tcp:8787 | xargs kill; pkill -f "bin/cloudflared tunnel"`.
+
+## Automatic match preparation
+
+The match-prep reader calls `GET /api/worker/scouting-context` with the existing
+`X-PINE-Worker-Token`. The response contains player identities, Big Board roles,
+the Short Board flag for each role, and list membership, with a check time.
+Staff notes, verdicts, decisions, board ranks, and account data are excluded.
+The endpoint only reads the database and sends `Cache-Control: no-store`.
