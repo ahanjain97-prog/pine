@@ -31,6 +31,7 @@ import {
 } from "./lib/maps.js";
 import { addRole as addRoleTo, compactRanks as compactRanksIn, copyToRole as copyToRoleIn, moveOnBoard as moveOnBoardTo, spotIn as spotInRole } from "./lib/board.js";
 import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.js";
+import { registerScoutingContext } from "./lib/scouting_context.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
 
@@ -314,6 +315,8 @@ app.use("/api/*", async (c, next) => {
   c.set("user", user);
   return next();
 });
+
+registerScoutingContext(app, { db, token: WORKER_TOKEN });
 
 /* ---------- auth ---------- */
 app.post("/api/auth/login", async (c) => {
