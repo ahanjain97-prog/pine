@@ -1,3 +1,5 @@
+import { collegeLeague } from "./transfermarkt.js";
+
 export const TM_FIELDS = [
   "name", "birthdate", "birthplace", "height_cm", "foot", "position", "club", "club_tm_id", "club_logo_url",
   "league", "league_code", "joined", "contract_expires", "loan_from", "loan_contract_expires", "agent",
@@ -51,4 +53,18 @@ export function tmSyncFields(player, profile, syncedAt = new Date().toISOString(
   if (!overrides.has("other_positions")) fields.other_positions = profile.other_positions;
   fields.tm_synced_at = syncedAt;
   return fields;
+}
+
+// College players linked to Transfermarkt before NCAA detection: give them the league the parser now
+// sets. Leagues someone edited by hand (a league override) are left alone. Writes directly, so the
+// fill-in doesn't show as someone editing the player.
+export function backfillCollegeLeagues(db) {
+  let filled = 0;
+  for (const p of db.all("SELECT id, club, tm_overrides FROM players WHERE tm_url IS NOT NULL AND coalesce(league, '') = ''")) {
+    if (JSON.parse(p.tm_overrides || "[]").includes("league")) continue;
+    if (collegeLeague(p.club, null) !== "NCAA") continue;
+    db.run("UPDATE players SET league = 'NCAA' WHERE id = ?", p.id);
+    filled++;
+  }
+  return filled;
 }

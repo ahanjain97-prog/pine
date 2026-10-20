@@ -45,6 +45,16 @@ export function parseMarketValue(s) {
   return Number.isFinite(n) ? Math.round(n * mult) : null;
 }
 
+// US college programs have no league on Transfermarkt, and their club names end with the school in
+// brackets: "Indiana Hoosiers (Indiana University)", "Providence Friars (Providence College)". Those
+// become NCAA. Requiring the bracketed school and no Transfermarkt league keeps out clubs like
+// "University College Dublin" (which has a league) and "IMG Academy" (no school in brackets).
+const COLLEGE_CLUB = /\((?=[^)]*\b(?:university|college|academy|institute|polytechnic)\b)[^)]*\)\s*$/i;
+export function collegeLeague(club, league) {
+  if (league) return league;
+  return COLLEGE_CLUB.test(club || "") ? "NCAA" : null;
+}
+
 export function parseTmProfile(html, tmId) {
   const out = { tm_id: String(tmId), source: "transfermarkt" };
 
@@ -98,7 +108,7 @@ export function parseTmProfile(html, tmId) {
   out.club_logo_url = out.club_tm_id ? `https://tmssl.akamaized.net/images/wappen/head/${out.club_tm_id}.png` : null;
   const lg = html.match(/data-header__league-link" href="[^"]*\/wettbewerb\/([^"/]+)">([\s\S]*?)<\/a>/);
   out.league_code = lg ? lg[1] : null;
-  out.league = lg ? text(lg[2]) || null : null;
+  out.league = collegeLeague(out.club, lg ? text(lg[2]) || null : null);
 
   const mv = html.match(/data-header__market-value-wrapper">([\s\S]*?)<(?:p|\/a)/);
   const mvText = mv ? text(mv[1]).replace(/Last update.*$/, "").trim() : "";

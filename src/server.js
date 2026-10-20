@@ -15,7 +15,7 @@ import { openDb, logActivity } from "./db.js";
 import { checkPassword, createSetupLink, setupLinkUser, useSetupLink, startSession, logout, currentUser, tokenMatches } from "./auth.js";
 import { POSITIONS, ROLES, DECISIONS, SPLIT_ROLES, IMPECT_POSITION_LABEL, suggestPosition, suggestListRole, resolveRole } from "./roles.js";
 import { fetchTmPlayer, parseTmUrl, searchTmPlayers } from "./lib/transfermarkt.js";
-import { TM_FIELDS, manualTmOverrides, releaseTmOverrides, tmConflicts, tmSyncFields } from "./lib/tm_sync.js";
+import { TM_FIELDS, backfillCollegeLeagues, manualTmOverrides, releaseTmOverrides, tmConflicts, tmSyncFields } from "./lib/tm_sync.js";
 import { loadPhysical, matchPhysical, repairKeys, resolveAutoLinks, searchPhysical, rowsByKeys, teamOverlap, meta as physMeta } from "./lib/physical.js";
 import {
   impectConfigured, iterations as impectIterations, searchImpect, getImpectPlayer, matchImpect,
@@ -234,6 +234,11 @@ async function relinkPhysical() {
 }
 setTimeout(() => relinkPhysical().catch((e) => console.warn("physical re-link failed:", e.message)), 20_000);
 setInterval(() => relinkPhysical().catch((e) => console.warn("physical re-link failed:", e.message)), 6 * 60 * 60 * 1000);
+
+{
+  const filled = backfillCollegeLeagues(db);
+  if (filled) console.log(`[tm] set league to NCAA for ${filled} college players`);
+}
 
 // Write a fetched Transfermarkt profile onto a player (used by manual sync and the bulk matcher).
 async function applyTmProfile(playerId, tm, userId, via, acceptFields = []) {
