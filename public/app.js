@@ -447,6 +447,9 @@ function rosterBadge(p) {
   const why = p.roster_status ? `set manually${cit ? ` (citizenship: ${cit})` : ""}` : cit;
   return `<span class="roster ${dom ? "dom" : "intl"}" title="${dom ? "Domestic" : "International"}: ${esc(why)}">${dom ? "DOM" : "INTL"}</span>`;
 }
+// College players: their league is entered by hand, so anything naming NCAA ("NCAA", "NCAA D1") counts.
+const isNcaa = (p) => /\bncaa\b/i.test(p.league || "");
+const ncaaBadge = (p) => (isNcaa(p) ? `<span class="roster ncaa" title="College: ${esc(p.league.trim())}">NCAA</span>` : "");
 
 // The number on a card is its place in the role: on the Big Board its big-board rank, on the Short Board
 // its place among the top targets (spot), so the targets read 1, 2, 3 rather than 1, 5, 6, 10.
@@ -460,7 +463,7 @@ function boardCard(p, role, targetsOnly = false, spot = null) {
     aria-pressed="${on}" title="${on ? "Remove from the Short Board" : "Add to the Short Board as a top target"}">${on ? "★" : "☆"}</span>` : "";
   return `<a class="pcard ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
     ${role ? `<span class="rank ${place < 3 ? "podium" : ""}">${place + 1}</span>` : ""}${photo(p)}
-    <span class="ci"><div class="nm">${esc(p.name)}</div><div class="nm-row"><span class="csub">${esc(sub)}</span>${rosterBadge(p)}</div></span>${verdictDots(p.verdicts)}${star}</a>`;
+    <span class="ci"><div class="nm">${esc(p.name)}</div><div class="nm-row"><span class="csub">${esc(sub)}</span>${rosterBadge(p)}${ncaaBadge(p)}</div></span>${verdictDots(p.verdicts)}${star}</a>`;
 }
 
 // Star clicks and Enter/Space on a star, on either board.

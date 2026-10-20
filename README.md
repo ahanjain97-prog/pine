@@ -90,6 +90,7 @@ Run `npm test` for benchmark and mocked-API regression tests, and `npm run check
   = club decision, dots = the six staff verdicts, DOM / INTL = domestic (US citizen, from Transfermarkt citizenship)
   or international. Green cards aren't on Transfermarkt and its citizenship is sometimes wrong, so Edit details
   on the player page can set the roster status to Domestic or International by hand; syncs leave that alone.
+  College players whose league names NCAA (entered by hand) also carry an NCAA tag beside DOM / INTL.
 - **Short Board** (`#/short-board`): the same pitch, positions and roles as the big board, showing only the
   top targets. A player becomes one by the ☆ on their board card (or the ☆ beside a role on their player
   page), per role, so the same player can be a target at one role and not another. Order follows the big
