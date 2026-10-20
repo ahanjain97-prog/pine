@@ -165,7 +165,7 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
   display: grid; gap: 14px; align-items: start;
   /* Wingers and full-backs span both outer columns on each side (extra width); CM and CDM reach
      into the inner one of the pair. */
-  grid-template-columns: minmax(0, .5fr) minmax(0, .8fr) repeat(4, minmax(0, 1fr)) minmax(0, .8fr) minmax(0, .5fr);
+  grid-template-columns: minmax(0, .7fr) minmax(0, .8fr) repeat(4, minmax(0, 1fr)) minmax(0, .8fr) minmax(0, .7fr);
   grid-template-areas:
     ".  .  fwd fwd fwd fwd .   ."
     "lw lw am  am  am  am  rw  rw"
