@@ -1049,10 +1049,10 @@ async function renderPlayer(main, idArg) {
     <section class="panel analytics" id="analytics">
       <header class="an-head">
         <div class="an-tabs" role="tablist">${anTabs(p).map(([k, label], i) =>
-          `<button type="button" role="tab" data-an-tab="${k}" class="${i ? "" : "on"}" aria-selected="${i ? "false" : "true"}">${label}</button>`).join("")}</div>
+          `<button type="button" role="tab" id="an-${k}-tab" aria-controls="${k}-panel" data-an-tab="${k}" class="${i ? "" : "on"}" aria-selected="${i ? "false" : "true"}">${label}</button>`).join("")}</div>
         <div class="an-ctx" id="an-ctx"></div>
       </header>
-      ${anTabs(p).map(([k], i) => `<div class="an-body" id="${k}-panel" ${i ? "hidden" : ""}><div class="loading sm">Loading…</div></div>`).join("")}
+      ${anTabs(p).map(([k], i) => `<div class="an-body" role="tabpanel" aria-labelledby="an-${k}-tab" id="${k}-panel" ${i ? "hidden" : ""}><div class="loading sm">Loading…</div></div>`).join("")}
     </section>
   </div>`;
   const root = main.firstElementChild;
@@ -1060,6 +1060,63 @@ async function renderPlayer(main, idArg) {
   if (!p.tm_url) loadTmPanel(root, p);
   loadImpectPanel(root, p);
   wireAnalytics(root, p);
+}
+
+/* ---------- MLS NEXT Pro graduation gates ---------- */
+function gateRow(g, d) {
+  const pct = g.id === "packing" || g.id === "ball_wins";
+  // Floor display values: 49.99 must never look like a passing P50.
+  const floor1 = (n) => (Math.floor(n * 10) / 10).toFixed(1);
+  const value = g.value == null ? "—" : pct ? `P${floor1(g.value)}` : Math.floor(g.value).toLocaleString();
+  const threshold = pct ? "P50 or higher" : g.id === "age" ? "22 or older" : "2,000+ minutes";
+  const label = { met: "✓ Met", below: "× Below", unavailable: "Unavailable", not_applicable: "Not applicable" }[g.status];
+  let detail = "";
+  if (g.status === "not_applicable") detail = "Goalkeepers use three gates";
+  else if (g.value == null) detail = "No data available";
+  else if (g.id === "age") detail = d.age_today == null ? "" : `${d.age_today} today`;
+  else {
+    const gap = Math.abs(g.value - g.threshold);
+    const gapLabel = pct ? (gap < 0.1 && gap > 0 ? "<0.1" : gap.toFixed(1)) : (gap < 1 && gap > 0 ? "<1" : Math.floor(gap).toLocaleString());
+    detail = `${gapLabel} ${pct ? "points" : "minutes"} ${g.status === "met" ? "above" : "below"}`;
+    if (gap === 0) detail = "At the threshold";
+  }
+  return `<tr><th scope="row">${esc(g.label)}<small>Gate: ${threshold}</small></th>
+    <td class="gates-value">${g.status === "not_applicable" ? "—" : value}<small>${esc(detail)}</small></td>
+    <td><span class="gates-result gates-${g.status}">${label}</span></td></tr>`;
+}
+async function loadGatesPanel(root, p) {
+  const el = $("#gates-panel", root), badge = $(".gates-badge", root);
+  try {
+    const d = await api("GET", `/api/players/${p.id}/mlsnp-gates`);
+    if (!el.isConnected) return;
+    if (!d.eligible) { el.innerHTML = '<p class="empty">These gates apply to current MLS NEXT Pro players.</p>'; badge.textContent = "—"; return; }
+    badge.textContent = `${d.met}/${d.total}${d.provisional || d.unavailable ? "*" : ""}`;
+    badge.setAttribute("aria-label", `${d.met} of ${d.total} gates met${d.unavailable ? `; ${d.unavailable} unavailable` : ""}${d.provisional ? "; provisional" : ""}`);
+    const below = d.gates.filter((g) => g.status === "below").map((g) => g.label);
+    const summary = [below.length ? `${below.join(", ")} below the gate${below.length > 1 ? "s" : ""}.` : "",
+      d.unavailable ? `${d.unavailable} unavailable.` : "", !below.length && !d.unavailable ? "All applicable gates met." : ""].filter(Boolean).join(" ");
+    el.innerHTML = `<div class="gates-content">
+      <header class="gates-heading"><div><h2>${d.met} of ${d.total} gates met${d.provisional ? " · provisional" : ""}</h2><p class="muted sm">${esc(summary)}</p></div>
+        <span class="muted sm">${esc(d.seasons.join(" / ") || "Awaiting data")}${d.group ? ` · ${esc(d.group)} peers` : ""}</span></header>
+      <div class="gates-context muted sm"><span>Projected move: <b>${esc(fmtDate(d.move_date))}</b></span><span>MLSNP sample: <b>${d.sample_minutes == null ? "Unavailable" : `${Math.floor(d.sample_minutes).toLocaleString()} min`}</b></span></div>
+      ${d.warnings.length ? `<div class="banner sm gates-warnings">${d.warnings.map((w) => `<p>${esc(w)}</p>`).join("")}</div>` : ""}
+      <table class="gates-table"><thead><tr><th>Gate</th><th>Player</th><th>Result</th></tr></thead><tbody>${d.gates.map((g) => gateRow(g, d)).join("")}</tbody></table>
+      <div class="gates-context gates-freshness muted sm"><span>Matches through <b>${d.data_as_of ? esc(fmtDate(d.data_as_of)) : "unavailable"}</b></span>
+        <span>Calculated <b>${d.generated_at ? esc(fmtDateTime(d.generated_at)) : "not yet"}</b></span></div>
+      <details class="gates-definitions"><summary>Gate definitions &amp; sources</summary>
+        <p><b>Packing and ball wins:</b> the study's MLS NEXT Pro positional percentiles, weighted by match shares across seasons in the 365 days before the projected move. Reference players have at least 5 match shares; each metric needs 10 valid peers. Midfielders share the MID group. These differ from the pooled KPI profile.</p>
+        <p><b>Total pro minutes:</b> recorded MLS, MLS NEXT Pro, USL Championship and USL League One minutes before the move. Overseas minutes are excluded. Impect covers match-level minutes; ASA fills historical league-seasons without Impect coverage.</p>
+        <p><b>Age:</b> assessed on the projected move date using the exact birthday${d.birthdate ? ` (${esc(fmtDate(d.birthdate))})` : ""}. Goalkeepers have three gates; ball wins does not apply.</p>
+        <p>Rule set: ${esc(d.rule_version)}${d.source_commit ? ` · source ${esc(d.source_commit.slice(0, 8))}` : ""}. Gate results are separate from the club decision and staff evaluations.</p>
+        ${d.sources.length ? `<ul>${d.sources.map((s) => `<li>${esc(s.name)} · fetched ${esc(fmtDateTime(s.fetched_at))}${s.stale ? " · stale" : ""}</li>`).join("")}</ul>` : ""}
+      </details></div>`;
+  } catch (e) {
+    if (!el.isConnected) return;
+    badge.textContent = "—";
+    badge.setAttribute("aria-label", "Gates unavailable");
+    el.innerHTML = `<div class="banner err sm">Couldn't load gates: ${esc(e.message)}</div><button class="btn sm" type="button" data-retry-gates>Retry</button>`;
+    $("[data-retry-gates]", el).addEventListener("click", () => loadGatesPanel(root, p));
+  }
 }
 
 /* ---------- impect KPI profile ---------- */
@@ -1119,7 +1176,8 @@ function historyHTML(activity) {
 /* ---------- analytics tabs: one season and position for the KPI profile, pitch maps and card ---------- */
 const AN_TABS = [["kpi", "KPI profile"], ["physical", "Physical"], ["maps", "Pitch maps"], ["card", "Player card"]];
 // Only the Physical tab works without an Impect link.
-const anTabs = (p) => (p.impect_id ? AN_TABS : AN_TABS.filter(([k]) => k === "physical"));
+const anTabs = (p) => [...(p.impect_id ? AN_TABS : AN_TABS.filter(([k]) => k === "physical")),
+  ...(p.mlsnp_gates_eligible ? [["gates", 'MLS NEXT Pro gates <span class="gates-badge" aria-label="Gates loading">…</span>']] : [])];
 // Physical data has its own seasons and teams, so the Impect season/position picker hides on that tab.
 const AN_USES_PICKER = new Set(["kpi", "maps", "card"]);
 // Card position -> KPI benchmark group. The KPI reference pools both flanks, so LW and RW are one group.
@@ -1146,11 +1204,13 @@ async function wireAnalytics(root, p) {
     ctx.hidden = !AN_USES_PICKER.has(key);
     if (an.loaded.has(key)) return;
     an.loaded.add(key);
-    ({ kpi: loadKpiPanel, physical: loadPhysicalPanel, card: loadCardPanel, maps: loadMapsPanel })[key](root, p);
+    ({ kpi: loadKpiPanel, physical: loadPhysicalPanel, card: loadCardPanel, maps: loadMapsPanel, gates: loadGatesPanel })[key](root, p);
   };
   for (const b of tabs) b.addEventListener("click", () => show(b.dataset.anTab));
   // The first tab opens straight away; the KPI profile doesn't wait for the season list.
   show(tabs[0].dataset.anTab);
+  // This small stored snapshot also supplies the badge while another tab is open.
+  if (p.mlsnp_gates_eligible) { an.loaded.add("gates"); loadGatesPanel(root, p); }
   if (!p.impect_id) return;
 
   ctx.innerHTML = `<span class="loading sm">Seasons…</span>`;

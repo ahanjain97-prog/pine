@@ -32,6 +32,7 @@ import {
 import { addRole as addRoleTo, compactRanks as compactRanksIn, copyToRole as copyToRoleIn, moveOnBoard as moveOnBoardTo, spotIn as spotInRole } from "./lib/board.js";
 import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.js";
 import { registerScoutingContext } from "./lib/scouting_context.js";
+import { gatesEligible, moveDate as gatesMoveDate, registerGates } from "./lib/mlsnp_gates.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
 
@@ -47,6 +48,7 @@ if (!existsSync(DB_FILE) && existsSync(SEED_DB)) {
   console.log(`Seeded ${DB_FILE} from ${SEED_DB}`);
 }
 const db = openDb(DB_FILE);
+gatesMoveDate(); // Reject a malformed recruitment date at startup.
 const BACKUP_DIR = join(dirname(DB_FILE), "backups");
 startDailyBackups(db, BACKUP_DIR);
 
@@ -136,6 +138,7 @@ function hydrate(p) {
     delete p.changed_by_json;
   }
   p.age = ageFrom(p.birthdate);
+  p.mlsnp_gates_eligible = gatesEligible(p);
   if ("roles_json" in p) { p.roles = JSON.parse(p.roles_json || "[]").sort((a, b) => a.role.localeCompare(b.role)); delete p.roles_json; }
   if ("verdicts_json" in p) { p.verdicts = JSON.parse(p.verdicts_json || "{}"); delete p.verdicts_json; }
   return p;
@@ -322,6 +325,7 @@ app.use("/api/*", async (c, next) => {
 });
 
 registerScoutingContext(app, { db, token: WORKER_TOKEN });
+registerGates(app, { db, token: WORKER_TOKEN, getPlayer });
 
 /* ---------- auth ---------- */
 app.post("/api/auth/login", async (c) => {

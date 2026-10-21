@@ -429,6 +429,44 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
 }
 
 /* ---------- player card ---------- */
+/* ---------- MLS NEXT Pro gates ---------- */
+.gates-badge { display: inline-block; padding: 0 5px; margin-left: 3px; border: 1px solid var(--line); border-radius: 5px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.gates-content { max-width: 820px; margin: 0 auto; }
+.gates-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.gates-heading h2 { font-size: 20px; }
+.gates-heading p { margin: 4px 0 0; }
+.gates-context { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 12px 0; }
+.gates-warnings { background: var(--hold-bg); color: var(--ink); }
+.gates-warnings p { margin: 3px 0; }
+.gates-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.gates-table th, .gates-table td { text-align: left; padding: 16px 8px; border-bottom: 1px solid var(--line); }
+.gates-table thead th { font-size: 12px; color: var(--ink-2); font-weight: 500; padding-top: 8px; padding-bottom: 8px; }
+.gates-table th:first-child { width: 44%; padding-left: 0; }
+.gates-table th:last-child { width: 24%; }
+.gates-table td:last-child { padding-right: 0; }
+.gates-table small { display: block; font-size: 12px; color: var(--ink-2); font-weight: 400; margin-top: 3px; }
+.gates-value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.gates-result { display: inline-block; font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 5px; }
+.gates-met { color: var(--pass); background: var(--pass-bg); }
+.gates-below { color: var(--fail); background: var(--fail-bg); }
+.gates-unavailable, .gates-not_applicable { color: var(--ink-2); background: var(--surface-2); }
+.gates-freshness { margin: 16px 0; }
+.gates-definitions { border-top: 1px solid var(--line); padding-top: 12px; font-size: 12px; color: var(--ink-2); }
+.gates-definitions summary { color: var(--accent); cursor: pointer; font-weight: 600; }
+.gates-definitions p { margin: 12px 0; }
+.gates-definitions ul { padding-left: 18px; }
+@media (max-width: 520px) {
+  .gates-heading { display: block; }
+  .gates-heading > span { display: block; margin-top: 8px; }
+  .gates-table th, .gates-table td { padding: 12px 4px; }
+  .gates-table th:first-child { width: 40%; }
+  .gates-table th:last-child { width: 28%; }
+  .gates-table th, .gates-result { font-size: 12px; }
+  .gates-table small { font-size: 11px; }
+  .gates-result { padding: 4px; overflow-wrap: anywhere; }
+  .gates-value { font-size: 18px; }
+}
+
 /* ---------- player analytics (tabbed: KPI profile, pitch maps, player card) ---------- */
 /* Big board and Lists share a row; with no lists, the board takes it all. */
 .p-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 14px; align-items: start; }
@@ -436,7 +474,7 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
 .p-pair + .panel { margin-top: 14px; }
 .analytics { margin-top: 14px; }
 .an-head { display: flex; align-items: center; gap: 12px 14px; flex-wrap: wrap; padding-bottom: 10px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
-.an-tabs { display: inline-flex; background: var(--surface-2); border: 1px solid var(--line); border-radius: 9px; padding: 2px; gap: 2px; }
+.an-tabs { display: inline-flex; flex-wrap: wrap; max-width: 100%; background: var(--surface-2); border: 1px solid var(--line); border-radius: 9px; padding: 2px; gap: 2px; }
 .an-tabs button { border: 0; background: transparent; padding: 6px 13px; border-radius: 7px; cursor: pointer; color: var(--ink-2);
   font-family: var(--disp); font-weight: 700; font-size: 13.5px; letter-spacing: .03em; text-transform: uppercase; }
 .an-tabs button:hover { color: var(--ink); }

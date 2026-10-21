@@ -83,6 +83,15 @@ CREATE TABLE IF NOT EXISTS list_members(
   player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
   PRIMARY KEY(list_id, player_id)
 );
+CREATE TABLE IF NOT EXISTS mlsnp_gate_run(
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  generated_at TEXT NOT NULL,
+  payload TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mlsnp_gate_inputs(
+  impect_id INTEGER PRIMARY KEY,
+  payload TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS cards(
   id INTEGER PRIMARY KEY,
   player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,

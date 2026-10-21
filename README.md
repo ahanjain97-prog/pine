@@ -68,6 +68,58 @@ background). Cups are not kept: cup games are left out of the KPI benchmarks.
 
 Run `npm test` for benchmark and mocked-API regression tests, and `npm run check` for syntax checks.
 
+## MLS NEXT Pro gates
+
+Current MLS NEXT Pro player pages have an **MLS NEXT Pro gates** tab immediately after Player card.
+The badge counts the gates met: Packing P50+, ball wins P50+, 2,000+ recorded pro minutes, and age
+22+ on the projected move date. Goalkeepers use three gates (ball wins is not applicable). The tab
+works without a generated card; players without an Impect link can still see the age check.
+The current club league takes precedence over an older Impect competition, so players who have
+moved to another league do not keep the tab merely because they played MLSNP previously.
+
+These are the October 2026 graduation study's inputs, **not** the pooled KPI profile percentiles.
+The study groups midfielders together, uses MLSNP-only season/position references with 5+ match
+shares and at least 10 valid peers, and weights season percentiles by match shares in the 365 days
+before the move. Pro minutes cover MLS, MLSNP, USLC and USL1, excluding overseas minutes. Exact
+birthdays and unrounded values determine gates. Missing inputs are unavailable, never automatic
+failures. Under 5 match shares is provisional; under 1,500 minutes is directional. Data and source
+timestamps, coverage gaps, stale inputs, DOB disagreements, and the rule version are visible.
+
+**Rollout requires the sync worker as well as the web deployment.** Run the worker on the analysis
+host, using its existing Python environment and a checkout containing the graduation study from
+`fordb/hearts-of-pine` PR #697 (`experiments/mlsnp_graduation_20261019/arrivals.py`), initialized
+Impect/ASA caches, and the study's `data/identity.parquet`. It calls the original study functions;
+it does not read staff notes, decisions, or board membership. No new PINE dependency is needed.
+
+Export a private snapshot first, without fetching or publishing:
+
+```bash
+/path/to/hearts-of-pine/venv/bin/python3 scripts/sync-mlsnp-gates.py \
+  --hop-root /path/to/hearts-of-pine --cache-only --output /private/tmp/mlsnp-gates.json
+```
+
+For production, supply `PINE_URL` (HTTPS) and the existing `PINE_WORKER_TOKEN` in the worker's
+environment. Supervise this long-running command with launchd/systemd, separately from the card
+worker. It refreshes current data at most every six hours and preserves historical caches:
+
+```bash
+/path/to/hearts-of-pine/venv/bin/python3 scripts/sync-mlsnp-gates.py \
+  --hop-root /path/to/hearts-of-pine --upload --watch 21600
+```
+
+Set `PINE_MLSNP_MOVE_DATE` on the web server (default `2027-02-28`); the worker reads that setting
+from its authenticated config endpoint each run. A changed move date hides incompatible inputs
+until a matching snapshot arrives. Update the study's season catalog before the next recruitment
+cycle; the worker refuses unsupported future cycles and past move dates instead of silently
+reusing the wrong window. Failed refreshes retain the last good snapshot and log an error. Inputs
+older than 48 hours are flagged. Before the first upload, the tab says it is awaiting data.
+
+`PUT /api/worker/mlsnp-gates` requires `X-PINE: 1` and `X-PINE-Worker-Token`. It validates the entire
+snapshot (maximum 10 MB) before atomically replacing the stored inputs, rejects older snapshots,
+and stores only the supported fields. Inputs and their rule/source versions live in the SQLite
+database and are included in normal backups. Staff read `GET /api/players/:id/mlsnp-gates` through
+the existing sign-in gate. No real player snapshot belongs in this public repository.
+
 ## Configuration (`.env`, never committed)
 
 | Variable | Purpose |
@@ -78,6 +130,7 @@ Run `npm test` for benchmark and mocked-API regression tests, and `npm run check
 | `PINE_AUTH=off` | No sign-in; pick who you are from the name menu in the top bar. For local development. Delete it to require sign-in. |
 | `PINE_BACKUP_TOKEN` | Key that `scripts/pull-backup.sh` downloads snapshots with (set the same value on the deployment and in the Mac's `.env`). It opens `/api/backup` only. |
 | `PINE_WORKER_TOKEN` | Key the player card worker sends as `X-PINE-Worker-Token` (same value on the deployment and on the worker). It opens `/api/worker/*` only; unset, those routes refuse everything. |
+| `PINE_MLSNP_MOVE_DATE` | Projected MLSNP-to-USL move date for gate checks; defaults to `2027-02-28`. The sync worker reads it from PINE. |
 | `APP_URL` | Public URL once hosted. Sign-in links use it, and `https://…` makes the sign-in cookie secure-only. |
 | `PORT` | Default 8787 |
 | `PINE_DB` | SQLite file, default `data/pine.db` |
