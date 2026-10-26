@@ -83,9 +83,13 @@ def build(args, move):
     from adapters.asa import fetch_player_xgoals
     for league, first in ASA_FIRST_SEASON.items():
         for season in range(first, max(MLSNP_ITERATIONS) + 1):
-            if (ASA_LEAGUE_LABEL[league], season) in covered:
-                continue
             path = A.D_ASA / f"players_{league}_{season}_xgoals.json"
+            if (ASA_LEAGUE_LABEL[league], season) in covered:
+                # pro_experience opens every season's file before skipping the ones Impect covers, so a
+                # fresh checkout needs these too; they never count toward the result, so a cached copy will do.
+                if not args.cache_only and not path.exists():
+                    fetch_player_xgoals(league, season)
+                continue
             if not args.cache_only and (not path.exists() or (season == now.year and time.time() - path.stat().st_mtime > 21600)):
                 fetch_player_xgoals(league, season, refresh=True)
             if not path.exists():
