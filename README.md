@@ -153,23 +153,33 @@ the existing sign-in gate. No real player snapshot belongs in this public reposi
   board, and dragging a card here reorders it there too. Dropping a card into another role asks whether to
   move the player there or duplicate them (a top target in both roles). Stored as `board_entries.shortlist`, which `src/lib/board.js` carries across reorders; not to be confused with the Impect Scouting short lists on
   the Impect page, which are an import source.
-- **NCAA** (`#/ncaa`): the college section. **Board** is a pitch with one ranked list per position. It
-  starts from the college scouting database's latest board, in its order, and also carries every Big Board
-  player whose league names NCAA, added at the end of their big-board position. After that the order is
-  PINE's: drag to re-rank or move between positions, and drag a card to the tray below to take it off. Someone
-  taken off stays off: neither the Big Board sync nor a re-import puts them back, though dragging them back in
-  (or Add to NCAA board on their page) does. Cards show the college grade (current/future, coloured by the
-  future grade), the class and school at the last scouted season ("Jr '25"), DOM / INTL and the agent status.
-  Filter by grade ceiling, representation or text. **College database** lists every prospect, including
-  past classes, with grade, last season scouted, where they are now and report count; click a row for the
-  reports. Players on the latest college board become PINE players (league NCAA, `source` `college_import`),
-  so they have profiles, notes and verdicts. Prospects from earlier classes link to an existing PINE player
-  by name (accents and punctuation ignored, never when two PINE players share the name); a profile linked
-  wrongly has a **Not this player?** button, and that prospect is never relinked. The college players on
-  the NCAA board stay out of the Big Board's "Not on the board" tray. The data is
-  `data.json` from the college-soccer-scouting-2026 repository (`PINE_COLLEGE_DATA_URL`), imported once on
-  the first start after the section shipped and again when an admin presses **Re-import**. A re-import
-  refreshes grades and reports and keeps links and board order. Code: `src/lib/ncaa.js`.
+- **NCAA** (`#/ncaa`): the college section, with its own look (college purple, position columns grouped by
+  line). **Board** has a tab per year. The latest year (2026, marked Live) is PINE's board: one ranked list per
+  position, seeded from the college scouting database's latest board in its order, plus every Big Board player
+  whose league names NCAA. Drag to re-rank or move between positions, and drag a row to the tray below to take
+  it off; someone taken off stays off (neither the Big Board sync nor a re-import puts them back) until dragged
+  back in. Earlier years (`#/ncaa/2025`, `#/ncaa/2024`) show those boards as the college database ranked them,
+  read-only, including players not in PINE (click one for their reports). Rows show the college grade
+  (current/future, coloured by the future grade), class and school at the last scouted season ("Jr '25"), and
+  DOM / INTL and agent status on the live board, or where the player is now on past boards. Filter by grade
+  ceiling, representation or text. **College database** lists every prospect with grade, seasons scouted,
+  where they are now, reports and board spot, filterable by year; click a row for the reports.
+  The NCAA board and the Big Board are linked: every NCAA board player also gets a Big Board role in the same
+  position (from their latest college role, e.g. True #9 (Target) → FWD #2 Target, Inverted Winger → #2
+  Inverted Winger; otherwise the position's first role), added once at the end of that role, so taking them
+  off the Big Board sticks. ☆ on an NCAA row makes them a top target at that role (Short Board), and Big Board
+  and Short Board cards show the college grade in the NCAA tag ("NCAA B/A"). The Database table shows each
+  player's NCAA board spot beside their roles.
+  Players on the latest college board become PINE players (league NCAA, `source` `college_import`) unless
+  they're already in PINE. Names match strictest first: the same name (accents and letters like ø ignored);
+  the same first and last name (middle names); the same surname and first three letters of the first name
+  (Matt/Matthew) for NCAA players. Two candidates means no link. College-import players found to duplicate an
+  existing player are merged into them at startup (notes, verdicts, roles, history and college links move
+  across; the college rank wins on the NCAA board), logged in Activity. A profile linked wrongly has a **Not
+  this player?** button, and that prospect is never relinked. The data is `data.json` from the
+  college-soccer-scouting-2026 repository (`PINE_COLLEGE_DATA_URL`), imported on the first start after the
+  section (or its year boards) shipped and again when an admin presses **Re-import**, which refreshes grades,
+  reports and past boards and keeps links and the live board's order. Code: `src/lib/ncaa.js`.
 - **Agent**: a panel on every player page for who represents them (unknown, no agent, advisor, agent),
   agent and agency names, email, phone, last contact and notes. It is PINE's own record; Transfermarkt's
   agent line is shown beneath it for reference and never overwrites it.

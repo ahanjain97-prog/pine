@@ -34,8 +34,8 @@ import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.j
 import { registerScoutingContext } from "./lib/scouting_context.js";
 import { gatesEligible, moveDate as gatesMoveDate, registerGates } from "./lib/mlsnp_gates.js";
 import {
-  fetchCollegeData, getAgent, importCollege, moveOnNcaaBoard, ncaaBoardView, ncaaProspects, ncaaSpot, prospectDetail,
-  removeFromNcaaBoard, saveAgent, unlinkProspect,
+  fetchCollegeData, getAgent, importCollege, linkBoardToBigBoard, linkToBigBoard, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects,
+  ncaaSpot, ncaaSummary, ncaaYearBoard, prospectDetail, removeFromNcaaBoard, saveAgent, unlinkProspect,
 } from "./lib/ncaa.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
@@ -156,6 +156,7 @@ const PLAYER_SELECT = `
     (SELECT count(*) FROM notes n WHERE n.player_id = p.id) AS note_count,
     (SELECT max(n.created_at) FROM notes n WHERE n.player_id = p.id) AS last_note_at,
     (SELECT json_object('position', nb.position, 'rank', nb.rank) FROM ncaa_board nb WHERE nb.player_id = p.id) AS ncaa_json,
+    (SELECT np.grade FROM ncaa_prospects np WHERE np.player_id = p.id ORDER BY np.year DESC LIMIT 1) AS college_grade,
     (SELECT json_group_array(DISTINCT a.user_id) FROM activity a
       WHERE a.player_id = p.id AND a.user_id IS NOT NULL AND a.action <> 'added_player') AS changed_by_json
   FROM players p`;
@@ -590,7 +591,14 @@ async function runCollegeImport(userId) {
   logActivity(db, userId, null, "imported_college", stats);
   return stats;
 }
-app.get("/api/ncaa", (c) => c.json(ncaaBoardView(db)));
+// The live NCAA board, or (?year=) an earlier year's board as the college database ranked it.
+app.get("/api/ncaa", (c) => {
+  const year = Number(c.req.query("year"));
+  const summary = ncaaSummary(db);
+  if (!year || year === summary.live_year) return c.json(ncaaBoardView(db));
+  if (!summary.years.includes(year)) fail(404, `No ${year} board`);
+  return c.json({ ...summary, year, past: ncaaYearBoard(db, year) });
+});
 app.get("/api/ncaa/prospects", (c) => c.json({ prospects: ncaaProspects(db) }));
 app.get("/api/ncaa/prospects/:key", (c) => c.json({ prospect: prospectDetail(db, { key: c.req.param("key") }) || fail(404, "Prospect not found") }));
 app.post("/api/ncaa/move", async (c) => {
@@ -602,6 +610,9 @@ app.post("/api/ncaa/move", async (c) => {
   if (!before || before.position !== after.position || before.spot !== after.spot) {
     logActivity(db, user.id, p.id, "moved_on_ncaa_board", { from: before?.position || null, to: after.position, spot: after.spot });
   }
+  // New to the NCAA board: on the Big Board too, if they aren't already.
+  const role = before ? null : linkToBigBoard(db, p.id, position);
+  if (role) logActivity(db, user.id, p.id, "added_role", { role, via: "ncaa" });
   return c.json({ ok: true });
 });
 app.delete("/api/ncaa/board/:id", (c) => {
@@ -634,8 +645,15 @@ app.put("/api/players/:id/agent", async (c) => {
   logActivity(db, user.id, p.id, "updated_agent", { representation: agent.representation });
   return c.json({ agent });
 });
-// First start after the NCAA section ships: bring the college database in once, in the background.
-if (!db.get("SELECT 1 FROM ncaa_prospects LIMIT 1")) {
+// College-import players who were already in PINE under a slightly different name are merged into them, and the
+// NCAA board's players are on the Big Board too (each once; see linkBoardToBigBoard).
+{
+  for (const m of mergeCollegeDuplicates(db)) logActivity(db, null, m.into, "merged_player", { name: m.name, into: m.into_name });
+  const added = linkBoardToBigBoard(db);
+  if (added.length) logActivity(db, null, null, "linked_big_board", { count: added.length });
+}
+// First start after the NCAA section (or its year boards) shipped: bring the college database in, in the background.
+if (!db.get("SELECT 1 FROM ncaa_prospects LIMIT 1") || !db.get("SELECT 1 FROM ncaa_year_boards LIMIT 1")) {
   setTimeout(() => runCollegeImport(null)
     .then((s) => console.log(`[ncaa] imported ${s.prospects} prospects, ${s.reports} reports; ${s.created} new players, ${s.boarded} on the NCAA board`))
     .catch((e) => console.warn("[ncaa] college import failed:", e.message)), 8000);

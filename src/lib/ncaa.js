@@ -4,12 +4,18 @@
 // The NCAA board is one ranked list per pitch position. It starts from the college database's latest
 // board, in its order, and also carries every Big Board player whose league names NCAA, so college
 // players already being tracked appear without anyone re-adding them. After that the order is PINE's:
-// staff drag to re-rank, and a later import only appends players who are new to the board.
+// staff drag to re-rank, and a later import only appends players who are new to the board. Earlier
+// years' boards are kept as the college database ranked them (ncaa_year_boards), read-only.
+//
+// The two boards are linked both ways: Big Board college players join the NCAA board, and every NCAA
+// board player gets a Big Board role in the same position (once; taking them off either board sticks),
+// so starring them puts them on the Short Board like anyone else.
 //
 // College players on that latest board become PINE players (league "NCAA") so they have a profile,
 // notes, verdicts and agent details like everyone else. Prospects from earlier classes, many of them
 // professionals now, keep their grades and reports here and link to an existing PINE player by name.
-import { ROLES } from "../roles.js";
+import { POSITIONS, ROLES } from "../roles.js";
+import { addRole } from "./board.js";
 
 export const COLLEGE_DATA_URL = process.env.PINE_COLLEGE_DATA_URL
   || "https://raw.githubusercontent.com/ahjain-cmd/college-soccer-scouting-2026/main/data.json";
@@ -17,10 +23,52 @@ export const COLLEGE_DATA_URL = process.env.PINE_COLLEGE_DATA_URL
 // The college boards are keyed by shirt number; this is what each list holds (checked against the data).
 export const BOARD_POSITION = { p2: "RB", p3: "RCB", p4: "LCB", p5: "LB", p6: "CDM", p7: "RW", p8: "CM", p9: "FWD", p10: "AM", p11: "LW" };
 export const REPRESENTATION = ["unknown", "none", "advisor", "agent"];
+
+// College scouting role (the latest report's) -> Big Board role in the same position. Anything else takes
+// the position's first role.
+const ROLE_HINTS = [
+  [/target/i, { FWD: "FWD2" }],
+  [/inverted winger/i, { LW: "LW2", RW: "RW2" }],
+  [/wing ?back/i, { LB: "LB1", RB: "RB2" }],
+  [/inverted full ?back|defensive full ?back/i, { LB: "LB2", RB: "RB1" }],
+  [/ball[- ]playing/i, { LCB: "LCB1", RCB: "RCB2" }],
+  [/leader of the line|athletic presence/i, { LCB: "LCB2", RCB: "RCB1" }],
+  [/box[- ]to[- ]box|jack of all trades/i, { CM: "CM2" }],
+];
+export function bigBoardRole(position, collegeRole) {
+  for (const [re, byPosition] of ROLE_HINTS) if (byPosition[position] && re.test(collegeRole || "")) return byPosition[position];
+  return POSITIONS.find((p) => p.code === position)?.roles[0][0] || null;
+}
 const COUNTRY_NAMES = { USA: "United States", US: "United States", "U.S.": "United States", UK: "England" };
 
-export const normName = (s) => String(s || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
-  .toLowerCase().replace(/['’`.]/g, "").replace(/[^a-z ]+/g, " ").replace(/\s+/g, " ").trim();
+// Letters that aren't an accent on a base letter, so NFKD leaves them alone (Møller, Björnsson's ð cousins).
+const LETTERS = { ø: "o", æ: "ae", ð: "d", þ: "th", ß: "ss", ł: "l", đ: "d", ı: "i", œ: "oe" };
+export const normName = (s) => String(s || "").toLowerCase().replace(/[øæðþßłđıœ]/g, (c) => LETTERS[c]).normalize("NFKD")
+  .replace(/[\u0300-\u036f]/g, "").replace(/['’`.]/g, "").replace(/[^a-z ]+/g, " ").replace(/\s+/g, " ").trim();
+
+// Name matching between the college database and PINE, strictest first: the same name; the same first and
+// last name (a middle name on one side: Úlfur Ágúst Björnsson); the same surname and first three letters of
+// the first name (Matt/Matthew, Marten/Martin, Joschi/Josias) for players PINE has in the NCAA. A tier that
+// finds two players stops the search: better no link than a guess.
+const nameTokens = (s) => normName(s).split(" ").filter(Boolean);
+const nameIndex = (players) => players.map((p) => ({ id: p.id, t: nameTokens(p.name), ncaa: /\bncaa\b/i.test(p.league || "") }))
+  .filter((x) => x.t.length);
+export function matchName(index, name) {
+  const t = nameTokens(name);
+  if (!t.length) return null;
+  const first = t[0], last = t.at(-1), long = t.length > 1;
+  const tiers = [
+    (x) => x.t.join(" ") === t.join(" "),
+    (x) => long && x.t.length > 1 && x.t[0] === first && x.t.at(-1) === last,
+    (x) => long && x.ncaa && x.t.length > 1 && x.t.at(-1) === last && x.t[0].slice(0, 3) === first.slice(0, 3),
+  ];
+  for (const [i, tier] of tiers.entries()) {
+    const hits = index.filter(tier);
+    if (hits.length === 1) return { id: hits[0].id, exact: i === 0 };
+    if (hits.length > 1) return null;
+  }
+  return null;
+}
 
 const authorOf = (body) => (String(body || "").match(/\(([A-Z]{2,3})\)\s*$/) || [])[1] || null;
 const latestBoardYear = (data) => Object.keys(data.boards || {}).sort().at(-1) || null;
@@ -110,13 +158,10 @@ export function importCollege(db, data, { insertPlayer }) {
     if (!BOARD_POSITION[list] || !Array.isArray(keys)) continue;
     for (const k of keys) if (!onBoard.has(k)) onBoard.set(k, BOARD_POSITION[list]);
   }
-  const byName = new Map();
-  for (const p of db.all("SELECT id, name FROM players")) {
-    const k = normName(p.name);
-    byName.set(k, byName.has(k) ? null : p.id); // two PINE players with one name: don't guess
-  }
+  const index = nameIndex(db.all("SELECT id, name, league FROM players"));
   const linkedIds = new Set(db.all("SELECT player_id FROM ncaa_prospects WHERE player_id IS NOT NULL").map((r) => r.player_id));
-  const stats = { prospects: 0, reports: 0, linked: 0, created: 0, boarded: 0, board_year: year ? Number(year) : null };
+  const stats = { prospects: 0, reports: 0, linked: 0, created: 0, boarded: 0, big_board: 0, board_year: year ? Number(year) : null };
+  const known = new Set(prospects.filter((x) => x?.key && x?.name).map((x) => x.key));
 
   db.tx(() => {
     for (const x of prospects) {
@@ -149,8 +194,10 @@ export function importCollege(db, data, { insertPlayer }) {
 
       let playerId = existing?.player_id ?? null;
       if (!playerId && !existing?.no_link) { // "Not this player" turns name matching off for this prospect
-        const match = byName.get(normName(x.name));
-        if (match && !linkedIds.has(match)) { playerId = match; stats.linked++; }
+        // An exact name may join a player already linked (the college database lists some players twice);
+        // a looser match may not.
+        const m = matchName(index, x.name);
+        if (m && (m.exact || !linkedIds.has(m.id))) { playerId = m.id; stats.linked++; }
       }
       if (!playerId && !existing?.no_link && onBoard.has(x.key)) {
         const country = x.country ? COUNTRY_NAMES[x.country] || x.country : null;
@@ -158,11 +205,22 @@ export function importCollege(db, data, { insertPlayer }) {
           name: x.name, club: x.team || x.school || null, league: "NCAA", position: x.position_full || x.position || null,
           birthdate: x.dob || null, foot: x.foot ? String(x.foot).toLowerCase() : null, citizenship: country ? [country] : [],
         });
+        index.push({ id: playerId, t: nameTokens(x.name), ncaa: true });
         stats.created++;
       }
       if (playerId) {
         linkedIds.add(playerId);
         db.run("UPDATE ncaa_prospects SET player_id = ? WHERE key = ?", playerId, x.key);
+      }
+    }
+    // Every year's board as the college database ranks it.
+    db.run("DELETE FROM ncaa_year_boards");
+    for (const [y, lists] of Object.entries(data.boards || {})) {
+      if (!/^\d{4}$/.test(y)) continue;
+      for (const [list, keys] of Object.entries(lists || {})) {
+        if (!BOARD_POSITION[list] || !Array.isArray(keys)) continue;
+        keys.filter((k) => known.has(k)).forEach((k, i) => db.run(
+          "INSERT OR IGNORE INTO ncaa_year_boards(year, position, rank, prospect_key) VALUES (?,?,?,?)", Number(y), BOARD_POSITION[list], i, k));
       }
     }
     // The latest college board, in its order, for anyone not already on the NCAA board.
@@ -172,7 +230,85 @@ export function importCollege(db, data, { insertPlayer }) {
     }
   });
   stats.boarded += syncBigBoardNcaa(db);
+  stats.big_board = linkBoardToBigBoard(db).length;
   return stats;
+}
+
+// Folds player `fromId` into `intoId`: notes, verdicts, roles, lists, cards, maps, agent details, history and
+// college links move across (where `intoId` has none of its own), and `fromId` is deleted. On the NCAA board
+// the college ranking wins: `intoId` takes `fromId`'s spot.
+export function mergePlayer(db, fromId, intoId) {
+  db.tx(() => {
+    const spot = ncaaSpot(db, fromId);
+    if (spot) {
+      const old = ncaaSpot(db, intoId);
+      db.run("DELETE FROM ncaa_board WHERE player_id = ?", intoId);
+      if (old) compact(db, old.position);
+      db.run("UPDATE ncaa_board SET player_id = ? WHERE player_id = ?", intoId, fromId);
+    }
+    for (const table of ["board_entries", "verdicts", "list_members", "agent_info", "ncaa_bb_linked", "ncaa_board_removed"]) {
+      db.run(`UPDATE OR IGNORE ${table} SET player_id = ? WHERE player_id = ?`, intoId, fromId);
+    }
+    for (const table of ["notes", "cards", "maps", "activity", "ncaa_prospects"]) db.run(`UPDATE ${table} SET player_id = ? WHERE player_id = ?`, intoId, fromId);
+    db.run(`UPDATE players SET birthdate = coalesce(birthdate, (SELECT birthdate FROM players WHERE id = ?)),
+      foot = coalesce(foot, (SELECT foot FROM players WHERE id = ?)) WHERE id = ?`, fromId, fromId, intoId);
+    db.run("DELETE FROM players WHERE id = ?", fromId);
+  });
+}
+
+// Players the college import created who turn out to be someone PINE already had (see matchName), merged
+// into that player. Returns [{from, into, name, into_name}].
+export function mergeCollegeDuplicates(db) {
+  const merged = [];
+  const players = db.all("SELECT id, name, league, source FROM players ORDER BY id");
+  const gone = new Set();
+  for (const c of players.filter((p) => p.source === "college_import")) {
+    const index = nameIndex(players.filter((p) => p.id !== c.id && !gone.has(p.id) && (p.source !== "college_import" || p.id < c.id)));
+    const m = matchName(index, c.name);
+    if (!m) continue;
+    mergePlayer(db, c.id, m.id);
+    gone.add(c.id);
+    merged.push({ from: c.id, into: m.id, name: c.name, into_name: players.find((p) => p.id === m.id).name });
+  }
+  return merged;
+}
+
+// Gives an NCAA board player a Big Board role in `position` unless they already have one, once per player.
+// Returns the role added, or null.
+export function linkToBigBoard(db, playerId, position) {
+  if (db.get("SELECT 1 FROM ncaa_bb_linked WHERE player_id = ?", playerId)) return null;
+  db.run("INSERT INTO ncaa_bb_linked(player_id) VALUES (?)", playerId);
+  if (db.get("SELECT 1 FROM board_entries WHERE player_id = ?", playerId)) return null;
+  const collegeRole = db.get(`SELECT r.role_name FROM ncaa_reports r JOIN ncaa_prospects n ON n.key = r.prospect_key
+    WHERE n.player_id = ? AND r.role_name IS NOT NULL ORDER BY r.year DESC, r.id DESC LIMIT 1`, playerId)?.role_name;
+  const role = bigBoardRole(position, collegeRole);
+  if (role) addRole(db, playerId, role);
+  return role;
+}
+
+// The whole NCAA board, in its order, so each Big Board role lane gets them in NCAA rank order.
+export function linkBoardToBigBoard(db) {
+  const added = [];
+  db.tx(() => {
+    for (const r of db.all("SELECT player_id, position FROM ncaa_board ORDER BY position, rank")) {
+      const role = linkToBigBoard(db, r.player_id, r.position);
+      if (role) added.push({ player_id: r.player_id, role });
+    }
+  });
+  return added;
+}
+
+export const ncaaYears = (db) => db.all("SELECT DISTINCT year FROM ncaa_year_boards ORDER BY year DESC").map((r) => r.year);
+
+// An earlier year's board, as the college database ranked it: prospects (linked to PINE or not) by position.
+export function ncaaYearBoard(db, year) {
+  const board = {};
+  for (const r of db.all(`SELECT b.position, n.key, n.player_id, n.name, n.class, n.year, n.school, n.team, n.grade, n.status,
+      (SELECT count(*) FROM ncaa_reports r WHERE r.prospect_key = n.key) AS reports
+    FROM ncaa_year_boards b JOIN ncaa_prospects n ON n.key = b.prospect_key WHERE b.year = ? ORDER BY b.position, b.rank`, year)) {
+    (board[r.position] ||= []).push(r);
+  }
+  return board;
 }
 
 export async function fetchCollegeData(url = COLLEGE_DATA_URL) {
@@ -189,26 +325,38 @@ export function ncaaBoardView(db) {
   const info = {};
   for (const r of db.all(`SELECT n.player_id, n.key, n.grade, n.grade_present, n.grade_future, n.grade_val, n.class, n.school,
       n.team, n.year, (SELECT count(*) FROM ncaa_reports r WHERE r.prospect_key = n.key) AS reports
-      FROM ncaa_prospects n WHERE n.player_id IS NOT NULL`)) info[r.player_id] = r;
+      FROM ncaa_prospects n WHERE n.player_id IS NOT NULL ORDER BY n.year NULLS FIRST`)) info[r.player_id] = r; // latest profile wins
   const agents = Object.fromEntries(db.all("SELECT player_id, representation, agent, agency FROM agent_info").map((a) => [a.player_id, a]));
-  const last = db.get("SELECT max(imported_at) AS at, count(*) AS n FROM ncaa_prospects");
-  return { board, info, agents, imported_at: last.at, prospects: last.n, board_year: db.get("SELECT max(year) AS y FROM ncaa_prospects").y };
+  return { board, info, agents, ...ncaaSummary(db) };
 }
+
+export function ncaaSummary(db) {
+  const last = db.get("SELECT max(imported_at) AS at, count(*) AS n FROM ncaa_prospects");
+  const years = ncaaYears(db);
+  return { imported_at: last.at, prospects: last.n, reports: db.get("SELECT count(*) AS n FROM ncaa_reports").n,
+    years, live_year: years[0] ?? null };
+}
+
+// Which year boards a prospect is on: {"2025": {position, rank}}.
+const BOARDS_JSON = `(SELECT json_group_object(CAST(b.year AS TEXT), json_object('position', b.position, 'rank', b.rank))
+  FROM ncaa_year_boards b WHERE b.prospect_key = n.key) AS boards`;
+const withBoards = (r) => ({ ...r, years: JSON.parse(r.years || "[]"), boards: JSON.parse(r.boards || "{}") });
 
 // The college database as a table: every prospect, linked or not.
 export function ncaaProspects(db) {
-  return db.all(`SELECT n.key, n.player_id, n.name, n.team, n.school, n.class, n.position, n.grade, n.grade_val, n.year,
-      n.status, n.country, (SELECT count(*) FROM ncaa_reports r WHERE r.prospect_key = n.key) AS reports
-    FROM ncaa_prospects n ORDER BY n.grade_val DESC NULLS LAST, n.name`);
+  return db.all(`SELECT n.key, n.player_id, n.name, n.team, n.school, n.class, n.position, n.grade, n.grade_val, n.year, n.years,
+      n.status, n.country, (SELECT count(*) FROM ncaa_reports r WHERE r.prospect_key = n.key) AS reports, ${BOARDS_JSON}
+    FROM ncaa_prospects n ORDER BY n.grade_val DESC NULLS LAST, n.name`).map(withBoards);
 }
 
 export function prospectDetail(db, { key = null, playerId = null }) {
-  const p = key ? db.get("SELECT * FROM ncaa_prospects WHERE key = ?", key)
-    : db.get("SELECT * FROM ncaa_prospects WHERE player_id = ? ORDER BY year DESC LIMIT 1", playerId);
-  if (!p) return null;
+  const rows = (key ? db.all(`SELECT n.*, ${BOARDS_JSON} FROM ncaa_prospects n WHERE n.key = ?`, key)
+    : db.all(`SELECT n.*, ${BOARDS_JSON} FROM ncaa_prospects n WHERE n.player_id = ? ORDER BY n.year DESC NULLS LAST, n.key`, playerId)).map(withBoards);
+  if (!rows.length) return null;
+  const p = rows[0]; // the most recently scouted profile; its grade and facts lead
   p.positions = JSON.parse(p.positions || "[]");
-  p.years = JSON.parse(p.years || "[]");
-  p.reports = db.all("SELECT * FROM ncaa_reports WHERE prospect_key = ? ORDER BY year DESC, id", p.key)
+  p.boards = Object.assign({}, ...rows.slice(1).reverse().map((r) => r.boards), p.boards);
+  p.reports = db.all(`SELECT * FROM ncaa_reports WHERE prospect_key IN (${rows.map(() => "?").join(",")}) ORDER BY year DESC, id`, ...rows.map((r) => r.key))
     .map((r) => ({ ...r, dates: JSON.parse(r.dates || "[]") }));
   return p;
 }

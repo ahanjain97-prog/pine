@@ -2,7 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { openDb } from "../src/db.js";
-import { importCollege, moveOnNcaaBoard, ncaaBoardView, normName, removeFromNcaaBoard, saveAgent, syncBigBoardNcaa, unlinkProspect } from "../src/lib/ncaa.js";
+import {
+  bigBoardRole, importCollege, linkBoardToBigBoard, matchName, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects, ncaaYearBoard, normName,
+  removeFromNcaaBoard, saveAgent, syncBigBoardNcaa, unlinkProspect,
+} from "../src/lib/ncaa.js";
 
 // A college database in the repository's shape: players with reports, and position-ranked boards keyed
 // by shirt number (p9 = strikers, p4 = left centre-backs).
@@ -35,6 +38,19 @@ const order = (db, position) => db.all(
 test("names match across accents and punctuation", () => {
   assert.equal(normName("Xavier O’Neil"), normName("Xavier ONeil"));
   assert.equal(normName("Úlfur Björnsson"), "ulfur bjornsson");
+  assert.equal(normName("Oliver Møller-Jensen"), "oliver moller jensen");
+});
+
+test("loose name matches: middle names, and short first names among NCAA players; never a guess between two", () => {
+  const index = [
+    { id: 1, t: ["ulfur", "agust", "bjornsson"], ncaa: true }, { id: 2, t: ["matthew", "dreas"], ncaa: true },
+    { id: 3, t: ["martin", "bakken"], ncaa: false }, { id: 4, t: ["sam", "jones"], ncaa: true }, { id: 5, t: ["samuel", "jones"], ncaa: true },
+  ];
+  assert.deepEqual(matchName(index, "Ulfur Bjornsson"), { id: 1, exact: false });
+  assert.deepEqual(matchName(index, "Matt Dreas"), { id: 2, exact: false });
+  assert.equal(matchName(index, "Steinar Bjornsson"), null, "a brother is not the same player");
+  assert.equal(matchName(index, "Marten Bakken"), null, "first-three-letters only for players PINE has in the NCAA");
+  assert.equal(matchName(index, "Sami Jones"), null, "two candidates: no link");
 });
 
 test("the latest college board becomes the NCAA board, in order; existing PINE players are linked, not duplicated", () => {
@@ -139,4 +155,65 @@ test("a player taken off the NCAA board stays off through the Big Board sync and
   removeFromNcaaBoard(db, 70);
   moveOnNcaaBoard(db, 70, "RW", 0);
   assert.deepEqual(order(db, "RW"), ["Big Board Winger"], "dragging back on works after a removal");
+});
+
+test("earlier years' boards are kept as the college database ranked them, and prospects list the boards they're on", () => {
+  const { db, insertPlayer } = setup();
+  const stats = importCollege(db, college(), { insertPlayer });
+  assert.equal(stats.board_year, 2026);
+  assert.deepEqual(ncaaYearBoard(db, 2025).FWD.map((r) => r.name), ["Old Striker"]);
+  assert.equal(ncaaYearBoard(db, 2025).FWD[0].player_id, null, "an old-class prospect with no PINE match still shows");
+  const ana = ncaaProspects(db).find((x) => x.key === "ana striker");
+  assert.deepEqual(ana.boards, { 2026: { position: "FWD", rank: 0 } });
+});
+
+test("college roles pick the Big Board role within the position; anything else takes its first role", () => {
+  assert.equal(bigBoardRole("FWD", "True #9 (Target)"), "FWD2");
+  assert.equal(bigBoardRole("FWD", "Poacher / Finisher"), "FWD1");
+  assert.equal(bigBoardRole("RW", "Inverted Winger"), "RW2");
+  assert.equal(bigBoardRole("RB", "Wing Back"), "RB2");
+  assert.equal(bigBoardRole("LB", "Defensive Fullback"), "LB2");
+  assert.equal(bigBoardRole("RCB", "Leader of the Line"), "RCB1");
+  assert.equal(bigBoardRole("LCB", "Ball-Playing CB"), "LCB1");
+  assert.equal(bigBoardRole("CM", "Box-to-Box Grinder"), "CM2");
+  assert.equal(bigBoardRole("CDM", "True #6 (Double Pivot)"), "CDM1");
+  assert.equal(bigBoardRole("GK", null), "GK1");
+});
+
+test("NCAA board players join the Big Board once, in NCAA order; taking them off the Big Board sticks", () => {
+  const { db, insertPlayer } = setup();
+  db.run("INSERT INTO players(id, name, league) VALUES (80, 'Already Tracked', 'NCAA')");
+  db.run("INSERT INTO board_entries(player_id, role, rank) VALUES (80, 'AM1', 0)");
+  importCollege(db, college(), { insertPlayer });
+  const roles = (name) => db.all("SELECT b.role FROM board_entries b JOIN players p ON p.id = b.player_id WHERE p.name = ?", name).map((r) => r.role);
+  assert.deepEqual(roles("Ana Striker"), ["FWD1"]);
+  assert.deepEqual(roles("Cal Centreback"), ["LCB1"]);
+  assert.deepEqual(roles("Already Tracked"), ["AM1"], "a Big Board player keeps their role and gains no other");
+  assert.deepEqual(db.all("SELECT p.name FROM board_entries b JOIN players p ON p.id = b.player_id WHERE b.role = 'FWD1' ORDER BY b.rank")
+    .map((r) => r.name), ["Ana Striker", "Ben Striker"]);
+  db.run("DELETE FROM board_entries WHERE player_id = (SELECT id FROM players WHERE name = 'Ana Striker')");
+  assert.equal(linkBoardToBigBoard(db).length, 0);
+  importCollege(db, college(), { insertPlayer });
+  assert.deepEqual(roles("Ana Striker"), []);
+});
+
+test("a college-import player who was already in PINE is merged into them, keeping the college rank and staff work", () => {
+  const { db, insertPlayer } = setup();
+  db.run("INSERT INTO users(id, name) VALUES (900, 'Test Scout')");
+  importCollege(db, college(), { insertPlayer }); // Ben Striker is created...
+  // ... while staff had him in PINE under his full name (as happened before names matched this loosely).
+  db.run("INSERT INTO players(id, name, club, league, source, birthdate) VALUES (60, 'Benjamin Striker', 'Duke Blue Devils', 'NCAA', 'tm', '2004-01-02')");
+  db.run("INSERT INTO board_entries(player_id, role, rank) VALUES (60, 'FWD3', 0)");
+  syncBigBoardNcaa(db); // the Big Board sync appends Benjamin to the NCAA board too
+  const ben = db.get("SELECT id FROM players WHERE name = 'Ben Striker'").id;
+  db.run("INSERT INTO notes(player_id, user_id, body) VALUES (?, 900, 'Watched him live')", ben);
+  const merged = mergeCollegeDuplicates(db);
+  assert.deepEqual(merged.map((m) => [m.name, m.into]), [["Ben Striker", 60]]);
+  assert.equal(db.get("SELECT 1 AS found FROM players WHERE id = ?", ben), undefined);
+  assert.deepEqual(order(db, "FWD"), ["Ana Striker", "Benjamin Striker"], "Benjamin takes Ben's college rank, once");
+  assert.equal(db.get("SELECT player_id FROM ncaa_prospects WHERE key = 'ben striker'").player_id, 60);
+  assert.equal(db.get("SELECT count(*) AS n FROM notes WHERE player_id = 60").n, 1);
+  assert.deepEqual(db.all("SELECT role FROM board_entries WHERE player_id = 60 ORDER BY role").map((r) => r.role), ["FWD1", "FWD3"],
+    "the Big Board role he had stays; the one the import gave Ben comes with him");
+  assert.equal(mergeCollegeDuplicates(db).length, 0);
 });
