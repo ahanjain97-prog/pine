@@ -369,7 +369,9 @@ function renderBoard(main) {
   const f = S.board;
   const onBoard = S.players.filter((p) => p.roles.length);
   const count = (d) => onBoard.filter((p) => p.decision === d).length;
-  const unassigned = S.players.filter((p) => !p.roles.length);
+  // College players on the NCAA board without a Big Board role live in its tray, not this one ("+ BB" there adds them).
+  const unassigned = S.players.filter((p) => !p.roles.length && !p.ncaa_board);
+  const onNcaaOnly = S.players.filter((p) => !p.roles.length && p.ncaa_board).length;
   const decs = [["all", "All"], ["pass", "Pass"], ["hold", "Hold"], ["fail", "Fail"], ["none", "Undecided"]];
   main.innerHTML = `<div class="page">
     <div class="page-h">
@@ -384,7 +386,8 @@ function renderBoard(main) {
     </div>
     <div class="pitch-wrap"><div class="pitch">${S.config.positions.map((pos) => posBox(pos)).join("")}</div></div>
     <section class="panel tray">
-      <header class="panel-h"><h2>Not on the board</h2><span class="muted sm">${unassigned.length} player${unassigned.length === 1 ? "" : "s"} · drag onto a role, or drag a card here to take it off</span></header>
+      <header class="panel-h"><h2>Not on the board</h2><span class="muted sm">${unassigned.length} player${unassigned.length === 1 ? "" : "s"} · drag onto a role, or drag a card here to take it off${onNcaaOnly
+        ? ` · ${onNcaaOnly} more college player${onNcaaOnly === 1 ? "" : "s"} on the <a href="#/ncaa">NCAA board</a>` : ""}</span></header>
       <div class="tray-body" data-tray="1">${unassigned.map((p) => boardCard(p, null)).join("") || `<p class="empty">Everyone in PINE has a role on the board.</p>`}</div>
     </section>
   </div>`;
@@ -457,17 +460,20 @@ const l2Line = (e) => [e.year, L2_TIER[e.tier] || e.tier, e.position, e.club].fi
 function l2Badge(entries) {
   if (!entries?.length) return "";
   const years = [...new Set(entries.map((e) => e.year))].sort();
-  return `<span class="roster l2" title="USL League Two Top Prospects: ${esc(entries.map(l2Line).join("; "))}">L2 ${years.map((y) => `’${String(y).slice(-2)}`).join(" ")}</span>`;
+  return `<span class="roster l2" title="USL League Two Top Prospects: ${esc(entries.map(l2Line).join("; "))}">L2${years.map((y) => `’${String(y).slice(-2)}`).join("")}</span>`;
 }
 // College players: their league is entered by hand, so anything naming NCAA ("NCAA", "NCAA D1") counts.
 const isNcaa = (p) => /\bncaa\b/i.test(p.league || "");
-const ncaaBadge = (p) => (isNcaa(p) ? `<span class="roster ncaa" title="College: ${esc(p.league.trim())}${p.college_grade ? ` · college grade ${esc(p.college_grade)} (current/future)` : ""}">NCAA${p.college_grade ? ` ${esc(p.college_grade)}` : ""}</span>` : "");
+// The lavender chip says college; when the college database grades the player, it shows the grade instead of "NCAA".
+const ncaaBadge = (p) => (isNcaa(p) ? `<span class="roster ncaa" title="College (${esc(p.league.trim())})${p.college_grade ? `, college grade ${esc(p.college_grade)} (current/future)` : ""}">${p.college_grade ? esc(p.college_grade) : "NCAA"}</span>` : "");
 
 // The number on a card is its place in the role: on the Big Board its big-board rank, on the Short Board
 // its place among the top targets (spot), so the targets read 1, 2, 3 rather than 1, 5, 6, 10.
 function boardCard(p, role, targetsOnly = false, spot = null) {
   const place = targetsOnly && spot != null ? spot : rankIn(p, role);
-  const sub = [p.age, p.club].filter((x) => x != null && x !== "").join(" · ") || p.position || "";
+  // College clubs carry the school in brackets ("Indiana Hoosiers (Indiana University)"); the team name is enough here.
+  const club = p.club && isNcaa(p) ? p.club.replace(/\s*\([^)]*\)\s*$/, "") : p.club;
+  const sub = [p.age, club].filter((x) => x != null && x !== "").join(" · ") || p.position || "";
   const on = role ? isTopTarget(p, role) : false;
   // The whole card is a link, so the star is a span with a button role; the board's click handler
   // intercepts it before the link fires.

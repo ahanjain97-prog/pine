@@ -149,7 +149,9 @@ the existing sign-in gate. No real player snapshot belongs in this public reposi
   their college profile's country, and otherwise (on start and after each college import) by looking them up on
   Transfermarkt, linking only when exactly one result has their surname at one of their schools (their PINE club
   or college profile's school; initials count, so LMU = Loyola Marymount).
-  College players whose league names NCAA also carry an NCAA tag beside DOM / INTL. Pasting a college player's
+  College players whose league names NCAA also carry a lavender tag beside DOM / INTL: their college grade
+  ("B/B") when the college database grades them, otherwise "NCAA". Cards shorten college clubs to the team name.
+  College players on the NCAA board without a Big Board role stay in the NCAA board's tray, not this one. Pasting a college player's
   Transfermarkt link sets the league to NCAA (Transfermarkt has no league for college programs; the club name
   ends with the school in brackets, e.g. "Indiana Hoosiers (Indiana University)"). A league edited by hand wins.
 - **Short Board** (`#/short-board`): the same pitch, positions and roles as the big board, showing only the

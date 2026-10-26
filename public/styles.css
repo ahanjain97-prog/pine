@@ -163,13 +163,13 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .pitch { position: relative; min-width: 1120px; border-radius: 16px; padding: 22px;
   background: repeating-linear-gradient(180deg, var(--pitch-a) 0 70px, var(--pitch-b) 70px 140px);
   display: grid; gap: 14px; align-items: start;
-  /* Wingers and full-backs span both outer columns on each side (extra width); CM and CDM reach
-     into the inner one of the pair. */
-  grid-template-columns: minmax(0, .7fr) minmax(0, .8fr) repeat(4, minmax(0, 1fr)) minmax(0, .8fr) minmax(0, .7fr);
+  /* Wingers and full-backs span both outer columns on each side (extra width). The forwards' three lanes
+     and the two midfield boxes also use the otherwise empty corners of their rows. */
+  grid-template-columns: minmax(0, .85fr) minmax(0, .95fr) repeat(4, minmax(0, 1fr)) minmax(0, .95fr) minmax(0, .85fr);
   grid-template-areas:
-    ".  .  fwd fwd fwd fwd .   ."
+    ".  fwd fwd fwd fwd fwd fwd ."
     "lw lw am  am  am  am  rw  rw"
-    ".  cm cm  cm  cdm cdm cdm ."
+    "cm cm cm  cm  cdm cdm cdm cdm"
     "lb lb lcb lcb rcb rcb rb  rb"
     ".  .  .   gk  gk  .   .   ."; }
 .pitch::before { content: ""; position: absolute; inset: 10px; border: 2px solid var(--pitch-line); border-radius: 8px; pointer-events: none; }
@@ -218,6 +218,9 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .nm-row { display: flex; align-items: center; gap: 5px; min-width: 0; }
 .nm-row .csub { min-width: 0; }
 .roster { flex: none; font-size: 9px; font-weight: 700; letter-spacing: .05em; line-height: 1; padding: 2px 4px; border-radius: 4px; }
+/* On board cards the tags share a line with age and club, so they're slimmer there. */
+.pcard .roster { font-size: 8.5px; letter-spacing: .02em; padding: 2px 3px; }
+.pcard .nm-row { gap: 3px; }
 /* Light yellow with dark text, the same in light and dark mode. */
 .roster.dom { color: #6b4e00; background: #fdf1b8; border: 1px solid #efd76e; }
 .roster.intl { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
