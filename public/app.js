@@ -439,15 +439,25 @@ const US_CITIZENSHIPS = new Set(["United States", "Vereinigte Staaten", "Puerto 
   "Amerikanische Jungferninseln", "Guam", "Northern Mariana Islands", "Nördliche Marianen"]);
 const ROSTER_STATUSES = ["domestic", "international"];
 const rosterFromCitizenship = (p) => (p.citizenship?.length ? (p.citizenship.some((c) => US_CITIZENSHIPS.has(c)) ? "domestic" : "international") : null);
-const rosterStatus = (p) => p.roster_status || rosterFromCitizenship(p);
+// The USL League Two Top Prospects report's Player Status fills in when nothing else says.
+const l2Status = (p) => (p.l2 || []).find((e) => e.status)?.status || null;
+const rosterStatus = (p) => p.roster_status || rosterFromCitizenship(p) || l2Status(p);
 function rosterBadge(p) {
   const status = rosterStatus(p);
   // No citizenship anywhere and none set by hand: flag it so someone fills it in (Edit details).
   if (!status) return `<span class="roster unk" title="Domestic or international? Not known yet: set it in Edit details">?</span>`;
   const dom = status === "domestic";
   const cit = (p.citizenship || []).join(", ");
-  const why = p.roster_status ? `set manually${cit ? ` (citizenship: ${cit})` : ""}` : cit;
+  const why = p.roster_status ? `set manually${cit ? ` (citizenship: ${cit})` : ""}` : cit || "from the USL League Two Top Prospects report";
   return `<span class="roster ${dom ? "dom" : "intl"}" title="${dom ? "Domestic" : "International"}: ${esc(why)}">${dom ? "DOM" : "INTL"}</span>`;
+}
+// Picked for a USL League Two Top Prospects report: "L2 '26", or "L2 '25 '26" for both years.
+const L2_TIER = { First: "Best XI", Second: "Second XI", Third: "Third XI", Fourth: "Fourth XI", Fifth: "Fifth XI" };
+const l2Line = (e) => [e.year, L2_TIER[e.tier] || e.tier, e.position, e.club].filter(Boolean).join(" · ");
+function l2Badge(entries) {
+  if (!entries?.length) return "";
+  const years = [...new Set(entries.map((e) => e.year))].sort();
+  return `<span class="roster l2" title="USL League Two Top Prospects: ${esc(entries.map(l2Line).join("; "))}">L2 ${years.map((y) => `’${String(y).slice(-2)}`).join(" ")}</span>`;
 }
 // College players: their league is entered by hand, so anything naming NCAA ("NCAA", "NCAA D1") counts.
 const isNcaa = (p) => /\bncaa\b/i.test(p.league || "");
@@ -465,7 +475,7 @@ function boardCard(p, role, targetsOnly = false, spot = null) {
     aria-pressed="${on}" title="${on ? "Remove from the Short Board" : "Add to the Short Board as a top target"}">${on ? "★" : "☆"}</span>` : "";
   return `<a class="pcard ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
     ${role ? `<span class="rank ${place < 3 ? "podium" : ""}">${place + 1}</span>` : ""}${photo(p)}
-    <span class="ci"><div class="nm">${esc(p.name)}</div><div class="nm-row"><span class="csub">${esc(sub)}</span>${rosterBadge(p)}${ncaaBadge(p)}</div></span>${verdictDots(p.verdicts)}${star}</a>`;
+    <span class="ci"><div class="nm">${esc(p.name)}</div><div class="nm-row"><span class="csub">${esc(sub)}</span>${rosterBadge(p)}${ncaaBadge(p)}${l2Badge(p.l2)}</div></span>${verdictDots(p.verdicts)}${star}</a>`;
 }
 
 // Star clicks and Enter/Space on a star, on either board.
@@ -908,7 +918,7 @@ function renderTable(main) {
     const list = tableFiltered();
     $("#t-count", root).textContent = `${list.length} of ${S.players.length} players`;
     $("#t-body", root).innerHTML = list.map((p) => `<tr data-href="#/player/${p.id}">
-      <td class="name">${photo(p)}<div><div class="nm">${esc(p.name)}</div><div class="csub">${esc(p.position || "")}</div></div></td>
+      <td class="name">${photo(p)}<div><div class="nm">${esc(p.name)}</div><div class="csub">${esc(p.position || "")} ${l2Badge(p.l2)}</div></div></td>
       <td>${p.age ?? ""}</td>
       <td>${p.roles.map((r) => `<span class="chip" title="${esc(roleLabel(r.role))}, rank ${r.rank + 1}">${esc(roleShort(r.role))} <b>${r.rank + 1}</b></span>`).join("")}${p.ncaa_board
         ? `<span class="chip ncaa-chip" title="NCAA board, ${esc(p.ncaa_board.position)} rank ${p.ncaa_board.rank + 1}">NCAA ${esc(p.ncaa_board.position)} <b>${p.ncaa_board.rank + 1}</b></span>` : ""}</td>
@@ -1004,8 +1014,11 @@ async function renderPlayer(main, idArg) {
           ${fact("Height", p.height_cm ? `${p.height_cm} cm` : null)}
           ${fact("Foot", cap(p.foot))}
           ${fact("Citizenship", p.citizenship.join(", "))}
-          ${fact("Roster status", rosterStatus(p) ? `${cap(rosterStatus(p))}${p.roster_status ? ` <span class="muted">(set manually)</span>` : ""}`
+          ${fact("Roster status", rosterStatus(p) ? `${cap(rosterStatus(p))}${p.roster_status ? ` <span class="muted">(set manually)</span>`
+              : !rosterFromCitizenship(p) ? ` <span class="muted">(USL L2 report)</span>`
+              : l2Status(p) && l2Status(p) !== rosterStatus(p) ? ` <span class="warn" title="Citizenship says ${esc(rosterStatus(p))}; the USL League Two Top Prospects report lists ${esc(l2Status(p))}">· L2 report says ${esc(cap(l2Status(p)))}</span>` : ""}`
             : `<span class="warn">Unknown</span> <span class="muted">· set it in Edit details</span>`, true)}
+          ${fact("USL L2 Top Prospects", p.l2?.length ? p.l2.map((e) => esc(l2Line(e))).join("<br>") : null, true)}
           ${fact("Other positions", p.other_positions.join(", "))}
           ${fact("Contract expires", p.contract_expires ? `<span class="${contractSoon(p.contract_expires) ? "warn" : ""}">${esc(fmtDate(p.contract_expires))}</span>` : null, true)}
           ${fact("Joined", fmtDate(p.joined))}
@@ -2423,14 +2436,15 @@ function ncaaRow(p, pos, i, d) {
   const star = role ? `<span class="star ${on ? "on" : ""}" data-star="${role}" role="button" tabindex="0" aria-pressed="${on}"
     title="${on ? `Top target at ${esc(roleShort(role))}; click to take off the Short Board` : `Add to the Short Board as a top target at ${esc(roleShort(role))}`}">${on ? "★" : "☆"}</span>` : "";
   const suggest = d.bb_role?.[p.id];
-  const bb = onBB
-    ? `<span class="bbtag" title="On the Big Board: ${esc(p.roles.map((r) => `${roleLabel(r.role)} (rank ${r.rank + 1})`).join(", "))}">BB</span>`
-    : suggest ? `<span class="addbb" data-add-bb="${suggest}" role="button" tabindex="0" title="Add to the Big Board at ${esc(roleLabel(suggest))}">+ BB</span>` : "";
+  const bb = onBB ? `<span class="bbtag" title="On the Big Board: ${esc(p.roles.map((r) => `${roleLabel(r.role)} (rank ${r.rank + 1})`).join(", "))}">BB</span>` : "";
+  // Last in the row's tags: it's hidden until hover, and shouldn't leave a gap before the others.
+  const addBB = !onBB && suggest ? `<span class="addbb" data-add-bb="${suggest}" role="button" tabindex="0" title="Add to the Big Board at ${esc(roleLabel(suggest))}">+ BB</span>` : "";
   return `<a class="pcard nrow ${onBB ? "is-bb" : ""} ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${pos ? `data-pos="${pos}"` : ""}
       data-q="${esc([p.name, sub, p.club].join(" "))}" data-grade="${esc(x?.grade || "")}" data-rep="${esc(d.agents[p.id]?.representation || "unknown")}" data-bb="${onBB ? "on" : "off"}">
     <span class="nrank ${i != null && i < 3 ? "lead" : ""}">${i != null ? i + 1 : ""}</span>
-    <span class="nmain"><span class="nname">${esc(p.name)}</span><span class="nsub">${esc(sub)}</span></span>
-    <span class="ntags">${bb}${rosterBadge(p)}${repChip(d.agents[p.id])}</span>${star}${gradeBadge(x?.grade)}</a>`;
+    <span class="nmain"><span class="nname">${esc(p.name)}</span>
+      <span class="nsubrow"><span class="nsub">${esc(sub)}</span><span class="ntags">${bb}${l2Badge(p.l2)}${rosterBadge(p)}${repChip(d.agents[p.id])}${addBB}</span></span></span>
+    ${star}${gradeBadge(x?.grade)}</a>`;
 }
 
 // One row on an earlier year's board: a prospect, who may or may not be in PINE.
@@ -2440,8 +2454,9 @@ function pastRow(x, i) {
   return `<a class="nrow past ${p?.decision ? "v-" + p.decision : ""}" ${p ? `href="#/player/${p.id}"` : `href="#" data-prospect="${esc(x.key)}"`}
       data-q="${esc([x.name, sub, x.status].join(" "))}" data-grade="${esc(x.grade || "")}" title="${p ? "Open the PINE profile" : "Read the reports"}">
     <span class="nrank ${i < 3 ? "lead" : ""}">${i + 1}</span>
-    <span class="nmain"><span class="nname">${esc(x.name)}</span><span class="nsub">${esc(sub)}</span></span>
-    <span class="ntags">${x.status ? `<span class="nnow" title="Where now">${esc(x.status)}</span>` : ""}</span>${gradeBadge(x.grade)}</a>`;
+    <span class="nmain"><span class="nname">${esc(x.name)}</span>
+      <span class="nsubrow"><span class="nsub">${esc(sub)}</span><span class="ntags">${l2Badge(x.l2)}${x.status ? `<span class="nnow" title="Where now">${esc(x.status)}</span>` : ""}</span></span></span>
+    ${gradeBadge(x.grade)}</a>`;
 }
 
 function ncaaPitch(rowsFor, live) {
@@ -2610,7 +2625,7 @@ async function ncaaDatabase(root, d) {
     $("#pt-body", body).innerHTML = list.map((x) => {
       const p = x.player_id && S.byId.get(x.player_id), b = boardOf(x);
       return `<tr data-key="${esc(x.key)}">
-        <td><div class="nname">${esc(x.name)}</div><div class="nsub">${p ? `<a href="#/player/${p.id}">In PINE</a>` : esc(x.country || "")}</div></td>
+        <td><div class="nname">${esc(x.name)} ${l2Badge(x.l2)}</div><div class="nsub">${p ? `<a href="#/player/${p.id}">In PINE</a>` : esc(x.country || "")}</div></td>
         <td>${esc(x.position || "")}</td><td>${esc(classLabel(x.class, x.year))}</td><td>${esc(x.school || x.team || "")}</td>
         <td>${gradeBadge(x.grade)}</td><td>${esc(x.years.join(", "))}</td><td>${x.status ? `<span class="nnow">${esc(x.status)}</span>` : ""}</td><td>${x.reports || ""}</td>
         <td>${b ? `<span class="nspot">${f.dbYear ? "" : `<i>${b.year}</i>`}${esc(b.position)} <b>${b.rank + 1}</b></span>` : ""}</td></tr>`;

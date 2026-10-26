@@ -124,6 +124,16 @@ CREATE TABLE IF NOT EXISTS ncaa_year_boards(
   prospect_key TEXT NOT NULL REFERENCES ncaa_prospects(key) ON DELETE CASCADE,
   PRIMARY KEY(year, prospect_key)
 );
+-- USL League Two Top Prospects reports, uploaded by scripts/l2-prospects.py (never committed). See src/lib/l2.js.
+CREATE TABLE IF NOT EXISTS l2_prospects(
+  year INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  club TEXT, born INTEGER, tier TEXT, position TEXT, status TEXT, school TEXT, grad TEXT, hometown TEXT,
+  player_id INTEGER REFERENCES players(id) ON DELETE SET NULL,
+  prospect_key TEXT REFERENCES ncaa_prospects(key) ON DELETE SET NULL,
+  PRIMARY KEY(year, name)
+);
+CREATE INDEX IF NOT EXISTS l2_prospects_player ON l2_prospects(player_id);
 -- Taken off the NCAA board by staff: the Big Board sync and later imports don't put them back.
 CREATE TABLE IF NOT EXISTS ncaa_board_removed(
   player_id INTEGER PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,

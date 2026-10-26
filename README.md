@@ -185,6 +185,15 @@ the existing sign-in gate. No real player snapshot belongs in this public reposi
   college-soccer-scouting-2026 repository (`PINE_COLLEGE_DATA_URL`), imported on the first start after the
   section (or its year boards) shipped and again when an admin presses **Re-import**, which refreshes grades,
   reports and past boards and keeps links and the live board's order. Code: `src/lib/ncaa.js`.
+- **USL League Two Top Prospects**: players picked for the league's yearly Top Prospects report carry an
+  orange **L2 '26** tag (**L2 '25 '26** for both years; hover for the XI, position and L2 club) on the Big Board,
+  Short Board, NCAA boards, both database tables and the player page, which lists each pick. The report's
+  Player Status (Domestic / International) fills in DOM / INTL when citizenship doesn't, and the player page
+  notes when the two disagree. The reports are the league's, so they never go in this public repository:
+  `python3 scripts/l2-prospects.py "<report>.pdf" --upload` (PyMuPDF; `PINE_URL` and `PINE_WORKER_TOKEN` set) reads
+  the PDF locally and replaces that year's list in PINE (`PUT /api/worker/l2-prospects`; `--output FILE` to check
+  it first). Entries match PINE players by name, like the college import, and birth years more than a year apart
+  rule a match out; players added later are matched when they're created. Code: `src/lib/l2.js`.
 - **Agent**: a panel on every player page for who represents them (unknown, no agent, advisor, agent),
   agent and agency names, email, phone, last contact and notes. It is PINE's own record; Transfermarkt's
   agent line is shown beneath it for reference and never overwrites it.

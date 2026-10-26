@@ -50,8 +50,8 @@ export const normName = (s) => String(s || "").toLowerCase().replace(/[øæðþ�
 // last name (a middle name on one side: Úlfur Ágúst Björnsson); the same surname and first three letters of
 // the first name (Matt/Matthew, Marten/Martin, Joschi/Josias) for players PINE has in the NCAA. A tier that
 // finds two players stops the search: better no link than a guess.
-const nameTokens = (s) => normName(s).split(" ").filter(Boolean);
-const nameIndex = (players) => players.map((p) => ({ id: p.id, t: nameTokens(p.name), ncaa: /\bncaa\b/i.test(p.league || "") }))
+export const nameTokens = (s) => normName(s).split(" ").filter(Boolean);
+export const nameIndex = (players) => players.map((p) => ({ id: p.id, t: nameTokens(p.name), ncaa: /\bncaa\b/i.test(p.league || "") }))
   .filter((x) => x.t.length);
 export function matchName(index, name) {
   const t = nameTokens(name);
@@ -302,9 +302,9 @@ export const ncaaYears = (db) => db.all("SELECT DISTINCT year FROM ncaa_year_boa
 export function ncaaYearBoard(db, year) {
   const board = {};
   for (const r of db.all(`SELECT b.position, n.key, n.player_id, n.name, n.class, n.year, n.school, n.team, n.grade, n.status,
-      (SELECT count(*) FROM ncaa_reports r WHERE r.prospect_key = n.key) AS reports
+      (SELECT count(*) FROM ncaa_reports r WHERE r.prospect_key = n.key) AS reports, ${L2_JSON}
     FROM ncaa_year_boards b JOIN ncaa_prospects n ON n.key = b.prospect_key WHERE b.year = ? ORDER BY b.position, b.rank`, year)) {
-    (board[r.position] ||= []).push(r);
+    (board[r.position] ||= []).push(parseL2(r));
   }
   return board;
 }
@@ -385,12 +385,16 @@ export function ncaaSummary(db) {
 // Which year boards a prospect is on: {"2025": {position, rank}}.
 const BOARDS_JSON = `(SELECT json_group_object(CAST(b.year AS TEXT), json_object('position', b.position, 'rank', b.rank))
   FROM ncaa_year_boards b WHERE b.prospect_key = n.key) AS boards`;
-const withBoards = (r) => ({ ...r, years: JSON.parse(r.years || "[]"), boards: JSON.parse(r.boards || "{}") });
+// USL League Two Top Prospects picks for a prospect (by their college profile, or the PINE player it's linked to).
+const L2_JSON = `(SELECT json_group_array(json_object('year', l.year, 'tier', l.tier, 'position', l.position, 'club', l.club))
+  FROM l2_prospects l WHERE l.prospect_key = n.key OR (n.player_id IS NOT NULL AND l.player_id = n.player_id)) AS l2`;
+const parseL2 = (r) => ({ ...r, l2: JSON.parse(r.l2 || "[]").sort((a, b) => b.year - a.year) });
+const withBoards = (r) => parseL2({ ...r, years: JSON.parse(r.years || "[]"), boards: JSON.parse(r.boards || "{}") });
 
 // The college database as a table: every prospect, linked or not.
 export function ncaaProspects(db) {
   return db.all(`SELECT n.key, n.player_id, n.name, n.team, n.school, n.class, n.position, n.grade, n.grade_val, n.year, n.years,
-      n.status, n.country, (SELECT count(*) FROM ncaa_reports r WHERE r.prospect_key = n.key) AS reports, ${BOARDS_JSON}
+      n.status, n.country, (SELECT count(*) FROM ncaa_reports r WHERE r.prospect_key = n.key) AS reports, ${BOARDS_JSON}, ${L2_JSON}
     FROM ncaa_prospects n ORDER BY n.grade_val DESC NULLS LAST, n.name`).map(withBoards);
 }
 

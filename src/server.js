@@ -37,6 +37,7 @@ import {
   fetchCollegeData, fillCitizenshipFromCollege, getAgent, importCollege, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects,
   ncaaSpot, ncaaSummary, ncaaYearBoard, pickCollegeTmMatch, prospectDetail, removeFromNcaaBoard, saveAgent, undoBigBoardAutoLink, unlinkProspect,
 } from "./lib/ncaa.js";
+import { linkL2, saveL2Report } from "./lib/l2.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
 
@@ -146,6 +147,7 @@ function hydrate(p) {
   if ("roles_json" in p) { p.roles = JSON.parse(p.roles_json || "[]").sort((a, b) => a.role.localeCompare(b.role)); delete p.roles_json; }
   if ("verdicts_json" in p) { p.verdicts = JSON.parse(p.verdicts_json || "{}"); delete p.verdicts_json; }
   if ("ncaa_json" in p) { p.ncaa_board = p.ncaa_json ? JSON.parse(p.ncaa_json) : null; delete p.ncaa_json; }
+  if ("l2_json" in p) { p.l2 = JSON.parse(p.l2_json || "[]").sort((a, b) => b.year - a.year); delete p.l2_json; }
   return p;
 }
 
@@ -157,6 +159,8 @@ const PLAYER_SELECT = `
     (SELECT max(n.created_at) FROM notes n WHERE n.player_id = p.id) AS last_note_at,
     (SELECT json_object('position', nb.position, 'rank', nb.rank) FROM ncaa_board nb WHERE nb.player_id = p.id) AS ncaa_json,
     (SELECT np.grade FROM ncaa_prospects np WHERE np.player_id = p.id ORDER BY np.year DESC LIMIT 1) AS college_grade,
+    (SELECT json_group_array(json_object('year', l.year, 'tier', l.tier, 'position', l.position, 'club', l.club, 'status', l.status))
+      FROM l2_prospects l WHERE l.player_id = p.id) AS l2_json,
     (SELECT json_group_array(DISTINCT a.user_id) FROM activity a
       WHERE a.player_id = p.id AND a.user_id IS NOT NULL AND a.action <> 'added_player') AS changed_by_json
   FROM players p`;
@@ -170,6 +174,7 @@ function insertPlayer(fields, userId, source) {
     `INSERT INTO players(${cols.join(",")}, source, created_by) VALUES (${cols.map(() => "?").join(",")}, ?, ?)`,
     ...vals, source, userId
   );
+  linkL2(db); // a new player may be on a USL League Two Top Prospects report
   return Number(r.lastInsertRowid);
 }
 
@@ -699,6 +704,16 @@ if (!db.get("SELECT 1 FROM ncaa_prospects LIMIT 1") || !db.get("SELECT 1 FROM nc
     .then((s) => console.log(`[ncaa] imported ${s.prospects} prospects, ${s.reports} reports; ${s.created} new players, ${s.boarded} on the NCAA board`))
     .catch((e) => console.warn("[ncaa] college import failed:", e.message)), 8000);
 }
+
+/* ---------- USL League Two Top Prospects reports (see src/lib/l2.js) ---------- */
+app.put("/api/worker/l2-prospects", bodyLimit({ maxSize: 1024 * 1024 }), async (c) => {
+  const body = await c.req.json().catch(() => null);
+  let result;
+  try { result = saveL2Report(db, body); } catch (e) { fail(400, e.message); }
+  logActivity(db, null, null, "imported_l2", { year: body.year, ...result });
+  return c.json({ ok: true, year: body.year, ...result });
+});
+linkL2(db);
 
 /* ---------- board ---------- */
 app.post("/api/board/move", async (c) => {
