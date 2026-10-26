@@ -33,6 +33,10 @@ import { addRole as addRoleTo, compactRanks as compactRanksIn, copyToRole as cop
 import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.js";
 import { registerScoutingContext } from "./lib/scouting_context.js";
 import { gatesEligible, moveDate as gatesMoveDate, registerGates } from "./lib/mlsnp_gates.js";
+import {
+  fetchCollegeData, getAgent, importCollege, moveOnNcaaBoard, ncaaBoardView, ncaaProspects, ncaaSpot, prospectDetail,
+  removeFromNcaaBoard, saveAgent, unlinkProspect,
+} from "./lib/ncaa.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
 
@@ -141,6 +145,7 @@ function hydrate(p) {
   p.mlsnp_gates_eligible = gatesEligible(p);
   if ("roles_json" in p) { p.roles = JSON.parse(p.roles_json || "[]").sort((a, b) => a.role.localeCompare(b.role)); delete p.roles_json; }
   if ("verdicts_json" in p) { p.verdicts = JSON.parse(p.verdicts_json || "{}"); delete p.verdicts_json; }
+  if ("ncaa_json" in p) { p.ncaa_board = p.ncaa_json ? JSON.parse(p.ncaa_json) : null; delete p.ncaa_json; }
   return p;
 }
 
@@ -150,6 +155,7 @@ const PLAYER_SELECT = `
     (SELECT json_group_object(u.name, v.verdict) FROM verdicts v JOIN users u ON u.id = v.user_id WHERE v.player_id = p.id) AS verdicts_json,
     (SELECT count(*) FROM notes n WHERE n.player_id = p.id) AS note_count,
     (SELECT max(n.created_at) FROM notes n WHERE n.player_id = p.id) AS last_note_at,
+    (SELECT json_object('position', nb.position, 'rank', nb.rank) FROM ncaa_board nb WHERE nb.player_id = p.id) AS ncaa_json,
     (SELECT json_group_array(DISTINCT a.user_id) FROM activity a
       WHERE a.player_id = p.id AND a.user_id IS NOT NULL AND a.action <> 'added_player') AS changed_by_json
   FROM players p`;
@@ -378,6 +384,13 @@ app.get("/api/changes", (c) => c.json({ version: db.get("SELECT coalesce(max(id)
 /* ---------- players ---------- */
 app.get("/api/players", (c) => c.json({ players: db.all(`${PLAYER_SELECT} ORDER BY p.name COLLATE NOCASE`).map(hydrate) }));
 
+// The player's NCAA board spot and how many share the position, or the position they'd be added at.
+function ncaaPlace(player) {
+  const spot = ncaaSpot(db, player.id);
+  if (!spot) return { suggest: player.roles[0] ? ROLES[player.roles[0].role]?.position : suggestPosition(player.position, player.foot) };
+  return { ...spot, of: db.get("SELECT count(*) AS n FROM ncaa_board WHERE position = ?", spot.position).n };
+}
+
 app.get("/api/players/:id", (c) => {
   const player = getPlayer(c.req.param("id"));
   const staff = db.all("SELECT id, name FROM users ORDER BY sort, id").map((u) => {
@@ -395,7 +408,10 @@ app.get("/api/players/:id", (c) => {
      WHERE a.player_id = ? ORDER BY a.id DESC LIMIT 40`, player.id);
   const lists = db.all("SELECT l.id, l.name, l.source FROM list_members m JOIN lists l ON l.id = m.list_id WHERE m.player_id = ?", player.id);
   const decision_by = player.decision_by ? db.get("SELECT name FROM users WHERE id = ?", player.decision_by)?.name : null;
-  return c.json({ player: { ...player, decision_by_name: decision_by }, staff, activity, lists });
+  return c.json({
+    player: { ...player, decision_by_name: decision_by }, staff, activity, lists,
+    college: prospectDetail(db, { playerId: player.id }), ncaa: ncaaPlace(player), agent: getAgent(db, player.id),
+  });
 });
 
 app.post("/api/tm/preview", async (c) => {
@@ -565,6 +581,65 @@ app.delete("/api/notes/:id", (c) => {
   logActivity(db, note.user_id, note.player_id, "deleted_note", { note_id: note.id });
   return c.json({ ok: true });
 });
+
+/* ---------- NCAA (college scouting database + NCAA board, see src/lib/ncaa.js) ---------- */
+const NCAA_POSITIONS = new Set(POSITIONS.map((p) => p.code));
+const collegePlayer = (userId) => (fields) => insertPlayer(fields, userId, "college_import");
+async function runCollegeImport(userId) {
+  const stats = importCollege(db, await fetchCollegeData(), { insertPlayer: collegePlayer(userId) });
+  logActivity(db, userId, null, "imported_college", stats);
+  return stats;
+}
+app.get("/api/ncaa", (c) => c.json(ncaaBoardView(db)));
+app.get("/api/ncaa/prospects", (c) => c.json({ prospects: ncaaProspects(db) }));
+app.get("/api/ncaa/prospects/:key", (c) => c.json({ prospect: prospectDetail(db, { key: c.req.param("key") }) || fail(404, "Prospect not found") }));
+app.post("/api/ncaa/move", async (c) => {
+  const user = c.get("user");
+  const { player_id, position, index } = await c.req.json();
+  if (!NCAA_POSITIONS.has(position)) fail(400, `Unknown position ${position}`);
+  const p = getPlayer(player_id);
+  const { before, after } = moveOnNcaaBoard(db, p.id, position, Number.isInteger(index) ? index : null);
+  if (!before || before.position !== after.position || before.spot !== after.spot) {
+    logActivity(db, user.id, p.id, "moved_on_ncaa_board", { from: before?.position || null, to: after.position, spot: after.spot });
+  }
+  return c.json({ ok: true });
+});
+app.delete("/api/ncaa/board/:id", (c) => {
+  const user = c.get("user");
+  const p = getPlayer(c.req.param("id"));
+  const before = removeFromNcaaBoard(db, p.id);
+  if (before) logActivity(db, user.id, p.id, "removed_from_ncaa_board", before);
+  return c.json({ ok: true });
+});
+// A name match that's wrong: "not this player" unlinks the college profile for good.
+app.delete("/api/ncaa/prospects/:key/link", (c) => {
+  const user = c.get("user");
+  const prospect = prospectDetail(db, { key: c.req.param("key") }) || fail(404, "Prospect not found");
+  if (prospect.player_id) {
+    unlinkProspect(db, prospect.key);
+    logActivity(db, user.id, prospect.player_id, "unlinked_college", { key: prospect.key, name: prospect.name });
+  }
+  return c.json({ ok: true });
+});
+app.post("/api/ncaa/import", async (c) => {
+  const user = c.get("user");
+  if (!user.is_admin) fail(403, "Only admins can re-import the college database");
+  return c.json(await runCollegeImport(user.id));
+});
+app.put("/api/players/:id/agent", async (c) => {
+  const user = c.get("user");
+  const p = getPlayer(c.req.param("id"));
+  let agent;
+  try { agent = saveAgent(db, p.id, await c.req.json(), user.id); } catch (e) { fail(400, e.message); }
+  logActivity(db, user.id, p.id, "updated_agent", { representation: agent.representation });
+  return c.json({ agent });
+});
+// First start after the NCAA section ships: bring the college database in once, in the background.
+if (!db.get("SELECT 1 FROM ncaa_prospects LIMIT 1")) {
+  setTimeout(() => runCollegeImport(null)
+    .then((s) => console.log(`[ncaa] imported ${s.prospects} prospects, ${s.reports} reports; ${s.created} new players, ${s.boarded} on the NCAA board`))
+    .catch((e) => console.warn("[ncaa] college import failed:", e.message)), 8000);
+}
 
 /* ---------- board ---------- */
 app.post("/api/board/move", async (c) => {

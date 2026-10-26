@@ -60,7 +60,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .icon-btn { background: none; border: 1px solid transparent; border-radius: 6px; width: 24px; height: 24px; display: inline-grid; place-items: center;
   cursor: pointer; color: var(--muted); font-size: 16px; line-height: 1; padding: 0; flex: none; }
 .icon-btn:hover { color: var(--ink); background: var(--surface-2); border-color: var(--line); }
-input[type=text], input[type=search], input[type=email], input[type=password], input[type=url], input[type=date], input[type=number], input:not([type]), select, textarea {
+input[type=text], input[type=search], input[type=email], input[type=password], input[type=url], input[type=date], input[type=number], input[type=tel], input:not([type]), select, textarea {
   background: var(--surface); border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 10px; font-size: 13px; min-width: 0; }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
 textarea { width: 100%; resize: vertical; line-height: 1.5; }
@@ -225,6 +225,37 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .roster.ncaa { color: #4a2380; background: #ece4fb; border: 1px solid #c9b5ef; }
 .tray { margin-top: 16px; }
 .tray-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; min-height: 50px; padding: 4px; }
+.tray-body > .empty { grid-column: 1 / -1; }
+
+/* ---------- NCAA board + college scouting ---------- */
+/* College grades (current/future), coloured by the future grade. Fixed colours, readable in both themes. */
+.grade { flex: none; font: 700 11px/1 var(--body); letter-spacing: .02em; padding: 3px 5px; border-radius: 5px; white-space: nowrap;
+  color: #44524b; background: #eceeec; border: 1px solid #d2d6d3; }
+.grade.g-a { color: #0f5c34; background: #d9f2e4; border-color: #98d8b3; }
+.grade.g-b { color: #17407a; background: #dfe9fb; border-color: #a9c2ef; }
+.grade.g-c { color: #6b4e00; background: #fbefd2; border-color: #ead29a; }
+.grade.g-d { color: #8e2a22; background: #fbe2df; border-color: #efb4ae; }
+.grade.lg { font-size: 13px; padding: 4px 8px; }
+.rep { flex: none; font-size: 9px; font-weight: 700; letter-spacing: .05em; line-height: 1; padding: 2px 4px; border-radius: 4px; border: 1px solid var(--line-2); color: var(--ink-2); }
+.rep.rep-none { color: #0f5c34; background: #d9f2e4; border-color: #98d8b3; } /* unrepresented: the one recruiters look for */
+.rep.rep-advisor { color: var(--ink-2); background: var(--surface-2); }
+.rep.rep-agent { color: var(--ink); background: var(--none-bg); }
+.ncaa-pitch .lane { border: 0; background: transparent; }
+.ncaa-pitch .lane-body { max-height: 520px; padding: 4px 2px 2px; }
+.reports { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.report { border: 1px solid var(--line); border-radius: 9px; padding: 8px 11px 10px; background: var(--surface-2); }
+.report-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); }
+.report-h .muted { margin-left: auto; }
+.report-t { font-weight: 600; }
+.report-body { white-space: pre-line; font-size: 13px; line-height: 1.5; margin-top: 6px; overflow-wrap: anywhere; }
+.more-reports summary { cursor: pointer; color: var(--accent); font-size: 12.5px; font-weight: 600; padding: 10px 0 0; }
+.agent-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 10px; }
+.agent-form label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); min-width: 0; }
+.agent-form input, .agent-form select, .agent-form textarea { width: 100%; text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 13px; color: var(--ink); }
+.agent-form .wide { grid-column: 1 / -1; }
+.agent-notes { white-space: pre-line; font-size: 13px; margin-top: 8px; }
+.grid.prospects tbody tr { cursor: pointer; }
+.grid.prospects tbody tr:hover { background: var(--surface-2); }
 
 /* ---------- database table ---------- */
 .table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }

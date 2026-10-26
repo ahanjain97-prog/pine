@@ -1,5 +1,5 @@
 // PINE front end: single page, no build step.
-// Routes: #/board  #/players  #/player/:id  #/impect  #/activity  #/staff
+// Routes: #/board  #/short-board  #/ncaa[/database]  #/players  #/player/:id  #/impect  #/activity  #/staff
 // Shared links come in as /p/:id, which the server rewrites to #/player/:id before this boots.
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -277,6 +277,7 @@ function renderShell() {
     <nav class="nav" id="nav">
       <a href="#/board" data-v="board">Big Board</a>
       <a href="#/short-board" data-v="short-board">Short Board</a>
+      <a href="#/ncaa" data-v="ncaa">NCAA</a>
       <a href="#/players" data-v="players">Database</a>
       <a href="#/impect" data-v="impect">Impect</a>
       <a href="#/activity" data-v="activity">Activity</a>
@@ -351,7 +352,7 @@ async function render() {
   const { view, arg } = route();
   $$("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.v === view || (view === "player" && a.dataset.v === "players")));
   $("#upd").hidden = true;
-  const views = { board: renderBoard, "short-board": renderShortBoard, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
+  const views = { board: renderBoard, "short-board": renderShortBoard, ncaa: renderNcaa, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
   // Pitch maps had their own tab for a day; its links now open the player's page, where the maps live.
   if (view === "maps") { location.hash = arg ? `#/player/${arg}` : "#/players"; return; }
   if (!views[view]) { location.hash = "#/board"; return; }
@@ -359,7 +360,7 @@ async function render() {
   const want = canonicalUrl({ view, arg });
   if (location.pathname + location.hash !== want) history.replaceState(null, "", want);
   // The player view retitles itself once the profile loads.
-  setTitle({ board: "Big Board", players: "Database", impect: "Impect", activity: "Activity", staff: "Staff" }[view]);
+  setTitle({ board: "Big Board", ncaa: "NCAA", players: "Database", impect: "Impect", activity: "Activity", staff: "Staff" }[view]);
   await views[view]($("#main"), arg);
 }
 
@@ -368,7 +369,9 @@ function renderBoard(main) {
   const f = S.board;
   const onBoard = S.players.filter((p) => p.roles.length);
   const count = (d) => onBoard.filter((p) => p.decision === d).length;
-  const unassigned = S.players.filter((p) => !p.roles.length);
+  // College players placed on the NCAA board live there, not in this tray.
+  const unassigned = S.players.filter((p) => !p.roles.length && !p.ncaa_board);
+  const onNcaaOnly = S.players.filter((p) => !p.roles.length && p.ncaa_board).length;
   const decs = [["all", "All"], ["pass", "Pass"], ["hold", "Hold"], ["fail", "Fail"], ["none", "Undecided"]];
   main.innerHTML = `<div class="page">
     <div class="page-h">
@@ -383,7 +386,8 @@ function renderBoard(main) {
     </div>
     <div class="pitch-wrap"><div class="pitch">${S.config.positions.map((pos) => posBox(pos)).join("")}</div></div>
     <section class="panel tray">
-      <header class="panel-h"><h2>Not on the board</h2><span class="muted sm">${unassigned.length} player${unassigned.length === 1 ? "" : "s"} · drag onto a role, or drag a card here to take it off</span></header>
+      <header class="panel-h"><h2>Not on the board</h2><span class="muted sm">${unassigned.length} player${unassigned.length === 1 ? "" : "s"} · drag onto a role, or drag a card here to take it off${onNcaaOnly
+        ? ` · ${onNcaaOnly} more on the <a href="#/ncaa">NCAA board</a>` : ""}</span></header>
       <div class="tray-body" data-tray="1">${unassigned.map((p) => boardCard(p, null)).join("") || `<p class="empty">Everyone in PINE has a role on the board.</p>`}</div>
     </section>
   </div>`;
@@ -557,20 +561,32 @@ function wireBoard(root, { short = false } = {}) {
     $("#bf-league", root).addEventListener("change", (e) => { S.board.league = e.target.value; applyBoardFilter(root); });
     $("#bf-q", root).addEventListener("input", (e) => { S.board.q = e.target.value; applyBoardFilter(root); });
   }
-  // On the Short Board a card can go to any role's lane; dropping it into a different role asks whether
-  // to move the player or keep them in both (see chooseMoveOrCopy).
-  const accepts = (zone) => Boolean(zone);
   root.addEventListener("click", (e) => {
     const b = e.target.closest("[data-add-role]");
     if (b) { e.preventDefault(); openRolePicker(b.dataset.addRole); }
   });
+  // On the Short Board a card can go to any role's lane; dropping it into a different role asks whether
+  // to move the player or keep them in both (see chooseMoveOrCopy).
+  wireCardDrag(root, ".lane-body, [data-tray]", (zone, card, before) => {
+    const pid = Number(card.dataset.pid), from = card.dataset.role || null;
+    if (zone.matches(".lane-body")) {
+      const index = dropIndexFor(zone.dataset.role, pid, before ? Number(before.dataset.pid) : null, Boolean(zone.dataset.short));
+      if (zone.dataset.short && from && from !== zone.dataset.role) { chooseMoveOrCopy(pid, from, zone.dataset.role, index); return null; }
+      return api("POST", "/api/board/move", { player_id: pid, from_role: from, to_role: zone.dataset.role, index });
+    }
+    return from ? api("DELETE", `/api/players/${pid}/roles/${from}`) : null;
+  });
+}
 
+// Drag a card into a lane (a marker shows where it will land) or onto the tray. `zones` selects the drop
+// targets; onDrop(zone, card, cardBelow) returns the request to make, if any, and the page refreshes after.
+function wireCardDrag(root, zones, onDrop) {
   let marker = null;
   const clear = () => { marker?.remove(); marker = null; $$(".over", root).forEach((x) => x.classList.remove("over")); };
   root.addEventListener("dragstart", (e) => {
     const card = e.target.closest?.(".pcard[draggable]");
     if (!card) return;
-    S.dragging = { pid: Number(card.dataset.pid), from: card.dataset.role || null, el: card };
+    S.dragging = { pid: Number(card.dataset.pid), el: card };
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", card.dataset.pid);
     requestAnimationFrame(() => card.classList.add("dragging"));
@@ -578,8 +594,8 @@ function wireBoard(root, { short = false } = {}) {
   root.addEventListener("dragend", () => { S.dragging?.el?.classList.remove("dragging"); S.dragging = null; clear(); });
   root.addEventListener("dragover", (e) => {
     if (!S.dragging) return;
-    const zone = e.target.closest(".lane-body, [data-tray]");
-    if (!zone || !accepts(zone)) return;
+    const zone = e.target.closest(zones);
+    if (!zone) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     if (!zone.classList.contains("over")) { $$(".over", root).forEach((x) => x.classList.remove("over")); zone.classList.add("over"); }
@@ -590,30 +606,19 @@ function wireBoard(root, { short = false } = {}) {
     } else marker?.remove();
   });
   root.addEventListener("dragleave", (e) => {
-    const zone = e.target.closest?.(".lane-body, [data-tray]");
+    const zone = e.target.closest?.(zones);
     if (zone && !zone.contains(e.relatedTarget)) { zone.classList.remove("over"); if (marker && zone.contains(marker)) marker.remove(); }
   });
   root.addEventListener("drop", async (e) => {
     if (!S.dragging) return;
-    const zone = e.target.closest(".lane-body, [data-tray]");
-    if (!zone || !accepts(zone)) return;
+    const zone = e.target.closest(zones);
+    if (!zone) return;
     e.preventDefault();
-    const { pid, from } = S.dragging;
-    let req = null;
-    if (zone.matches(".lane-body")) {
-      const before = cardAfter(zone, e.clientY);
-      const index = dropIndexFor(zone.dataset.role, pid, before ? Number(before.dataset.pid) : null, Boolean(zone.dataset.short));
-      if (zone.dataset.short && from && from !== zone.dataset.role) {
-        clear();
-        S.dragging = null;
-        return chooseMoveOrCopy(pid, from, zone.dataset.role, index);
-      }
-      req = api("POST", "/api/board/move", { player_id: pid, from_role: from, to_role: zone.dataset.role, index });
-    } else if (from) {
-      req = api("DELETE", `/api/players/${pid}/roles/${from}`);
-    }
+    const card = S.dragging.el;
+    const before = zone.matches(".lane-body") ? cardAfter(zone, e.clientY) : null;
     clear();
     S.dragging = null;
+    const req = onDrop(zone, card, before);
     if (!req) return;
     try { await req; await afterMutation(); } catch (err) { oops(err); }
   });
@@ -1036,11 +1041,14 @@ async function renderPlayer(main, idArg) {
           <textarea id="summary" rows="3" data-draft data-orig="${esc(p.summary || "")}" placeholder="Overall summary, fit, next steps…">${esc(p.summary || "")}</textarea>
           <div class="row end" style="margin-top:6px"><button type="button" class="btn sm" id="save-summary">Save summary</button></div>
         </section>
+        ${collegePanel(d)}
         <section class="panel"><header class="panel-h"><h2>Staff evaluations</h2></header><div class="evals">${d.staff.map(evalHTML).join("")}</div></section>
       </div>
       <div>
         ${p.tm_url ? "" : `<section class="panel" id="tm-panel"><header class="panel-h"><h2>Transfermarkt</h2></header><div class="loading sm">Searching Transfermarkt…</div></section>`}
         <section class="panel"><header class="panel-h"><h2>Big board</h2></header>${rolesPanel(p)}</section>
+        ${ncaaBoardPanel(p, d)}
+        ${agentPanel(p, d.agent)}
         ${d.lists.length ? `<section class="panel"><header class="panel-h"><h2>Lists</h2></header><div class="row">${d.lists.map((l) => `<span class="chip">${esc(l.name)}</span>`).join("")}</div></section>` : ""}
         <section class="panel" id="impect-panel"><header class="panel-h"><h2>Impect</h2></header><div class="loading sm">Loading…</div></section>
         <section class="panel"><header class="panel-h"><h2>History</h2></header>${historyHTML(d.activity)}</section>
@@ -1427,6 +1435,28 @@ function wirePlayer(root, d) {
         await api("POST", "/api/board/move", { player_id: p.id, from_role: role, to_role: role, index: rankIn(p, role) + Number(dir) });
         return await afterMutation();
       }
+      if (t.id === "ncaa-add-btn") {
+        await api("POST", "/api/ncaa/move", { player_id: p.id, position: $("#ncaa-pos-sel", root).value, index: null });
+        return await afterMutation();
+      }
+      if (t.dataset.ncaaMove) {
+        await api("POST", "/api/ncaa/move", { player_id: p.id, position: d.ncaa.position, index: d.ncaa.spot + Number(t.dataset.ncaaMove) });
+        return await afterMutation();
+      }
+      if (t.id === "ncaa-rm") { await api("DELETE", `/api/ncaa/board/${p.id}`); return await afterMutation(); }
+      if (t.id === "college-unlink") {
+        if (!confirm(`Unlink the college profile “${d.college.name}” (${d.college.school || d.college.team || "college"}) from ${p.name}? It won't be matched to them again.`)) return;
+        await api("DELETE", `/api/ncaa/prospects/${encodeURIComponent(d.college.key)}/link`);
+        return await afterMutation();
+      }
+      if (t.id === "agent-edit" || t.id === "agent-cancel") {
+        const editing = t.id === "agent-edit";
+        $("#agent-form", root).hidden = !editing;
+        $("#agent-view", root).hidden = editing;
+        $("#agent-edit", root).hidden = editing;
+        if (editing) $("#agent-form select", root).focus(); else $("#agent-form", root).reset();
+        return;
+      }
       if (t.dataset.noteEdit) return editNote(root, d, Number(t.dataset.noteEdit));
       if (t.dataset.noteDel) {
         if (!confirm("Delete this note?")) return;
@@ -1449,6 +1479,16 @@ function wirePlayer(root, d) {
       f.elements.body.value = "";
       f.elements.context.value = "";
       toast("Note added");
+      await afterMutation();
+    } catch (err) { oops(err); btn.disabled = false; }
+  });
+  $("#agent-form", root).addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = $("button[type=submit]", e.target);
+    btn.disabled = true;
+    try {
+      await api("PUT", `/api/players/${p.id}/agent`, Object.fromEntries(new FormData(e.target)));
+      toast("Agent details saved");
       await afterMutation();
     } catch (err) { oops(err); btn.disabled = false; }
   });
@@ -2339,9 +2379,286 @@ async function loadTmMatch(root) {
   poll();
 }
 
+/* ---------- NCAA: the college scouting database and the position-ranked NCAA board ---------- */
+// College grades read current/future: "C/B" is a C player now with a B ceiling. Badges take their colour
+// from the future grade, which is what the college database ranks by.
+const gradeTone = (g) => ({ A: "g-a", B: "g-b", C: "g-c", D: "g-d" })[String(g || "").split("/").pop().trim()[0]] || "";
+const gradeBadge = (g, cls = "") => (g ? `<span class="grade ${gradeTone(g)} ${cls}" title="College grade ${esc(g)}${g.includes("/") ? " (current/future)" : ""}">${esc(g)}</span>` : "");
+const CLASS_SHORT = { freshman: "Fr", sophomore: "So", junior: "Jr", senior: "Sr", "grad student": "Grad", gr: "Grad", "5th year": "5th" };
+// The class is the one at the player's last scouted season, so it carries that year: "Jr '25".
+function classLabel(c, year) {
+  if (!c) return "";
+  const [, redshirt, rest] = String(c).trim().match(/^(r-)?(.*)$/i);
+  const short = (redshirt ? "R-" : "") + (CLASS_SHORT[rest.toLowerCase()] || rest);
+  return year ? `${short} '${String(year).slice(-2)}` : short;
+}
+const REPRESENTATION = [["unknown", "Unknown"], ["none", "No agent"], ["advisor", "Advisor"], ["agent", "Agent"]];
+const repLabel = (r) => (REPRESENTATION.find(([k]) => k === r) || REPRESENTATION[0])[1];
+function repChip(a) {
+  const r = a?.representation;
+  if (!r || r === "unknown") return "";
+  const who = [a.agent, a.agency].filter(Boolean).join(", ");
+  return `<span class="rep rep-${r}" title="${esc(r === "none" ? "No agent or advisor" : `${repLabel(r)}${who ? `: ${who}` : ""}`)}">${{ none: "NO AGT", advisor: "ADV", agent: "AGT" }[r]}</span>`;
+}
+
+function ncaaCard(p, pos, spot, d) {
+  const x = d.info[p.id];
+  const sub = [classLabel(x?.class, x?.year), x?.school || x?.team || p.club].filter(Boolean).join(" · ") || p.position || "";
+  return `<a class="pcard ncard ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${pos ? `data-pos="${pos}"` : ""}>
+    ${pos ? `<span class="rank ${spot < 3 ? "podium" : ""}">${spot + 1}</span>` : ""}${photo(p)}
+    <span class="ci"><div class="nm">${esc(p.name)}</div><div class="nm-row"><span class="csub">${esc(sub)}</span>${rosterBadge(p)}${repChip(d.agents[p.id])}</div></span>
+    ${gradeBadge(x?.grade)}${verdictDots(p.verdicts)}</a>`;
+}
+
+function ncaaPosBox(pos, d) {
+  const ids = (d.board[pos.code] || []).filter((id) => S.byId.has(id));
+  const line = POS_LINE[pos.code] || "def";
+  return `<section class="pos" style="grid-area:${pos.area};--pc:var(--pc-${line});--pc-ink:var(--pc-${line}-ink)">
+    <header class="pos-h"><span class="pos-code">${pos.code}</span><span class="pos-label">${esc(pos.label)}</span><span class="pos-n">${ids.length}</span></header>
+    <div class="lanes"><div class="lane"><div class="lane-body" data-ncaa-pos="${pos.code}">${ids.map((id, i) => ncaaCard(S.byId.get(id), pos.code, i, d)).join("")
+      || `<div class="lane-empty">Drop players here</div>`}</div></div></div>
+  </section>`;
+}
+
+S.ncaa = { q: "", grade: "", rep: "", year: "", sort: "grade", dir: -1 };
+const GRADE_FILTER = [["", "Any grade"], ["A", "A ceiling"], ["B", "B ceiling"], ["C", "C ceiling"], ["D", "D ceiling"]];
+const gradeMatch = (g, want) => !want || gradeTone(g) === `g-${want.toLowerCase()}`;
+const ncaaTabs = (tab) => `<div class="seg" id="ncaa-tab">${[["board", "Board"], ["database", "College database"]]
+  .map(([k, l]) => `<button type="button" data-tab="${k}" class="${tab === k ? "on" : ""}">${l}</button>`).join("")}</div>`;
+
+async function renderNcaa(main, arg) {
+  const tab = arg === "database" ? "database" : "board";
+  if (!$(".ncaa-page", main)) main.innerHTML = `<div class="page"><div class="loading">Loading…</div></div>`;
+  let d;
+  try { d = await api("GET", "/api/ncaa"); } catch (e) {
+    main.innerHTML = `<div class="page"><div class="empty-state">${esc(e.message)}</div></div>`;
+    return;
+  }
+  if (route().view !== "ncaa") return;
+  const f = S.ncaa;
+  const onBoard = new Set(Object.values(d.board).flat());
+  const reps = [["", "Any representation"], ...REPRESENTATION];
+  main.innerHTML = `<div class="page ncaa-page">
+    <div class="page-h">
+      <div><h1>NCAA</h1>
+        <div class="board-stats"><span><b>${onBoard.size}</b> on the NCAA board</span><span><b>${d.prospects}</b> in the college database</span>
+          ${d.imported_at ? `<span title="${esc(fmtDateTime(d.imported_at))}">Imported ${esc(relTime(d.imported_at))}</span>` : `<span>Not imported yet</span>`}</div></div>
+      <div class="spacer"></div>
+      <div class="filters">
+        ${ncaaTabs(tab)}
+        <select id="nf-grade" aria-label="Grade">${GRADE_FILTER.map(([k, l]) => `<option value="${k}" ${f.grade === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+        ${tab === "board"
+          ? `<select id="nf-rep" aria-label="Representation">${reps.map(([k, l]) => `<option value="${k}" ${f.rep === k ? "selected" : ""}>${l}</option>`).join("")}</select>`
+          : `<select id="nf-year" aria-label="Last scouted"><option value="">Any season</option>${[...new Set(Object.values(d.info).map((x) => x.year))].concat([2026, 2025, 2024, 2023])
+              .filter((y, i, a) => y && a.indexOf(y) === i).sort((a, b) => b - a).map((y) => `<option value="${y}" ${String(f.year) === String(y) ? "selected" : ""}>Scouted ${y}</option>`).join("")}</select>`}
+        <input id="nf-q" type="search" placeholder="${tab === "board" ? "Filter the board…" : "Search name, school, where now…"}" value="${esc(f.q)}" aria-label="Search">
+        ${S.me.is_admin ? `<button type="button" class="btn" id="ncaa-import" title="Pull the latest grades, reports and board from the college scouting repository">Re-import</button>` : ""}
+      </div>
+    </div>
+    <div id="ncaa-body"></div>
+  </div>`;
+  const root = main.firstElementChild;
+  $("#ncaa-tab", root).addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-tab]");
+    if (b) location.hash = b.dataset.tab === "board" ? "#/ncaa" : "#/ncaa/database";
+  });
+  $("#ncaa-import", root)?.addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    e.target.textContent = "Importing…";
+    try {
+      const st = await api("POST", "/api/ncaa/import", {});
+      toast(`Imported ${st.prospects} prospects and ${st.reports} reports${st.created ? `; ${st.created} new player${st.created === 1 ? "" : "s"}` : ""}`);
+      await afterMutation();
+    } catch (err) { oops(err); e.target.disabled = false; e.target.textContent = "Re-import"; }
+  });
+  if (tab === "board") ncaaBoard(root, d, onBoard); else ncaaDatabase(root, d);
+}
+
+function ncaaBoard(root, d, onBoard) {
+  const f = S.ncaa;
+  const off = S.players.filter((p) => isNcaa(p) && !onBoard.has(p.id)).sort((a, b) => a.name.localeCompare(b.name));
+  const body = $("#ncaa-body", root);
+  body.innerHTML = `
+    <div class="pitch-wrap"><div class="pitch ncaa-pitch">${S.config.positions.map((pos) => ncaaPosBox(pos, d)).join("")}</div></div>
+    <section class="panel tray">
+      <header class="panel-h"><h2>College players not on the NCAA board</h2><span class="muted sm">${off.length} player${off.length === 1 ? "" : "s"} · drag onto a position, or drag a card here to take it off</span></header>
+      <div class="tray-body" data-tray="1">${off.map((p) => ncaaCard(p, null, null, d)).join("") || `<p class="empty">Every NCAA player in PINE is on the NCAA board.</p>`}</div>
+    </section>`;
+  const filter = () => $$(".pcard", body).forEach((c) => {
+    const p = S.byId.get(Number(c.dataset.pid)), x = d.info[p?.id];
+    const rep = d.agents[p?.id]?.representation || "unknown";
+    c.hidden = !(p && gradeMatch(x?.grade, f.grade) && (!f.rep || rep === f.rep)
+      && (matchText(p, f.q) || [x?.school, x?.team, x?.class].some((v) => String(v || "").toLowerCase().includes(f.q.toLowerCase()))));
+  });
+  filter();
+  $("#nf-grade", root).addEventListener("change", (e) => { f.grade = e.target.value; filter(); });
+  $("#nf-rep", root).addEventListener("change", (e) => { f.rep = e.target.value; filter(); });
+  $("#nf-q", root).addEventListener("input", (e) => { f.q = e.target.value; filter(); });
+  wireCardDrag(body, ".lane-body[data-ncaa-pos], [data-tray]", (zone, card, before) => {
+    const pid = Number(card.dataset.pid);
+    if (zone.dataset.ncaaPos) {
+      const others = (d.board[zone.dataset.ncaaPos] || []).filter((id) => id !== pid);
+      const at = before ? others.indexOf(Number(before.dataset.pid)) : -1;
+      return api("POST", "/api/ncaa/move", { player_id: pid, position: zone.dataset.ncaaPos, index: at >= 0 ? at : others.length });
+    }
+    return card.dataset.pos ? api("DELETE", `/api/ncaa/board/${pid}`) : null;
+  });
+}
+
+const PROSPECT_COLS = [
+  { k: "name", l: "Player" }, { k: "position", l: "Pos" }, { k: "class", l: "Class" }, { k: "school", l: "School" },
+  { k: "grade", l: "Grade" }, { k: "year", l: "Last scouted" }, { k: "status", l: "Where now" }, { k: "reports", l: "Reports" }, { k: "board", l: "NCAA board" },
+];
+async function ncaaDatabase(root, d) {
+  const f = S.ncaa, body = $("#ncaa-body", root);
+  body.innerHTML = `<div class="loading">Loading the college database…</div>`;
+  let prospects;
+  try { ({ prospects } = await api("GET", "/api/ncaa/prospects")); } catch (e) { body.innerHTML = `<p class="empty">${esc(e.message)}</p>`; return; }
+  const spot = {};
+  for (const [pos, ids] of Object.entries(d.board)) ids.forEach((id, i) => (spot[id] = { pos, i }));
+  const key = {
+    name: (x) => x.name.toLowerCase(), position: (x) => x.position || "", class: (x) => x.class || "", school: (x) => (x.school || x.team || "").toLowerCase(),
+    grade: (x) => x.grade_val ?? -1, year: (x) => x.year ?? 0, status: (x) => (x.status || "").toLowerCase(), reports: (x) => x.reports,
+    board: (x) => (spot[x.player_id] ? spot[x.player_id].i : 1e6),
+  };
+  body.innerHTML = `<div class="sub muted sm" id="pt-count" style="margin-bottom:8px"></div>
+    <div class="table-wrap"><table class="grid prospects">
+      <thead><tr>${PROSPECT_COLS.map((c) => `<th data-sort="${c.k}">${c.l}</th>`).join("")}</tr></thead><tbody id="pt-body"></tbody>
+    </table></div>`;
+  const draw = () => {
+    const q = f.q.trim().toLowerCase();
+    const list = prospects.filter((x) => gradeMatch(x.grade, f.grade) && (!f.year || String(x.year) === String(f.year))
+      && (!q || [x.name, x.school, x.team, x.status, x.country].some((v) => String(v || "").toLowerCase().includes(q))));
+    const k = key[f.sort] || key.grade;
+    list.sort((a, b) => (k(a) < k(b) ? -1 : k(a) > k(b) ? 1 : 0) * f.dir || a.name.localeCompare(b.name));
+    $$("th[data-sort]", body).forEach((th) => { th.className = th.dataset.sort === f.sort ? "sorted" + (f.dir > 0 ? " asc" : "") : ""; });
+    $("#pt-count", body).textContent = `${list.length} of ${prospects.length} prospects · click a row for the reports`;
+    $("#pt-body", body).innerHTML = list.map((x) => {
+      const p = x.player_id && S.byId.get(x.player_id), s = spot[x.player_id];
+      return `<tr data-key="${esc(x.key)}">
+        <td class="name">${photo(p || { name: x.name })}<div><div class="nm">${esc(x.name)}</div>${p ? `<a class="csub" href="#/player/${p.id}">In PINE</a>` : `<div class="csub">${esc(x.country || "")}</div>`}</div></td>
+        <td>${esc(x.position || "")}</td><td>${esc(classLabel(x.class, x.year))}</td><td>${esc(x.school || x.team || "")}</td>
+        <td>${gradeBadge(x.grade)}</td><td>${x.year ?? ""}</td><td>${esc(x.status || "")}</td><td>${x.reports || ""}</td>
+        <td>${s ? `<span class="chip">${esc(s.pos)} <b>${s.i + 1}</b></span>` : ""}</td></tr>`;
+    }).join("") || `<tr><td colspan="${PROSPECT_COLS.length}" class="empty-state">No prospects match these filters.</td></tr>`;
+  };
+  draw();
+  $("#nf-grade", root).addEventListener("change", (e) => { f.grade = e.target.value; draw(); });
+  $("#nf-year", root).addEventListener("change", (e) => { f.year = e.target.value; draw(); });
+  $("#nf-q", root).addEventListener("input", (e) => { f.q = e.target.value; draw(); });
+  $("thead", body).addEventListener("click", (e) => {
+    const th = e.target.closest("th[data-sort]");
+    if (!th) return;
+    if (f.sort === th.dataset.sort) f.dir *= -1; else { f.sort = th.dataset.sort; f.dir = ["grade", "year", "reports"].includes(f.sort) ? -1 : 1; }
+    draw();
+  });
+  $("#pt-body", body).addEventListener("click", (e) => {
+    if (e.target.closest("a")) return;
+    const tr = e.target.closest("tr[data-key]");
+    if (tr) openProspect(tr.dataset.key);
+  });
+}
+
+// Grades, facts and every report for one prospect: the college panel on a profile, and the database's pop-up.
+function collegeFacts(x) {
+  const pos = [...new Set([x.position, ...(x.positions || [])].filter(Boolean))].join(", ");
+  return `<dl class="facts">
+    ${fact("Current / future", x.grade_present || x.grade_future ? `${gradeBadge(x.grade_present)} / ${gradeBadge(x.grade_future)}` : null, true)}
+    ${fact("School", x.school || x.team)}
+    ${fact("Class", x.class ? `${x.class}${x.year ? ` (${x.year})` : ""}` : null)}
+    ${fact("Position", pos)}
+    ${fact("Foot", x.foot)}
+    ${fact("Country", x.country)}
+    ${fact("Scouted", (x.years || []).join(", "))}
+    ${fact("Where now", x.status)}
+  </dl>`;
+}
+function reportHTML(r) {
+  const when = r.dates?.length ? r.dates.join(", ") : r.year;
+  const head = [when, r.match, r.source].filter((v) => v != null && v !== "").map((v) => esc(String(v))).join(" · ");
+  return `<article class="report">
+    <header class="report-h">${gradeBadge(r.grade)}<span class="report-t">${head || "Report"}</span>${r.role_name ? `<span class="chip">${esc(r.role_name)}</span>` : ""}${r.author ? `<span class="muted sm">${esc(r.author)}</span>` : ""}</header>
+    <div class="report-body">${esc(r.body || "")}</div>
+  </article>`;
+}
+function reportsHTML(reports, shown = 3) {
+  if (!reports.length) return `<p class="empty">No written reports.</p>`;
+  const rest = reports.slice(shown);
+  return `<div class="reports">${reports.slice(0, shown).map(reportHTML).join("")}</div>${rest.length
+    ? `<details class="more-reports"><summary>${rest.length} more report${rest.length === 1 ? "" : "s"}</summary><div class="reports">${rest.map(reportHTML).join("")}</div></details>` : ""}`;
+}
+async function openProspect(key) {
+  const m = modal(`<div class="loading">Loading…</div>`, { wide: true });
+  try {
+    const { prospect: x } = await api("GET", `/api/ncaa/prospects/${encodeURIComponent(key)}`);
+    m.innerHTML = `<header class="m-h"><h2>${esc(x.name)}</h2>${gradeBadge(x.grade, "lg")}<button type="button" class="icon-btn" data-close aria-label="Close">×</button></header>
+      ${collegeFacts(x)}
+      <div class="row" style="margin:12px 0">${x.player_id ? `<a class="btn sm" href="#/player/${x.player_id}" data-close>Open PINE profile</a>` : `<span class="muted sm">Not in PINE: only players on the current college board are added.</span>`}</div>
+      ${reportsHTML(x.reports, 99)}`;
+  } catch (e) { m.innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
+}
+
+// On a profile: the college database's grades and reports (when the player is in it) ...
+function collegePanel(d) {
+  const x = d.college;
+  if (!x) return "";
+  return `<section class="panel college" id="college-panel">
+    <header class="panel-h"><h2>College scouting</h2>${gradeBadge(x.grade, "lg")}<span class="muted sm">${x.reports.length} report${x.reports.length === 1 ? "" : "s"}</span>
+      <button type="button" class="btn link sm" id="college-unlink" title="The college profile was matched by name. Unlink it if it's a different player.">Not this player?</button></header>
+    ${collegeFacts(x)}
+    ${reportsHTML(x.reports)}
+  </section>`;
+}
+// ... their spot on the NCAA board ...
+function ncaaBoardPanel(p, d) {
+  const s = d.ncaa;
+  if (!s?.position && !isNcaa(p)) return ""; // a pro with college reports from an old class isn't offered the board
+  const at = s?.position || s?.suggest || "";
+  return `<section class="panel"><header class="panel-h"><h2>NCAA board</h2><a class="btn sm ghost" href="#/ncaa">Open board</a></header>
+    ${s?.position ? `<div class="role-row"><span class="chip">${esc(s.position)}</span><span class="muted sm">Rank <b>${s.spot + 1}</b> of ${s.of}</span><span class="spacer"></span>
+      <button type="button" class="icon-btn" data-ncaa-move="-1" title="Move up" aria-label="Move up" ${s.spot === 0 ? "disabled" : ""}>↑</button>
+      <button type="button" class="icon-btn" data-ncaa-move="1" title="Move down" aria-label="Move down" ${s.spot >= s.of - 1 ? "disabled" : ""}>↓</button>
+      <button type="button" class="icon-btn" id="ncaa-rm" title="Take off the NCAA board" aria-label="Take off the NCAA board">×</button></div>`
+      : `<p class="empty">Not on the NCAA board.</p>`}
+    <div class="add-role"><select id="ncaa-pos-sel" aria-label="NCAA board position">${S.config.positions.map((pos) =>
+      `<option value="${pos.code}" ${pos.code === at ? "selected" : ""}>${pos.code} · ${esc(pos.label)}</option>`).join("")}</select>
+      <button type="button" class="btn sm" id="ncaa-add-btn">${s?.position ? "Move to position" : "Add to NCAA board"}</button></div>
+  </section>`;
+}
+// ... and, for every player, who represents them.
+function agentPanel(p, a) {
+  const tm = p.agent ? `<p class="muted sm">Transfermarkt lists: ${esc(p.agent)}</p>` : "";
+  const view = a ? `<dl class="facts">
+      ${fact("Representation", repLabel(a.representation))}
+      ${fact("Agent", a.agent)}
+      ${fact("Agency", a.agency)}
+      ${fact("Email", a.email ? `<a href="mailto:${esc(a.email)}">${esc(a.email)}</a>` : null, true)}
+      ${fact("Phone", a.phone ? `<a href="tel:${esc(a.phone.replace(/[^\d+]/g, ""))}">${esc(a.phone)}</a>` : null, true)}
+      ${fact("Last contact", fmtDate(a.last_contact))}
+    </dl>${a.notes ? `<div class="agent-notes">${esc(a.notes)}</div>` : ""}
+    <p class="muted sm" style="margin-top:8px">Updated by ${esc(a.updated_by_name || "someone")} · ${esc(relTime(a.updated_at))}</p>`
+    : `<p class="empty">No agent details yet.</p>`;
+  const v = (k) => esc(a?.[k] || "");
+  return `<section class="panel" id="agent-panel">
+    <header class="panel-h"><h2>Agent</h2><button type="button" class="btn sm ghost" id="agent-edit">${a ? "Edit" : "Add details"}</button></header>
+    <div id="agent-view">${view}${tm}</div>
+    <form id="agent-form" class="agent-form" hidden>
+      <label>Representation<select name="representation">${REPRESENTATION.map(([k, l]) => `<option value="${k}" ${(a?.representation || "unknown") === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      <label>Agent<input name="agent" value="${v("agent")}" placeholder="${esc(p.agent || "Name")}"></label>
+      <label>Agency<input name="agency" value="${v("agency")}"></label>
+      <label>Email<input name="email" type="email" value="${v("email")}"></label>
+      <label>Phone<input name="phone" type="tel" value="${v("phone")}"></label>
+      <label>Last contact<input name="last_contact" type="date" value="${v("last_contact")}"></label>
+      <label class="wide">Notes<textarea name="notes" rows="3" data-draft data-orig="${v("notes")}" placeholder="Fee expectations, who to call, timing…">${v("notes")}</textarea></label>
+      <div class="row end wide"><button type="button" class="btn sm ghost" id="agent-cancel">Cancel</button><button type="submit" class="btn sm primary">Save</button></div>
+    </form>
+  </section>`;
+}
+
 /* ---------- activity + staff ---------- */
 // Who did it. The backup script downloads with its own key, not as a staff member.
-const actor = (a) => a.user || (a.action === "downloaded_backup" && /backup script/.test(a.detail || "") ? "Backup script" : "Someone");
+const actor = (a) => a.user || (a.action === "downloaded_backup" && /backup script/.test(a.detail || "") ? "Backup script"
+  : a.action === "imported_college" ? "PINE" : "Someone");
 
 function describe(a, onPlayerPage = false) {
   let d = {};
@@ -2350,6 +2667,13 @@ function describe(a, onPlayerPage = false) {
   const chip = (v) => `<span class="dchip v-${esc(v)}">${esc(cap(v))}</span>`;
   switch (a.action) {
     case "added_player": return `added ${who}${d.list ? ` from the Impect list “${esc(d.list)}”` : d.source === "transfermarkt" ? " from Transfermarkt" : d.source === "impect" ? " from Impect" : ""}`;
+    case "imported_college": return `imported the college scouting database: ${d.prospects ?? 0} prospects, ${d.reports ?? 0} reports${d.created ? `, ${d.created} new player${d.created === 1 ? "" : "s"}` : ""}${d.boarded ? `, ${d.boarded} added to the NCAA board` : ""}`;
+    case "moved_on_ncaa_board": return d.from && d.from !== d.to
+      ? `moved ${who} from ${esc(d.from)} to spot ${d.spot + 1} at ${esc(d.to)} on the NCAA board`
+      : `${d.from ? "moved" : "put"} ${who} ${d.from ? "to" : "at"} spot ${d.spot + 1} at ${esc(d.to)} on the NCAA board`;
+    case "removed_from_ncaa_board": return `took ${who} off the NCAA board${d.position ? ` (${esc(d.position)})` : ""}`;
+    case "unlinked_college": return `unlinked the college profile “${esc(d.name)}” from ${who}`;
+    case "updated_agent": return `updated agent details for ${who}${d.representation && d.representation !== "unknown" ? ` (${esc(repLabel(d.representation).toLowerCase())})` : ""}`;
     case "set_decision": return d.decision ? `set the club decision on ${who} to ${chip(d.decision)}` : `cleared the club decision on ${who}`;
     case "set_verdict": return d.verdict ? `marked ${who} ${chip(d.verdict)}` : `cleared their verdict on ${who}`;
     case "added_note": return `added a note on ${who}`;

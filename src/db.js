@@ -92,6 +92,41 @@ CREATE TABLE IF NOT EXISTS mlsnp_gate_inputs(
   impect_id INTEGER PRIMARY KEY,
   payload TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ncaa_prospects(
+  key TEXT PRIMARY KEY,
+  player_id INTEGER REFERENCES players(id) ON DELETE SET NULL,
+  name TEXT NOT NULL, team TEXT, school TEXT, class TEXT, position TEXT, positions TEXT NOT NULL DEFAULT '[]',
+  foot TEXT, country TEXT, intl INTEGER, dob TEXT,
+  grade TEXT, grade_present TEXT, grade_future TEXT, grade_val REAL,
+  years TEXT NOT NULL DEFAULT '[]', year INTEGER, status TEXT, category TEXT,
+  no_link INTEGER NOT NULL DEFAULT 0,
+  imported_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS ncaa_prospects_player ON ncaa_prospects(player_id);
+CREATE TABLE IF NOT EXISTS ncaa_reports(
+  id INTEGER PRIMARY KEY,
+  prospect_key TEXT NOT NULL REFERENCES ncaa_prospects(key) ON DELETE CASCADE,
+  dates TEXT NOT NULL DEFAULT '[]', match TEXT, team TEXT, source TEXT,
+  grade TEXT, grade_present TEXT, grade_future TEXT, role_code TEXT, role_name TEXT, position TEXT,
+  year INTEGER, author TEXT, body TEXT
+);
+CREATE INDEX IF NOT EXISTS ncaa_reports_prospect ON ncaa_reports(prospect_key);
+CREATE TABLE IF NOT EXISTS ncaa_board(
+  player_id INTEGER PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+  position TEXT NOT NULL,
+  rank INTEGER NOT NULL
+);
+-- Taken off the NCAA board by staff: the Big Board sync and later imports don't put them back.
+CREATE TABLE IF NOT EXISTS ncaa_board_removed(
+  player_id INTEGER PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+  removed_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS agent_info(
+  player_id INTEGER PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+  representation TEXT, agent TEXT, agency TEXT, email TEXT, phone TEXT, last_contact TEXT, notes TEXT,
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS cards(
   id INTEGER PRIMARY KEY,
   player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
