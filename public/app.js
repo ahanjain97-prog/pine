@@ -2399,30 +2399,36 @@ function repChip(a) {
   return `<span class="rep rep-${r}" title="${esc(r === "none" ? "No agent or advisor" : `${repLabel(r)}${who ? `: ${who}` : ""}`)}">${{ none: "NO AGT", advisor: "ADV", agent: "AGT" }[r]}</span>`;
 }
 
-// The NCAA page has its own look: position columns grouped by line, on plain cards, rather than the pitch.
-const NCAA_LINES = [["Attack", ["FWD", "LW", "AM", "RW"]], ["Midfield", ["CM", "CDM"]], ["Defence", ["LB", "LCB", "RCB", "RB"]], ["Goalkeepers", ["GK"]]];
-const posLabel = (code) => S.config.positions.find((p) => p.code === code)?.label || code;
+// The NCAA board uses the Big Board's pitch formation, in college purple, with one ranked list per position.
 // A star on the NCAA board acts on the player's Big Board role in that position, else their first role.
 const starRole = (p, pos) => (p.roles.find((r) => roleInfo(r.role)?.position === pos) || p.roles[0])?.role || null;
 
-S.ncaa = { q: "", grade: "", rep: "", dbYear: "", sort: "grade", dir: -1 };
+S.ncaa = { q: "", grade: "", rep: "", bb: "", dbYear: "", sort: "grade", dir: -1 };
+const BB_FILTER = [["", "Big Board or not"], ["on", "On the Big Board"], ["off", "Not on the Big Board"]];
 const GRADE_FILTER = [["", "Any grade"], ["A", "A ceiling"], ["B", "B ceiling"], ["C", "C ceiling"], ["D", "D ceiling"]];
 const gradeMatch = (g, want) => !want || gradeTone(g) === `g-${want.toLowerCase()}`;
 const textMatch = (q, ...vals) => !q || vals.some((v) => String(v ?? "").toLowerCase().includes(q.toLowerCase()));
 
 // One row on the live board (or, without a position, in the tray below it).
+// Being on the Big Board is what makes a college player a priority: those rows carry a BB tag (and the Short
+// Board star); everyone else gets "+ BB", which adds them at the role their college scouting suggests.
 function ncaaRow(p, pos, i, d) {
   const x = d.info[p.id];
   const sub = [classLabel(x?.class, x?.year), x?.school || x?.team || p.club].filter(Boolean).join(" · ") || p.position || "";
-  const role = pos ? starRole(p, pos) : null;
+  const onBB = p.roles.length > 0;
+  const role = pos && onBB ? starRole(p, pos) : null;
   const on = role ? isTopTarget(p, role) : false;
   const star = role ? `<span class="star ${on ? "on" : ""}" data-star="${role}" role="button" tabindex="0" aria-pressed="${on}"
     title="${on ? `Top target at ${esc(roleShort(role))}; click to take off the Short Board` : `Add to the Short Board as a top target at ${esc(roleShort(role))}`}">${on ? "★" : "☆"}</span>` : "";
-  return `<a class="pcard nrow ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${pos ? `data-pos="${pos}"` : ""}
-      data-q="${esc([p.name, sub, p.club].join(" "))}" data-grade="${esc(x?.grade || "")}" data-rep="${esc(d.agents[p.id]?.representation || "unknown")}">
+  const suggest = d.bb_role?.[p.id];
+  const bb = onBB
+    ? `<span class="bbtag" title="On the Big Board: ${esc(p.roles.map((r) => `${roleLabel(r.role)} (rank ${r.rank + 1})`).join(", "))}">BB</span>`
+    : suggest ? `<span class="addbb" data-add-bb="${suggest}" role="button" tabindex="0" title="Add to the Big Board at ${esc(roleLabel(suggest))}">+ BB</span>` : "";
+  return `<a class="pcard nrow ${onBB ? "is-bb" : ""} ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${pos ? `data-pos="${pos}"` : ""}
+      data-q="${esc([p.name, sub, p.club].join(" "))}" data-grade="${esc(x?.grade || "")}" data-rep="${esc(d.agents[p.id]?.representation || "unknown")}" data-bb="${onBB ? "on" : "off"}">
     <span class="nrank ${i != null && i < 3 ? "lead" : ""}">${i != null ? i + 1 : ""}</span>
     <span class="nmain"><span class="nname">${esc(p.name)}</span><span class="nsub">${esc(sub)}</span></span>
-    <span class="ntags">${rosterBadge(p)}${repChip(d.agents[p.id])}</span>${star}${gradeBadge(x?.grade)}</a>`;
+    <span class="ntags">${bb}${rosterBadge(p)}${repChip(d.agents[p.id])}</span>${star}${gradeBadge(x?.grade)}</a>`;
 }
 
 // One row on an earlier year's board: a prospect, who may or may not be in PINE.
@@ -2436,18 +2442,16 @@ function pastRow(x, i) {
     <span class="ntags">${x.status ? `<span class="nnow" title="Where now">${esc(x.status)}</span>` : ""}</span>${gradeBadge(x.grade)}</a>`;
 }
 
-function ncaaColumns(rowsFor, live) {
-  return NCAA_LINES.map(([title, codes]) => {
-    const cols = codes.map((code) => [code, rowsFor(code)]).filter(([, rows]) => live || rows.length);
-    if (!cols.length) return "";
-    return `<section class="nline"><h3 class="nline-h">${title}</h3><div class="nline-cols">${cols.map(([code, rows]) => {
-      const line = POS_LINE[code] || "def";
-      return `<section class="ncol" style="--pc:var(--pc-${line})">
-        <header class="ncol-h"><span class="ncol-code">${code}</span><span class="ncol-label">${esc(posLabel(code))}</span><span class="ncol-n">${rows.length}</span></header>
-        <div class="ncol-body" ${live ? `data-ncaa-pos="${code}"` : ""}>${rows.join("") || `<div class="lane-empty">${live ? "Drop players here" : "Nobody ranked"}</div>`}</div>
-      </section>`;
-    }).join("")}</div></section>`;
-  }).join("");
+function ncaaPitch(rowsFor, live) {
+  return `<div class="pitch-wrap"><div class="pitch npitch">${S.config.positions.map((pos) => {
+    const rows = rowsFor(pos.code);
+    if (!live && !rows.length) return "";
+    const line = POS_LINE[pos.code] || "def";
+    return `<section class="ncol" style="grid-area:${pos.area};--pc:var(--pc-${line});--pc-ink:var(--pc-${line}-ink)">
+      <header class="ncol-h"><span class="pos-code">${pos.code}</span><span class="pos-label">${esc(pos.label)}</span><span class="pos-n">${rows.length}</span></header>
+      <div class="ncol-body" ${live ? `data-ncaa-pos="${pos.code}"` : ""}>${rows.join("") || `<div class="lane-empty">${live ? "Drop players here" : "Nobody ranked"}</div>`}</div>
+    </section>`;
+  }).join("")}</div></div>`;
 }
 
 async function renderNcaa(main, arg) {
@@ -2466,12 +2470,12 @@ async function renderNcaa(main, arg) {
   const onLive = live ? Object.values(d.board).flat().length : 0;
   const stats = view === "database"
     ? `<span><b>${d.prospects}</b> prospects</span><span><b>${d.reports}</b> reports</span>`
-    : live ? `<span><b>${onLive}</b> on the ${shownYear ?? ""} board</span><span><b>${d.prospects}</b> prospects</span><span><b>${d.reports}</b> reports</span>`
+    : live ? `<span><b>${onLive}</b> on the ${shownYear ?? ""} board</span><span><b>${Object.values(d.board).flat().filter((id) => S.byId.get(id)?.roles.length).length}</b> on the Big Board</span><span><b>${d.prospects}</b> prospects</span><span><b>${d.reports}</b> reports</span>`
     : `<span><b>${Object.values(d.past).flat().length}</b> on the ${year} board</span><span><b>${Object.values(d.past).flat().filter((x) => x.player_id).length}</b> in PINE</span>`;
   const years = view === "database" ? [["", "All years"], ...d.years.map((y) => [String(y), String(y)])] : d.years.map((y) => [String(y), String(y)]);
   const yearOn = (y) => (view === "database" ? f.dbYear === y : String(shownYear) === y);
   const note = view === "database" ? "Every prospect in the college scouting database. Click a row for the reports."
-    : live ? "Live board: drag to re-rank or move between positions, drag to the tray to take a player off. Everyone here is on the Big Board too; ☆ adds them to the Short Board."
+    : live ? "Live board: drag to re-rank or move between positions; drag to the tray to take a player off. BB marks players on the Big Board (☆ adds them to the Short Board); hover anyone else for + BB."
     : `The ${year} board as the college scouting database ranked it. Read-only; open a player for their reports.`;
   main.innerHTML = `<div class="page ncaa-page">
     <header class="nhero">
@@ -2487,6 +2491,7 @@ async function renderNcaa(main, arg) {
       <div class="filters">
         <input id="nf-q" type="search" placeholder="Search players, schools…" value="${esc(f.q)}" aria-label="Search">
         <select id="nf-grade" aria-label="Grade">${GRADE_FILTER.map(([k, l]) => `<option value="${k}" ${f.grade === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+        ${live ? `<select id="nf-bb" aria-label="Big Board">${BB_FILTER.map(([k, l]) => `<option value="${k}" ${f.bb === k ? "selected" : ""}>${l}</option>`).join("")}</select>` : ""}
         ${live ? `<select id="nf-rep" aria-label="Representation">${[["", "Any representation"], ...REPRESENTATION].map(([k, l]) => `<option value="${k}" ${f.rep === k ? "selected" : ""}>${l}</option>`).join("")}</select>` : ""}
         ${S.me.is_admin ? `<button type="button" class="btn" id="ncaa-import" title="Pull the latest grades, reports and boards from the college scouting repository">Re-import</button>` : ""}
       </div>
@@ -2509,6 +2514,7 @@ async function renderNcaa(main, arg) {
   $("#nf-q", root).addEventListener("input", (e) => { f.q = e.target.value; changed(); });
   $("#nf-grade", root).addEventListener("change", (e) => { f.grade = e.target.value; changed(); });
   $("#nf-rep", root)?.addEventListener("change", (e) => { f.rep = e.target.value; changed(); });
+  $("#nf-bb", root)?.addEventListener("change", (e) => { f.bb = e.target.value; changed(); });
   $("#ncaa-import", root)?.addEventListener("click", async (e) => {
     e.target.disabled = true;
     e.target.textContent = "Importing…";
@@ -2523,10 +2529,24 @@ async function renderNcaa(main, arg) {
   if (live) {
     const onBoard = new Set(Object.values(d.board).flat());
     const off = S.players.filter((p) => isNcaa(p) && !onBoard.has(p.id)).sort((a, b) => a.name.localeCompare(b.name));
-    body.innerHTML = `${ncaaColumns((code) => (d.board[code] || []).filter((id) => S.byId.has(id)).map((id, i) => ncaaRow(S.byId.get(id), code, i, d)), true)}
+    body.innerHTML = `${ncaaPitch((code) => (d.board[code] || []).filter((id) => S.byId.has(id)).map((id, i) => ncaaRow(S.byId.get(id), code, i, d)), true)}
       <section class="ntray"><header class="ntray-h"><h3>College players not on the ${d.live_year ?? ""} board</h3><span>${off.length} · drag onto a position, or drag a row here to take it off</span></header>
         <div class="ntray-body" data-tray="1">${off.map((p) => ncaaRow(p, null, null, d)).join("") || `<p class="empty">Every NCAA player in PINE is on the board.</p>`}</div></section>`;
     wireStars(body);
+    const addBB = async (el) => {
+      const p = S.byId.get(Number(el.closest(".nrow").dataset.pid)), role = el.dataset.addBb;
+      el.classList.add("busy");
+      try {
+        await api("POST", `/api/players/${p.id}/roles`, { role });
+        toast(`${p.name} is on the Big Board at ${roleLabel(role)}`);
+        await afterMutation();
+      } catch (err) { oops(err); el.classList.remove("busy"); }
+    };
+    body.addEventListener("click", (e) => { const el = e.target.closest("[data-add-bb]"); if (el) { e.preventDefault(); addBB(el); } });
+    body.addEventListener("keydown", (e) => {
+      const el = e.target.closest?.("[data-add-bb]");
+      if (el && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); addBB(el); }
+    });
     wireCardDrag(body, ".ncol-body[data-ncaa-pos], [data-tray]", (zone, card, before) => {
       const pid = Number(card.dataset.pid);
       if (zone.dataset.ncaaPos) {
@@ -2537,7 +2557,7 @@ async function renderNcaa(main, arg) {
       return card.dataset.pos ? api("DELETE", `/api/ncaa/board/${pid}`) : null;
     });
   } else {
-    body.innerHTML = ncaaColumns((code) => (d.past[code] || []).map(pastRow), false);
+    body.innerHTML = ncaaPitch((code) => (d.past[code] || []).map(pastRow), false);
     body.addEventListener("click", (e) => {
       const a = e.target.closest("[data-prospect]");
       if (a) { e.preventDefault(); openProspect(a.dataset.prospect); }
@@ -2545,7 +2565,8 @@ async function renderNcaa(main, arg) {
   }
   // Filtering hides rows but keeps their rank, as on the Big Board.
   const filter = () => $$(".nrow", body).forEach((r) => {
-    r.hidden = !(textMatch(f.q, r.dataset.q) && gradeMatch(r.dataset.grade, f.grade) && (!live || !f.rep || r.dataset.rep === f.rep));
+    r.hidden = !(textMatch(f.q, r.dataset.q) && gradeMatch(r.dataset.grade, f.grade)
+      && (!live || ((!f.rep || r.dataset.rep === f.rep) && (!f.bb || r.dataset.bb === f.bb))));
   });
   root.addEventListener("ncaa-filter", filter);
   filter();
@@ -2708,7 +2729,7 @@ function agentPanel(p, a) {
 /* ---------- activity + staff ---------- */
 // Who did it. The backup script downloads with its own key, not as a staff member.
 const actor = (a) => a.user || (a.action === "downloaded_backup" && /backup script/.test(a.detail || "") ? "Backup script"
-  : ["imported_college", "linked_big_board", "merged_player"].includes(a.action) ? "PINE" : "Someone");
+  : ["imported_college", "linked_big_board", "unlinked_big_board", "merged_player"].includes(a.action) ? "PINE" : "Someone");
 
 function describe(a, onPlayerPage = false) {
   let d = {};
@@ -2719,6 +2740,7 @@ function describe(a, onPlayerPage = false) {
     case "added_player": return `added ${who}${d.list ? ` from the Impect list “${esc(d.list)}”` : d.source === "transfermarkt" ? " from Transfermarkt" : d.source === "impect" ? " from Impect" : ""}`;
     case "imported_college": return `imported the college scouting database: ${d.prospects ?? 0} prospects, ${d.reports ?? 0} reports${d.created ? `, ${d.created} new player${d.created === 1 ? "" : "s"}` : ""}${d.boarded ? `, ${d.boarded} added to the NCAA board` : ""}${d.big_board ? `, ${d.big_board} added to the Big Board` : ""}`;
     case "merged_player": return `merged the college import “${esc(d.name)}” into ${who}, the same player already in PINE`;
+    case "unlinked_big_board": return `took ${d.count} college player${d.count === 1 ? "" : "s"} it had added back off the Big Board (the NCAA board marks who is on it)`;
     case "linked_big_board": return `put ${d.count} NCAA board player${d.count === 1 ? "" : "s"} on the Big Board at their position`;
     case "moved_on_ncaa_board": return d.from && d.from !== d.to
       ? `moved ${who} from ${esc(d.from)} to spot ${d.spot + 1} at ${esc(d.to)} on the NCAA board`

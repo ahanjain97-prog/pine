@@ -153,23 +153,23 @@ the existing sign-in gate. No real player snapshot belongs in this public reposi
   board, and dragging a card here reorders it there too. Dropping a card into another role asks whether to
   move the player there or duplicate them (a top target in both roles). Stored as `board_entries.shortlist`, which `src/lib/board.js` carries across reorders; not to be confused with the Impect Scouting short lists on
   the Impect page, which are an import source.
-- **NCAA** (`#/ncaa`): the college section, with its own look (college purple, position columns grouped by
-  line). **Board** has a tab per year. The latest year (2026, marked Live) is PINE's board: one ranked list per
-  position, seeded from the college scouting database's latest board in its order, plus every Big Board player
-  whose league names NCAA. Drag to re-rank or move between positions, and drag a row to the tray below to take
-  it off; someone taken off stays off (neither the Big Board sync nor a re-import puts them back) until dragged
+- **NCAA** (`#/ncaa`): the college section, in college purple. **Board** has a tab per year and uses the Big Board's
+  pitch formation, with one ranked list per position. The latest year (2026, marked Live) is PINE's board,
+  seeded from the college scouting database's latest board in its order, plus every Big Board player whose
+  league names NCAA. Drag to re-rank or move between positions, and drag a row to the tray below to take it
+  off; someone taken off stays off (neither the Big Board sync nor a re-import puts them back) until dragged
   back in. Earlier years (`#/ncaa/2025`, `#/ncaa/2024`) show those boards as the college database ranked them,
   read-only, including players not in PINE (click one for their reports). Rows show the college grade
   (current/future, coloured by the future grade), class and school at the last scouted season ("Jr '25"), and
-  DOM / INTL and agent status on the live board, or where the player is now on past boards. Filter by grade
-  ceiling, representation or text. **College database** lists every prospect with grade, seasons scouted,
-  where they are now, reports and board spot, filterable by year; click a row for the reports.
-  The NCAA board and the Big Board are linked: every NCAA board player also gets a Big Board role in the same
-  position (from their latest college role, e.g. True #9 (Target) → FWD #2 Target, Inverted Winger → #2
-  Inverted Winger; otherwise the position's first role), added once at the end of that role, so taking them
-  off the Big Board sticks. ☆ on an NCAA row makes them a top target at that role (Short Board), and Big Board
-  and Short Board cards show the college grade in the NCAA tag ("NCAA B/A"). The Database table shows each
-  player's NCAA board spot beside their roles.
+  DOM / INTL and agent status on the live board, or where the player is now on past boards. **College
+  database** lists every prospect with grade, seasons scouted, where they are now, reports and board spot,
+  filterable by year; click a row for the reports.
+  Being on the Big Board is what marks a college player as a priority. On the live board those rows carry a
+  green **BB** tag (hover for their roles) and the ☆ that makes them a top target (Short Board); filter by
+  Big Board or not. Hover anyone else for **+ BB**, which adds them to the Big Board at the role their college
+  scouting suggests (e.g. True #9 (Target) → FWD #2 Target, Inverted Winger → #2 Inverted Winger; otherwise
+  the position's first role). Big Board and Short Board cards show the college grade in the NCAA tag
+  ("NCAA B/A"), and the Database table shows each player's NCAA board spot beside their roles.
   Players on the latest college board become PINE players (league NCAA, `source` `college_import`) unless
   they're already in PINE. Names match strictest first: the same name (accents and letters like ø ignored);
   the same first and last name (middle names); the same surname and first three letters of the first name

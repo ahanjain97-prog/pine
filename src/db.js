@@ -124,8 +124,6 @@ CREATE TABLE IF NOT EXISTS ncaa_year_boards(
   prospect_key TEXT NOT NULL REFERENCES ncaa_prospects(key) ON DELETE CASCADE,
   PRIMARY KEY(year, prospect_key)
 );
--- NCAA board players already given a Big Board role once (or found already on it): not re-added if staff take them off.
-CREATE TABLE IF NOT EXISTS ncaa_bb_linked(player_id INTEGER PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE);
 -- Taken off the NCAA board by staff: the Big Board sync and later imports don't put them back.
 CREATE TABLE IF NOT EXISTS ncaa_board_removed(
   player_id INTEGER PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,

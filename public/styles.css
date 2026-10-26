@@ -276,15 +276,13 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .nyears button.on { background: var(--nc); border-color: var(--nc); color: var(--nc-ink); }
 .nlive { font-size: 9.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 2px 5px; border-radius: 4px; background: #d9f2e4; color: #0f5c34; }
 .nnote { color: var(--muted); font-size: 12.5px; margin: 0 0 16px; }
-.nline { margin-bottom: 20px; }
-.nline-h { font: 700 11px var(--body); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px 2px; }
-.nline-cols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; align-items: start; }
-.ncol { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(20, 30, 25, .04); }
-.ncol-h { display: flex; align-items: baseline; gap: 8px; padding: 11px 14px 9px; border-bottom: 2px solid var(--pc, var(--nc)); }
-.ncol-code { font: 700 17px/1 var(--disp); letter-spacing: .05em; color: var(--pc, var(--nc)); }
-.ncol-label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
-.ncol-n { margin-left: auto; font-size: 11.5px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
-.ncol-body { display: flex; flex-direction: column; min-height: 44px; }
+/* The board itself: the Big Board's pitch formation, striped in college purple, one ranked list per position. */
+.ncaa-page .npitch { --pitch-line: rgba(255, 255, 255, .28); background: repeating-linear-gradient(180deg, #3b2066 0 70px, #42246f 70px 140px); }
+@media (prefers-color-scheme: dark) { .ncaa-page .npitch { --pitch-line: rgba(255, 255, 255, .14); background: repeating-linear-gradient(180deg, #1f1436 0 70px, #24183d 70px 140px); } }
+.ncol { position: relative; z-index: 1; min-width: 0; background: var(--surface); border-radius: 12px; overflow: hidden;
+  border-top: 3px solid var(--pc, var(--nc)); box-shadow: 0 4px 16px rgba(10, 4, 24, .28); }
+.ncol-h { display: flex; align-items: center; gap: 8px; padding: 9px 12px 8px; border-bottom: 1px solid var(--line); }
+.ncol-body { display: flex; flex-direction: column; min-height: 44px; max-height: 470px; overflow-y: auto; }
 .ncol-body.over, .ntray-body.over { outline: 2px dashed var(--nc); outline-offset: -4px; border-radius: 10px; }
 .ncol-body .lane-empty { padding: 14px 0; }
 .ncaa-page .nrow { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto auto auto; align-items: center; gap: 8px; min-width: 0;
@@ -306,6 +304,16 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .ntags { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
 .nnow { display: inline-block; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;
   font-size: 10.5px; font-weight: 600; color: var(--ink-2); background: var(--nc-soft); border: 1px solid var(--nc-line); border-radius: 4px; padding: 2px 5px; }
+/* BB: on the Big Board, the college players the club is pursuing. Pine green, the club's colour. */
+.bbtag { flex: none; font-size: 9px; font-weight: 800; letter-spacing: .06em; line-height: 1; padding: 3px 5px; border-radius: 4px; color: #fff; background: var(--pine); }
+@media (prefers-color-scheme: dark) { .bbtag { background: #3a9a6b; color: #04140c; } }
+.ncaa-page .nrow.is-bb .nname { font-weight: 700; }
+.addbb { flex: none; font-size: 9.5px; font-weight: 700; line-height: 1; padding: 3px 5px; border-radius: 4px; cursor: pointer; white-space: nowrap;
+  color: var(--pine); border: 1px dashed currentColor; opacity: 0; }
+@media (prefers-color-scheme: dark) { .addbb { color: #5cc08f; } }
+.ncaa-page .nrow:hover .addbb, .addbb:focus-visible { opacity: 1; }
+.addbb:hover { background: color-mix(in srgb, var(--pine) 12%, transparent); }
+.addbb.busy { opacity: .4; pointer-events: none; }
 .ncaa-page .nrow .star { opacity: 0; }
 .ncaa-page .nrow:hover .star, .ncaa-page .nrow .star.on, .ncaa-page .nrow .star:focus-visible { opacity: 1; }
 .ntray { margin-top: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
@@ -313,7 +321,7 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .ntray-h h3 { font: 700 11px var(--body); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-2); }
 .ntray-h span { font-size: 12px; color: var(--muted); }
 .ntray-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); min-height: 48px; }
-.ntray-body > .empty { padding: 14px; }
+.ntray-body > .empty { padding: 14px; grid-column: 1 / -1; }
 .ntable-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; }
 .ntable { width: 100%; border-collapse: collapse; font-size: 13px; }
 .ntable th { text-align: left; font: 700 10.5px var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 11px 14px;
@@ -329,9 +337,7 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .nspot i { font-style: normal; color: var(--muted); margin-right: 5px; }
 .nspot b { color: var(--nc); }
 .chip.ncaa-chip { color: #4a2380; background: #ece4fb; border-color: #c9b5ef; }
-@media (max-width: 1100px) { .nline-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) {
-  .nline-cols { grid-template-columns: 1fr; }
   .nhero { padding: 16px; }
   .nhero h1 { font-size: 30px; }
   .nviews { margin-left: 0; }

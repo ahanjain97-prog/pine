@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 
 import { openDb } from "../src/db.js";
 import {
-  bigBoardRole, importCollege, linkBoardToBigBoard, matchName, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects, ncaaYearBoard, normName,
-  removeFromNcaaBoard, saveAgent, syncBigBoardNcaa, unlinkProspect,
+  bigBoardRole, importCollege, matchName, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects, ncaaYearBoard, normName,
+  removeFromNcaaBoard, saveAgent, syncBigBoardNcaa, undoBigBoardAutoLink, unlinkProspect,
 } from "../src/lib/ncaa.js";
 
 // A college database in the repository's shape: players with reports, and position-ranked boards keyed
@@ -180,21 +180,30 @@ test("college roles pick the Big Board role within the position; anything else t
   assert.equal(bigBoardRole("GK", null), "GK1");
 });
 
-test("NCAA board players join the Big Board once, in NCAA order; taking them off the Big Board sticks", () => {
+test("the import leaves the Big Board alone, and the board suggests a Big Board role from the college role", () => {
   const { db, insertPlayer } = setup();
-  db.run("INSERT INTO players(id, name, league) VALUES (80, 'Already Tracked', 'NCAA')");
-  db.run("INSERT INTO board_entries(player_id, role, rank) VALUES (80, 'AM1', 0)");
   importCollege(db, college(), { insertPlayer });
-  const roles = (name) => db.all("SELECT b.role FROM board_entries b JOIN players p ON p.id = b.player_id WHERE p.name = ?", name).map((r) => r.role);
-  assert.deepEqual(roles("Ana Striker"), ["FWD1"]);
-  assert.deepEqual(roles("Cal Centreback"), ["LCB1"]);
-  assert.deepEqual(roles("Already Tracked"), ["AM1"], "a Big Board player keeps their role and gains no other");
-  assert.deepEqual(db.all("SELECT p.name FROM board_entries b JOIN players p ON p.id = b.player_id WHERE b.role = 'FWD1' ORDER BY b.rank")
-    .map((r) => r.name), ["Ana Striker", "Ben Striker"]);
-  db.run("DELETE FROM board_entries WHERE player_id = (SELECT id FROM players WHERE name = 'Ana Striker')");
-  assert.equal(linkBoardToBigBoard(db).length, 0);
+  assert.equal(db.get("SELECT count(*) AS n FROM board_entries").n, 0);
+  const view = ncaaBoardView(db);
+  const ana = db.get("SELECT id FROM players WHERE name = 'Ana Striker'").id;
+  assert.equal(view.bb_role[ana], "FWD1", "Poacher → FWD #1");
+});
+
+test("undoing the Big Board auto-add takes off college-import players staff haven't touched, once", () => {
+  const { db, insertPlayer } = setup();
+  db.run("INSERT INTO users(id, name) VALUES (900, 'Test Scout')");
   importCollege(db, college(), { insertPlayer });
-  assert.deepEqual(roles("Ana Striker"), []);
+  db.run("CREATE TABLE ncaa_bb_linked(player_id INTEGER PRIMARY KEY)");
+  db.run("INSERT INTO players(id, name, league, source) VALUES (70, 'Tracked Already', 'NCAA', 'tm')");
+  const id = (name) => db.get("SELECT id FROM players WHERE name = ?", name).id;
+  const [ana, ben, cal] = ["Ana Striker", "Ben Striker", "Cal Centreback"].map(id);
+  db.run("INSERT INTO board_entries(player_id, role, rank, shortlist) VALUES (70, 'FWD1', 0, 0), (?, 'FWD1', 1, 0), (?, 'FWD1', 2, 1), (?, 'LCB1', 0, 0)", ana, ben, cal);
+  [70, ana, ben, cal].forEach((pid) => db.run("INSERT INTO ncaa_bb_linked(player_id) VALUES (?)", pid));
+  db.run(`INSERT INTO activity(user_id, player_id, action, detail) VALUES (900, ?, 'moved_on_board', '{}')`, cal);
+  assert.equal(undoBigBoardAutoLink(db), 1, "only Ana: Ben is starred, Cal was moved by staff, Tracked Already isn't an import");
+  assert.deepEqual(db.all("SELECT player_id, rank FROM board_entries WHERE role = 'FWD1' ORDER BY rank").map((r) => [r.player_id, r.rank]), [[70, 0], [ben, 1]]);
+  assert.equal(db.get("SELECT 1 AS found FROM sqlite_master WHERE name = 'ncaa_bb_linked'"), undefined);
+  assert.equal(undoBigBoardAutoLink(db), 0);
 });
 
 test("a college-import player who was already in PINE is merged into them, keeping the college rank and staff work", () => {
@@ -213,7 +222,6 @@ test("a college-import player who was already in PINE is merged into them, keepi
   assert.deepEqual(order(db, "FWD"), ["Ana Striker", "Benjamin Striker"], "Benjamin takes Ben's college rank, once");
   assert.equal(db.get("SELECT player_id FROM ncaa_prospects WHERE key = 'ben striker'").player_id, 60);
   assert.equal(db.get("SELECT count(*) AS n FROM notes WHERE player_id = 60").n, 1);
-  assert.deepEqual(db.all("SELECT role FROM board_entries WHERE player_id = 60 ORDER BY role").map((r) => r.role), ["FWD1", "FWD3"],
-    "the Big Board role he had stays; the one the import gave Ben comes with him");
+  assert.deepEqual(db.all("SELECT role FROM board_entries WHERE player_id = 60").map((r) => r.role), ["FWD3"], "his Big Board role stays");
   assert.equal(mergeCollegeDuplicates(db).length, 0);
 });

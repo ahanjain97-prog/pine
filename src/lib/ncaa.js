@@ -7,15 +7,15 @@
 // staff drag to re-rank, and a later import only appends players who are new to the board. Earlier
 // years' boards are kept as the college database ranked them (ncaa_year_boards), read-only.
 //
-// The two boards are linked both ways: Big Board college players join the NCAA board, and every NCAA
-// board player gets a Big Board role in the same position (once; taking them off either board sticks),
-// so starring them puts them on the Short Board like anyone else.
+// Big Board college players join the NCAA board automatically. The other way is staff's call: being on the
+// Big Board is what marks a college player as a priority, so the NCAA board shows who is (BB) and offers a
+// one-click add at the role their college scouting suggests (bigBoardRole).
 //
 // College players on that latest board become PINE players (league "NCAA") so they have a profile,
 // notes, verdicts and agent details like everyone else. Prospects from earlier classes, many of them
 // professionals now, keep their grades and reports here and link to an existing PINE player by name.
 import { POSITIONS, ROLES } from "../roles.js";
-import { addRole } from "./board.js";
+import { compactRanks } from "./board.js";
 
 export const COLLEGE_DATA_URL = process.env.PINE_COLLEGE_DATA_URL
   || "https://raw.githubusercontent.com/ahjain-cmd/college-soccer-scouting-2026/main/data.json";
@@ -160,7 +160,7 @@ export function importCollege(db, data, { insertPlayer }) {
   }
   const index = nameIndex(db.all("SELECT id, name, league FROM players"));
   const linkedIds = new Set(db.all("SELECT player_id FROM ncaa_prospects WHERE player_id IS NOT NULL").map((r) => r.player_id));
-  const stats = { prospects: 0, reports: 0, linked: 0, created: 0, boarded: 0, big_board: 0, board_year: year ? Number(year) : null };
+  const stats = { prospects: 0, reports: 0, linked: 0, created: 0, boarded: 0, board_year: year ? Number(year) : null };
   const known = new Set(prospects.filter((x) => x?.key && x?.name).map((x) => x.key));
 
   db.tx(() => {
@@ -230,7 +230,6 @@ export function importCollege(db, data, { insertPlayer }) {
     }
   });
   stats.boarded += syncBigBoardNcaa(db);
-  stats.big_board = linkBoardToBigBoard(db).length;
   return stats;
 }
 
@@ -246,7 +245,7 @@ export function mergePlayer(db, fromId, intoId) {
       if (old) compact(db, old.position);
       db.run("UPDATE ncaa_board SET player_id = ? WHERE player_id = ?", intoId, fromId);
     }
-    for (const table of ["board_entries", "verdicts", "list_members", "agent_info", "ncaa_bb_linked", "ncaa_board_removed"]) {
+    for (const table of ["board_entries", "verdicts", "list_members", "agent_info", "ncaa_board_removed"]) {
       db.run(`UPDATE OR IGNORE ${table} SET player_id = ? WHERE player_id = ?`, intoId, fromId);
     }
     for (const table of ["notes", "cards", "maps", "activity", "ncaa_prospects"]) db.run(`UPDATE ${table} SET player_id = ? WHERE player_id = ?`, intoId, fromId);
@@ -273,29 +272,28 @@ export function mergeCollegeDuplicates(db) {
   return merged;
 }
 
-// Gives an NCAA board player a Big Board role in `position` unless they already have one, once per player.
-// Returns the role added, or null.
-export function linkToBigBoard(db, playerId, position) {
-  if (db.get("SELECT 1 FROM ncaa_bb_linked WHERE player_id = ?", playerId)) return null;
-  db.run("INSERT INTO ncaa_bb_linked(player_id) VALUES (?)", playerId);
-  if (db.get("SELECT 1 FROM board_entries WHERE player_id = ?", playerId)) return null;
-  const collegeRole = db.get(`SELECT r.role_name FROM ncaa_reports r JOIN ncaa_prospects n ON n.key = r.prospect_key
-    WHERE n.player_id = ? AND r.role_name IS NOT NULL ORDER BY r.year DESC, r.id DESC LIMIT 1`, playerId)?.role_name;
-  const role = bigBoardRole(position, collegeRole);
-  if (role) addRole(db, playerId, role);
-  return role;
-}
-
-// The whole NCAA board, in its order, so each Big Board role lane gets them in NCAA rank order.
-export function linkBoardToBigBoard(db) {
-  const added = [];
+// For one day every NCAA board player was also put on the Big Board. This takes the players the college import
+// created back off (unless staff starred or moved them since), once: it drops the ncaa_bb_linked table that
+// recorded the experiment. Returns how many players came off.
+export function undoBigBoardAutoLink(db) {
+  if (!db.get("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ncaa_bb_linked'")) return 0;
+  const ids = db.all(`SELECT l.player_id FROM ncaa_bb_linked l JOIN players p ON p.id = l.player_id
+    WHERE p.source = 'college_import'
+      AND NOT EXISTS (SELECT 1 FROM board_entries b WHERE b.player_id = l.player_id AND b.shortlist = 1)
+      AND NOT EXISTS (SELECT 1 FROM activity a WHERE a.player_id = l.player_id AND a.user_id IS NOT NULL
+        AND a.action IN ('added_role', 'moved_on_board', 'shortlisted', 'copied_on_board')
+        AND coalesce(a.detail, '') NOT LIKE '%"via":"ncaa"%')`).map((r) => r.player_id);
+  let removed = 0;
   db.tx(() => {
-    for (const r of db.all("SELECT player_id, position FROM ncaa_board ORDER BY position, rank")) {
-      const role = linkToBigBoard(db, r.player_id, r.position);
-      if (role) added.push({ player_id: r.player_id, role });
+    const roles = new Set();
+    for (const id of ids) {
+      db.all("SELECT role FROM board_entries WHERE player_id = ?", id).forEach((r) => roles.add(r.role));
+      if (db.run("DELETE FROM board_entries WHERE player_id = ?", id).changes) removed++;
     }
+    roles.forEach((role) => compactRanks(db, role));
+    db.run("DROP TABLE ncaa_bb_linked");
   });
-  return added;
+  return removed;
 }
 
 export const ncaaYears = (db) => db.all("SELECT DISTINCT year FROM ncaa_year_boards ORDER BY year DESC").map((r) => r.year);
@@ -327,7 +325,13 @@ export function ncaaBoardView(db) {
       n.team, n.year, (SELECT count(*) FROM ncaa_reports r WHERE r.prospect_key = n.key) AS reports
       FROM ncaa_prospects n WHERE n.player_id IS NOT NULL ORDER BY n.year NULLS FIRST`)) info[r.player_id] = r; // latest profile wins
   const agents = Object.fromEntries(db.all("SELECT player_id, representation, agent, agency FROM agent_info").map((a) => [a.player_id, a]));
-  return { board, info, agents, ...ncaaSummary(db) };
+  // The Big Board role each board player would get from "+ BB": their latest college role, in this position.
+  const collegeRole = new Map(db.all(`SELECT n.player_id, (SELECT r.role_name FROM ncaa_reports r JOIN ncaa_prospects m ON m.key = r.prospect_key
+      WHERE m.player_id = n.player_id AND r.role_name IS NOT NULL ORDER BY r.year DESC, r.id DESC LIMIT 1) AS role_name FROM ncaa_board n`)
+    .map((r) => [r.player_id, r.role_name]));
+  const bb_role = {};
+  for (const [position, ids] of Object.entries(board)) for (const id of ids) bb_role[id] = bigBoardRole(position, collegeRole.get(id));
+  return { board, info, agents, bb_role, ...ncaaSummary(db) };
 }
 
 export function ncaaSummary(db) {

@@ -34,8 +34,8 @@ import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.j
 import { registerScoutingContext } from "./lib/scouting_context.js";
 import { gatesEligible, moveDate as gatesMoveDate, registerGates } from "./lib/mlsnp_gates.js";
 import {
-  fetchCollegeData, getAgent, importCollege, linkBoardToBigBoard, linkToBigBoard, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects,
-  ncaaSpot, ncaaSummary, ncaaYearBoard, prospectDetail, removeFromNcaaBoard, saveAgent, unlinkProspect,
+  fetchCollegeData, getAgent, importCollege, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects,
+  ncaaSpot, ncaaSummary, ncaaYearBoard, prospectDetail, removeFromNcaaBoard, saveAgent, undoBigBoardAutoLink, unlinkProspect,
 } from "./lib/ncaa.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
@@ -610,9 +610,6 @@ app.post("/api/ncaa/move", async (c) => {
   if (!before || before.position !== after.position || before.spot !== after.spot) {
     logActivity(db, user.id, p.id, "moved_on_ncaa_board", { from: before?.position || null, to: after.position, spot: after.spot });
   }
-  // New to the NCAA board: on the Big Board too, if they aren't already.
-  const role = before ? null : linkToBigBoard(db, p.id, position);
-  if (role) logActivity(db, user.id, p.id, "added_role", { role, via: "ncaa" });
   return c.json({ ok: true });
 });
 app.delete("/api/ncaa/board/:id", (c) => {
@@ -645,12 +642,12 @@ app.put("/api/players/:id/agent", async (c) => {
   logActivity(db, user.id, p.id, "updated_agent", { representation: agent.representation });
   return c.json({ agent });
 });
-// College-import players who were already in PINE under a slightly different name are merged into them, and the
-// NCAA board's players are on the Big Board too (each once; see linkBoardToBigBoard).
+// Startup housekeeping for the NCAA section: undo the day every NCAA board player went on the Big Board, then
+// merge college-import players who were already in PINE under a slightly different name.
 {
+  const removed = undoBigBoardAutoLink(db);
+  if (removed) logActivity(db, null, null, "unlinked_big_board", { count: removed });
   for (const m of mergeCollegeDuplicates(db)) logActivity(db, null, m.into, "merged_player", { name: m.name, into: m.into_name });
-  const added = linkBoardToBigBoard(db);
-  if (added.length) logActivity(db, null, null, "linked_big_board", { count: added.length });
 }
 // First start after the NCAA section (or its year boards) shipped: bring the college database in, in the background.
 if (!db.get("SELECT 1 FROM ncaa_prospects LIMIT 1") || !db.get("SELECT 1 FROM ncaa_year_boards LIMIT 1")) {
