@@ -44,3 +44,42 @@ test("college prospects carry their L2 picks, even without a PINE player", () =>
   saveL2Report(db, report(2025, [entry("Zedediah Tester", 2004, { tier: "Fourth" })])); // the report's longer first name
   assert.deepEqual(ncaaProspects(db)[0].l2.map((e) => [e.year, e.tier]), [[2025, "Fourth"]]);
 });
+
+test("a transaction inside another joins it, and an error rolls back both", () => {
+  const db = openDb(":memory:");
+  db.tx(() => {
+    db.run("INSERT INTO players(id, name) VALUES (1, 'Outer')");
+    db.tx(() => db.run("INSERT INTO players(id, name) VALUES (2, 'Inner')"));
+  });
+  assert.equal(db.get("SELECT count(*) AS n FROM players").n, 2);
+  assert.throws(() => db.tx(() => {
+    db.run("INSERT INTO players(id, name) VALUES (3, 'Doomed')");
+    db.tx(() => { throw new Error("inner fails"); });
+  }), /inner fails/);
+  assert.equal(db.get("SELECT count(*) AS n FROM players").n, 2);
+  db.tx(() => db.run("INSERT INTO players(id, name) VALUES (4, 'After')"));
+  assert.equal(db.get("SELECT count(*) AS n FROM players").n, 3, "transactions work normally afterwards");
+});
+
+test("adding a player inside a transaction links their L2 picks (the Add player path)", () => {
+  const db = openDb(":memory:");
+  saveL2Report(db, report(2026, [entry("Jack Newcomer", 2007)]));
+  const id = db.tx(() => {
+    const pid = Number(db.run("INSERT INTO players(name, birthdate) VALUES ('Jack Newcomer', '2007-11-20')").lastInsertRowid);
+    linkL2(db); // what insertPlayer does
+    return pid;
+  });
+  assert.equal(db.get("SELECT player_id FROM l2_prospects WHERE name = 'Jack Newcomer'").player_id, id);
+});
+
+test("the college import can create players while each creation re-links L2 picks", () => {
+  const db = openDb(":memory:");
+  saveL2Report(db, report(2026, [entry("Ana Striker", 2005)]));
+  const insertPlayer = (f) => {
+    const pid = Number(db.run("INSERT INTO players(name, league, source) VALUES (?, 'NCAA', 'college_import')", f.name).lastInsertRowid);
+    linkL2(db);
+    return pid;
+  };
+  importCollege(db, { boards: { 2026: { p9: ["ana striker"] } }, players: [{ key: "ana striker", name: "Ana Striker", year: 2026, reports: [] }] }, { insertPlayer });
+  assert.ok(db.get("SELECT player_id FROM l2_prospects WHERE name = 'Ana Striker'").player_id);
+});

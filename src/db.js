@@ -229,13 +229,18 @@ export function openDb(file) {
   if (!raw.prepare("PRAGMA table_info(activity)").all().some((c) => c.name === "hidden")) {
     raw.exec("ALTER TABLE activity ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0");
   }
+  let depth = 0;
   const db = {
     raw,
     all: (sql, ...p) => raw.prepare(sql).all(...p),
     get: (sql, ...p) => raw.prepare(sql).get(...p),
     run: (sql, ...p) => raw.prepare(sql).run(...p),
+    // A tx inside another tx joins it (SQLite can't nest BEGIN): helpers that make their own transaction can be
+    // called from a route's. Any error rolls back the outermost one.
     tx(fn) {
+      if (depth) return fn();
       raw.exec("BEGIN IMMEDIATE");
+      depth++;
       try {
         const r = fn();
         raw.exec("COMMIT");
@@ -243,6 +248,8 @@ export function openDb(file) {
       } catch (e) {
         raw.exec("ROLLBACK");
         throw e;
+      } finally {
+        depth--;
       }
     },
   };
