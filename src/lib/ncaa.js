@@ -410,6 +410,13 @@ export function prospectDetail(db, { key = null, playerId = null }) {
   return p;
 }
 
+// Every prospect on the latest college board gets a PINE player at import, so one without a player (and not
+// unlinked by staff) is someone staff deleted. Keep later imports from bringing them back. Returns how many.
+export function dismissDeletedCollegePlayers(db) {
+  return db.run(`UPDATE ncaa_prospects SET no_link = 1 WHERE player_id IS NULL AND no_link = 0
+    AND key IN (SELECT prospect_key FROM ncaa_year_boards WHERE year = (SELECT max(year) FROM ncaa_year_boards))`).changes;
+}
+
 // Staff say a name-matched prospect isn't this player: unlink it and keep later imports from relinking it.
 export function unlinkProspect(db, key) {
   return db.run("UPDATE ncaa_prospects SET player_id = NULL, no_link = 1 WHERE key = ?", key).changes > 0;

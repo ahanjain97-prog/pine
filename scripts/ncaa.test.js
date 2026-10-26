@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { openDb } from "../src/db.js";
 import {
-  bigBoardRole, fillCitizenshipFromCollege, importCollege, matchName, pickCollegeTmMatch, sameSchool, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects, ncaaYearBoard, normName,
+  bigBoardRole, dismissDeletedCollegePlayers, fillCitizenshipFromCollege, importCollege, matchName, pickCollegeTmMatch, sameSchool, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects, ncaaYearBoard, normName,
   removeFromNcaaBoard, saveAgent, syncBigBoardNcaa, undoBigBoardAutoLink, unlinkProspect,
 } from "../src/lib/ncaa.js";
 
@@ -259,4 +259,15 @@ test("Transfermarkt picks for college players: one result with the surname at on
   assert.equal(pickCollegeTmMatch({ name: "Angel Fernandez", schools: ["San Jose St."] },
     [{ name: "Angel Fernandez", club: "MDC Sharks (Miami Dade College)", tm_id: 4 }], opts), null, "a namesake at another college");
   assert.equal(pickCollegeTmMatch({ name: "Jose de la Torre", schools: ["CS Fullerton"] }, [{ name: "José de la Torre", club: "Retired", tm_id: 6 }], opts), null);
+});
+
+test("a deleted college player isn't brought back by the next import", () => {
+  const { db, insertPlayer } = setup();
+  importCollege(db, college(), { insertPlayer });
+  const ana = db.get("SELECT id FROM players WHERE name = 'Ana Striker'").id;
+  db.run("DELETE FROM players WHERE id = ?", ana);
+  assert.equal(dismissDeletedCollegePlayers(db), 1);
+  importCollege(db, college(), { insertPlayer });
+  assert.equal(db.get("SELECT count(*) AS n FROM players WHERE name = 'Ana Striker'").n, 0);
+  assert.equal(dismissDeletedCollegePlayers(db), 0);
 });

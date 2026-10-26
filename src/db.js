@@ -225,6 +225,10 @@ export function openDb(file) {
     raw.exec("ALTER TABLE cards ADD COLUMN progress TEXT");
     raw.exec("ALTER TABLE cards ADD COLUMN progress_matches INTEGER");
   }
+  // Entries kept for the record but left out of the Activity feed and player histories.
+  if (!raw.prepare("PRAGMA table_info(activity)").all().some((c) => c.name === "hidden")) {
+    raw.exec("ALTER TABLE activity ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0");
+  }
   const db = {
     raw,
     all: (sql, ...p) => raw.prepare(sql).all(...p),

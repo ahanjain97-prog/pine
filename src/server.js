@@ -34,7 +34,7 @@ import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.j
 import { registerScoutingContext } from "./lib/scouting_context.js";
 import { gatesEligible, moveDate as gatesMoveDate, registerGates } from "./lib/mlsnp_gates.js";
 import {
-  fetchCollegeData, fillCitizenshipFromCollege, getAgent, importCollege, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects,
+  dismissDeletedCollegePlayers, fetchCollegeData, fillCitizenshipFromCollege, getAgent, importCollege, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects,
   ncaaSpot, ncaaSummary, ncaaYearBoard, pickCollegeTmMatch, prospectDetail, removeFromNcaaBoard, saveAgent, undoBigBoardAutoLink, unlinkProspect,
 } from "./lib/ncaa.js";
 import { linkL2, saveL2Report } from "./lib/l2.js";
@@ -411,7 +411,7 @@ app.get("/api/players/:id", (c) => {
   });
   const activity = db.all(
     `SELECT a.id, a.action, a.detail, a.created_at, u.name AS user FROM activity a LEFT JOIN users u ON u.id = a.user_id
-     WHERE a.player_id = ? ORDER BY a.id DESC LIMIT 40`, player.id);
+     WHERE a.player_id = ? AND a.hidden = 0 ORDER BY a.id DESC LIMIT 40`, player.id);
   const lists = db.all("SELECT l.id, l.name, l.source FROM list_members m JOIN lists l ON l.id = m.list_id WHERE m.player_id = ?", player.id);
   const decision_by = player.decision_by ? db.get("SELECT name FROM users WHERE id = ?", player.decision_by)?.name : null;
   return c.json({
@@ -492,7 +492,10 @@ app.delete("/api/players/:id", (c) => {
   if (!user.is_admin) fail(403, "Only admins can delete players");
   const p = getPlayer(c.req.param("id"));
   const roles = p.roles.map((r) => r.role);
+  removeFromNcaaBoard(db, p.id); // keeps the position's ranks contiguous
   db.tx(() => {
+    // A deleted college player stays deleted: the next college import won't recreate or relink them.
+    db.run("UPDATE ncaa_prospects SET no_link = 1 WHERE player_id = ?", p.id);
     logActivity(db, user.id, null, "deleted_player", { name: p.name, id: p.id });
     db.run("DELETE FROM players WHERE id = ?", p.id);
     roles.forEach(compactRanks);
@@ -692,6 +695,7 @@ app.put("/api/players/:id/agent", async (c) => {
 // college-import players who were already in PINE under a slightly different name, and fill DOM / INTL for
 // college players (their college profile's country now; Transfermarkt shortly after start).
 {
+  dismissDeletedCollegePlayers(db); // players deleted before deletions marked their college profiles
   const removed = undoBigBoardAutoLink(db);
   if (removed) logActivity(db, null, null, "unlinked_big_board", { count: removed });
   for (const m of mergeCollegeDuplicates(db)) logActivity(db, null, m.into, "merged_player", { name: m.name, into: m.into_name });
@@ -714,6 +718,9 @@ app.put("/api/worker/l2-prospects", bodyLimit({ maxSize: 1024 * 1024 }), async (
   return c.json({ ok: true, year: body.year, ...result });
 });
 linkL2(db);
+
+// Hidden at the owner's request (2026-10-26): his three player deletions that afternoon. Still in the database.
+db.run("UPDATE activity SET hidden = 1 WHERE id IN (2626, 2627, 2628) AND action = 'deleted_player' AND user_id = 2");
 
 /* ---------- board ---------- */
 app.post("/api/board/move", async (c) => {
@@ -1204,7 +1211,7 @@ app.get("/api/activity", (c) =>
     activity: db.all(
       `SELECT a.id, a.action, a.detail, a.created_at, u.name AS user, a.player_id, p.name AS player
        FROM activity a LEFT JOIN users u ON u.id = a.user_id LEFT JOIN players p ON p.id = a.player_id
-       WHERE a.action <> 'signed_in' ORDER BY a.id DESC LIMIT ?`, Math.min(Number(c.req.query("limit")) || 60, 300)),
+       WHERE a.action <> 'signed_in' AND a.hidden = 0 ORDER BY a.id DESC LIMIT ?`, Math.min(Number(c.req.query("limit")) || 60, 300)),
   })
 );
 
