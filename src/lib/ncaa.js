@@ -309,6 +309,47 @@ export function ncaaYearBoard(db, year) {
   return board;
 }
 
+// Players with no citizenship and no hand-set roster status, linked to a college profile that names a country:
+// that country becomes their citizenship, so DOM / INTL shows. Transfermarkt's citizenship replaces it if
+// they're linked there later. Returns how many were filled.
+export function fillCitizenshipFromCollege(db) {
+  const rows = db.all(`SELECT p.id, (SELECT n.country FROM ncaa_prospects n WHERE n.player_id = p.id AND n.country IS NOT NULL
+      ORDER BY n.year DESC NULLS LAST LIMIT 1) AS country
+    FROM players p WHERE coalesce(p.citizenship, '[]') = '[]' AND coalesce(p.roster_status, '') = ''`).filter((r) => r.country);
+  db.tx(() => rows.forEach((r) => db.run("UPDATE players SET citizenship = ? WHERE id = ?", JSON.stringify([COUNTRY_NAMES[r.country] || r.country]), r.id)));
+  return rows.length;
+}
+
+// Whether a school name in PINE ("LMU", "CS UC Santa Barbara", "Dayton") and a Transfermarkt college club
+// ("Loyola Marymount Lions (Loyola Marymount Uni.)") are the same school: a shared distinctive word, or one
+// side's short name is the other's initials.
+const SCHOOL_STOP = new Set(["university", "college", "uni", "the", "and", "state", "saint", "san", "santa", "north", "south",
+  "east", "west", "new", "city", "school", "tech", "institute", "club"]);
+const initials = (s) => normName(s).split(" ").filter((w) => w && !["of", "the", "at", "and"].includes(w)).map((w) => w[0]).join("");
+export function sameSchool(school, tmClub) {
+  const words = (s) => normName(s).split(" ").filter((w) => w.length > 2 && !SCHOOL_STOP.has(w));
+  const ours = normName(school).split(" ").filter(Boolean);
+  const theirs = new Set(words(tmClub));
+  if (words(school).some((w) => theirs.has(w))) return true;
+  const inside = (String(tmClub).match(/\(([^)]*)\)/) || [])[1] || "";
+  const forms = new Set([tmClub, inside, String(tmClub).replace(/\([^)]*\)/, "")].map(initials).filter((x) => x.length >= 2));
+  return ours.some((w) => w.length >= 2 && w.length <= 5 && forms.has(w));
+}
+
+// Which Transfermarkt search result is this college player, if any can be said for sure: exactly one result with
+// the same surname at a college club that is one of the player's schools (their PINE club, or their college
+// profile's school). Surname rather than full name, so Calle / Carl Möllerberg still match. Returns it or null.
+export function pickCollegeTmMatch(player, results, { isCollege }) {
+  const t = nameTokens(player.name);
+  const schools = (player.schools || []).filter(Boolean);
+  if (!t.length || !schools.length) return null;
+  const hits = results.filter((r) => {
+    if (!isCollege(r.club) || !schools.some((s) => sameSchool(s, r.club))) return false;
+    return nameTokens(r.name).at(-1) === t.at(-1);
+  });
+  return hits.length === 1 ? hits[0] : null;
+}
+
 export async function fetchCollegeData(url = COLLEGE_DATA_URL) {
   const res = await fetch(url, { headers: { "Cache-Control": "no-cache" } });
   if (!res.ok) throw new Error(`College data download failed (${res.status})`);

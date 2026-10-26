@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { openDb } from "../src/db.js";
 import {
-  bigBoardRole, importCollege, matchName, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects, ncaaYearBoard, normName,
+  bigBoardRole, fillCitizenshipFromCollege, importCollege, matchName, pickCollegeTmMatch, sameSchool, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects, ncaaYearBoard, normName,
   removeFromNcaaBoard, saveAgent, syncBigBoardNcaa, undoBigBoardAutoLink, unlinkProspect,
 } from "../src/lib/ncaa.js";
 
@@ -224,4 +224,39 @@ test("a college-import player who was already in PINE is merged into them, keepi
   assert.equal(db.get("SELECT count(*) AS n FROM notes WHERE player_id = 60").n, 1);
   assert.deepEqual(db.all("SELECT role FROM board_entries WHERE player_id = 60").map((r) => r.role), ["FWD3"], "his Big Board role stays");
   assert.equal(mergeCollegeDuplicates(db).length, 0);
+});
+
+test("a college player with no citizenship takes their college profile's country", () => {
+  const { db, insertPlayer } = setup();
+  db.run("INSERT INTO players(id, name, league) VALUES (50, 'Ana Striker', 'NCAA')");
+  db.run("INSERT INTO players(id, name, league, roster_status) VALUES (51, 'Cal Centreback', 'NCAA', 'international')");
+  importCollege(db, college(), { insertPlayer });
+  assert.equal(fillCitizenshipFromCollege(db), 1);
+  assert.deepEqual(JSON.parse(db.get("SELECT citizenship FROM players WHERE id = 50").citizenship), ["United States"]);
+  assert.equal(db.get("SELECT citizenship FROM players WHERE id = 51").citizenship, "[]", "a hand-set status is left alone");
+});
+
+test("schools match by a distinctive word or by initials", () => {
+  assert.ok(sameSchool("LMU", "Loyola Marymount Lions (Loyola Marymount Uni.)"));
+  assert.ok(sameSchool("UCSB", "Santa Barbara Gauchos (Uni. of CAL Santa Barbara)"));
+  assert.ok(sameSchool("CS UC Santa Barbara", "Santa Barbara Gauchos (Uni. of CAL Santa Barbara)"));
+  assert.ok(sameSchool("Liberty", "Liberty Flames (Liberty University)"));
+  assert.ok(!sameSchool("San Jose St.", "MDC Sharks (Miami Dade College)"));
+  assert.ok(!sameSchool("Ohio State", "San Jose State Spartans (San Jose State University)"), "'State' alone isn't a match");
+});
+
+test("Transfermarkt picks for college players: one result with the surname at one of the player's schools", () => {
+  const opts = { isCollege: (club) => /\((.*\b(university|college)\b|.*\buni\.)/i.test(club || "") };
+  const madsens = [
+    { name: "Mikkel Madsen", club: "Herfölge Boldklub", tm_id: 1 },
+    { name: "Mikkel Madsen", club: "Dayton Flyers (University of Dayton)", tm_id: 2 },
+  ];
+  assert.equal(pickCollegeTmMatch({ name: "Mikkel Madsen", schools: ["Dayton"] }, madsens, opts).tm_id, 2);
+  assert.equal(pickCollegeTmMatch({ name: "Calle Mollerberg", schools: ["CS UC Santa Barbara"] },
+    [{ name: "Carl Möllerberg", club: "Santa Barbara Gauchos (Uni. of CAL Santa Barbara)", tm_id: 3 }], opts).tm_id, 3);
+  assert.equal(pickCollegeTmMatch({ name: "Samson Kpardeh", schools: ["Gardner-Webb", "Liberty"] },
+    [{ name: "Samson Kpardeh", club: "Liberty Flames (Liberty University)", tm_id: 7 }], opts).tm_id, 7, "his college profile has the new school");
+  assert.equal(pickCollegeTmMatch({ name: "Angel Fernandez", schools: ["San Jose St."] },
+    [{ name: "Angel Fernandez", club: "MDC Sharks (Miami Dade College)", tm_id: 4 }], opts), null, "a namesake at another college");
+  assert.equal(pickCollegeTmMatch({ name: "Jose de la Torre", schools: ["CS Fullerton"] }, [{ name: "José de la Torre", club: "Retired", tm_id: 6 }], opts), null);
 });

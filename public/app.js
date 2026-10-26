@@ -442,7 +442,8 @@ const rosterFromCitizenship = (p) => (p.citizenship?.length ? (p.citizenship.som
 const rosterStatus = (p) => p.roster_status || rosterFromCitizenship(p);
 function rosterBadge(p) {
   const status = rosterStatus(p);
-  if (!status) return "";
+  // No citizenship anywhere and none set by hand: flag it so someone fills it in (Edit details).
+  if (!status) return `<span class="roster unk" title="Domestic or international? Not known yet: set it in Edit details">?</span>`;
   const dom = status === "domestic";
   const cit = (p.citizenship || []).join(", ");
   const why = p.roster_status ? `set manually${cit ? ` (citizenship: ${cit})` : ""}` : cit;
@@ -1003,7 +1004,8 @@ async function renderPlayer(main, idArg) {
           ${fact("Height", p.height_cm ? `${p.height_cm} cm` : null)}
           ${fact("Foot", cap(p.foot))}
           ${fact("Citizenship", p.citizenship.join(", "))}
-          ${fact("Roster status", rosterStatus(p) && `${cap(rosterStatus(p))}${p.roster_status ? ` <span class="muted">(set manually)</span>` : ""}`, true)}
+          ${fact("Roster status", rosterStatus(p) ? `${cap(rosterStatus(p))}${p.roster_status ? ` <span class="muted">(set manually)</span>` : ""}`
+            : `<span class="warn">Unknown</span> <span class="muted">· set it in Edit details</span>`, true)}
           ${fact("Other positions", p.other_positions.join(", "))}
           ${fact("Contract expires", p.contract_expires ? `<span class="${contractSoon(p.contract_expires) ? "warn" : ""}">${esc(fmtDate(p.contract_expires))}</span>` : null, true)}
           ${fact("Joined", fmtDate(p.joined))}
@@ -2729,7 +2731,7 @@ function agentPanel(p, a) {
 /* ---------- activity + staff ---------- */
 // Who did it. The backup script downloads with its own key, not as a staff member.
 const actor = (a) => a.user || (a.action === "downloaded_backup" && /backup script/.test(a.detail || "") ? "Backup script"
-  : ["imported_college", "linked_big_board", "unlinked_big_board", "merged_player"].includes(a.action) ? "PINE" : "Someone");
+  : ["imported_college", "linked_big_board", "unlinked_big_board", "merged_player", "linked_tm"].includes(a.action) ? "PINE" : "Someone");
 
 function describe(a, onPlayerPage = false) {
   let d = {};
@@ -2768,7 +2770,7 @@ function describe(a, onPlayerPage = false) {
     case "unshortlisted": return `took ${who} off the Short Board at ${esc(roleLabel(d.role))}`;
     case "removed_role": return `removed ${who} from ${esc(roleLabel(d.role))}`;
     case "synced_tm": return `synced ${who} from Transfermarkt`;
-    case "linked_tm": return `linked ${who} to Transfermarkt`;
+    case "linked_tm": return `linked ${who} to Transfermarkt${d.via === "college match" ? " (matched by name and school, for their DOM / INTL)" : ""}`;
     case "linked_physical": return `updated physical data links for ${who}`;
     case "linked_impect": return d.impect_id ? `linked ${who} to Impect` : `unlinked ${who} from Impect`;
     case "requested_card": return `requested a player card for ${who} (${esc(d.position)}, ${esc(d.season)} ${esc(d.competition)})`;

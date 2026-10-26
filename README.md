@@ -144,6 +144,11 @@ the existing sign-in gate. No real player snapshot belongs in this public reposi
   = club decision, dots = the six staff verdicts, DOM / INTL = domestic (US citizen, from Transfermarkt citizenship)
   or international. Green cards aren't on Transfermarkt and its citizenship is sometimes wrong, so Edit details
   on the player page can set the roster status to Domestic or International by hand; syncs leave that alone.
+  A player with no citizenship anywhere shows a dashed **?** instead, and their page says the roster status is
+  unknown, so someone sets it in Edit details. College players are filled in automatically where possible: from
+  their college profile's country, and otherwise (on start and after each college import) by looking them up on
+  Transfermarkt, linking only when exactly one result has their surname at one of their schools (their PINE club
+  or college profile's school; initials count, so LMU = Loyola Marymount).
   College players whose league names NCAA also carry an NCAA tag beside DOM / INTL. Pasting a college player's
   Transfermarkt link sets the league to NCAA (Transfermarkt has no league for college programs; the club name
   ends with the school in brackets, e.g. "Indiana Hoosiers (Indiana University)"). A league edited by hand wins.

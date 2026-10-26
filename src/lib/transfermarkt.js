@@ -48,8 +48,9 @@ export function parseMarketValue(s) {
 // US college programs have no league on Transfermarkt, and their club names end with the school in
 // brackets: "Indiana Hoosiers (Indiana University)", "Providence Friars (Providence College)". Those
 // become NCAA. Requiring the bracketed school and no Transfermarkt league keeps out clubs like
-// "University College Dublin" (which has a league) and "IMG Academy" (no school in brackets).
-const COLLEGE_CLUB = /\((?=[^)]*\b(?:university|college|academy|institute|polytechnic)\b)[^)]*\)\s*$/i;
+// "University College Dublin" (which has a league) and "IMG Academy" (no school in brackets). Transfermarkt
+// abbreviates long names: "Santa Barbara Gauchos (Uni. of CAL Santa Barbara)".
+const COLLEGE_CLUB = /\((?=[^)]*(?:\b(?:university|college|academy|institute|polytechnic)\b|\buni\.))[^)]*\)\s*$/i;
 export function collegeLeague(club, league) {
   if (league) return league;
   return COLLEGE_CLUB.test(club || "") ? "NCAA" : null;

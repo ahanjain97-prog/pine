@@ -14,7 +14,7 @@ import { dirname, join, relative } from "node:path";
 import { openDb, logActivity } from "./db.js";
 import { checkPassword, createSetupLink, setupLinkUser, useSetupLink, startSession, logout, currentUser, tokenMatches } from "./auth.js";
 import { POSITIONS, ROLES, DECISIONS, SPLIT_ROLES, IMPECT_POSITION_LABEL, suggestPosition, suggestListRole, resolveRole } from "./roles.js";
-import { fetchTmPlayer, parseTmUrl, searchTmPlayers } from "./lib/transfermarkt.js";
+import { collegeLeague, fetchTmPlayer, parseTmUrl, searchTmPlayers } from "./lib/transfermarkt.js";
 import { TM_FIELDS, backfillCollegeLeagues, manualTmOverrides, releaseTmOverrides, tmConflicts, tmSyncFields } from "./lib/tm_sync.js";
 import { loadPhysical, matchPhysical, repairKeys, resolveAutoLinks, searchPhysical, rowsByKeys, teamOverlap, meta as physMeta } from "./lib/physical.js";
 import {
@@ -34,8 +34,8 @@ import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.j
 import { registerScoutingContext } from "./lib/scouting_context.js";
 import { gatesEligible, moveDate as gatesMoveDate, registerGates } from "./lib/mlsnp_gates.js";
 import {
-  fetchCollegeData, getAgent, importCollege, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects,
-  ncaaSpot, ncaaSummary, ncaaYearBoard, prospectDetail, removeFromNcaaBoard, saveAgent, undoBigBoardAutoLink, unlinkProspect,
+  fetchCollegeData, fillCitizenshipFromCollege, getAgent, importCollege, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects,
+  ncaaSpot, ncaaSummary, ncaaYearBoard, pickCollegeTmMatch, prospectDetail, removeFromNcaaBoard, saveAgent, undoBigBoardAutoLink, unlinkProspect,
 } from "./lib/ncaa.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
@@ -589,7 +589,48 @@ const collegePlayer = (userId) => (fields) => insertPlayer(fields, userId, "coll
 async function runCollegeImport(userId) {
   const stats = importCollege(db, await fetchCollegeData(), { insertPlayer: collegePlayer(userId) });
   logActivity(db, userId, null, "imported_college", stats);
+  fillCitizenshipFromCollege(db);
+  matchCollegeOnTm().catch((e) => console.warn("[ncaa] Transfermarkt match failed:", e.message));
   return stats;
+}
+
+// Every player should show DOM or INTL. College players with no citizenship (none from Transfermarkt or their
+// college profile) are looked up on Transfermarkt, one at a time and spaced out, and linked only when one
+// result is certainly them (pickCollegeTmMatch). Linking brings citizenship, like a pasted link would.
+let collegeTmRunning = false;
+async function matchCollegeOnTm({ delayMs = 2500 } = {}) {
+  if (collegeTmRunning) return 0;
+  collegeTmRunning = true;
+  const wait = () => new Promise((r) => setTimeout(r, delayMs + Math.random() * delayMs * 0.6));
+  const opts = { isCollege: (club) => collegeLeague(club, null) === "NCAA" };
+  let linked = 0, failures = 0;
+  try {
+    const players = db.all(`SELECT p.id, p.name, p.club, p.league,
+        (SELECT json_group_array(coalesce(n.school, n.team)) FROM ncaa_prospects n WHERE n.player_id = p.id) AS schools
+      FROM players p WHERE p.tm_id IS NULL AND coalesce(p.citizenship, '[]') = '[]' AND coalesce(p.roster_status, '') = ''`)
+      .filter((p) => /\bncaa\b/i.test(p.league || ""))
+      .map((p) => ({ ...p, schools: [p.club, ...JSON.parse(p.schools || "[]")] }));
+    for (const p of players) {
+      try {
+        let pick = pickCollegeTmMatch(p, await searchTmPlayers(p.name), opts);
+        const surname = p.name.trim().split(/\s+/).at(-1);
+        if (!pick && surname !== p.name.trim()) { await wait(); pick = pickCollegeTmMatch(p, await searchTmPlayers(surname), opts); }
+        if (pick && !db.get("SELECT 1 FROM players WHERE tm_id = ? AND id <> ?", String(pick.tm_id), p.id)) {
+          await wait();
+          await applyTmProfile(p.id, await fetchTmPlayer(pick.url), null, "college match");
+          linked++;
+        }
+        failures = 0;
+      } catch (e) {
+        if (++failures >= 5) { console.warn(`[ncaa] Transfermarkt match stopped: ${e.message}`); break; }
+      }
+      await wait();
+    }
+    if (players.length) console.log(`[ncaa] Transfermarkt: linked ${linked} of ${players.length} college players with no DOM / INTL`);
+  } finally {
+    collegeTmRunning = false;
+  }
+  return linked;
 }
 // The live NCAA board, or (?year=) an earlier year's board as the college database ranked it.
 app.get("/api/ncaa", (c) => {
@@ -642,12 +683,15 @@ app.put("/api/players/:id/agent", async (c) => {
   logActivity(db, user.id, p.id, "updated_agent", { representation: agent.representation });
   return c.json({ agent });
 });
-// Startup housekeeping for the NCAA section: undo the day every NCAA board player went on the Big Board, then
-// merge college-import players who were already in PINE under a slightly different name.
+// Startup housekeeping for the NCAA section: undo the day every NCAA board player went on the Big Board, merge
+// college-import players who were already in PINE under a slightly different name, and fill DOM / INTL for
+// college players (their college profile's country now; Transfermarkt shortly after start).
 {
   const removed = undoBigBoardAutoLink(db);
   if (removed) logActivity(db, null, null, "unlinked_big_board", { count: removed });
   for (const m of mergeCollegeDuplicates(db)) logActivity(db, null, m.into, "merged_player", { name: m.name, into: m.into_name });
+  fillCitizenshipFromCollege(db);
+  setTimeout(() => matchCollegeOnTm().catch((e) => console.warn("[ncaa] Transfermarkt match failed:", e.message)), 45_000);
 }
 // First start after the NCAA section (or its year boards) shipped: bring the college database in, in the background.
 if (!db.get("SELECT 1 FROM ncaa_prospects LIMIT 1") || !db.get("SELECT 1 FROM ncaa_year_boards LIMIT 1")) {

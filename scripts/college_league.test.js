@@ -11,6 +11,8 @@ test("college clubs with no Transfermarkt league become NCAA", () => {
     "Providence Friars (Providence College)",
     "UNCA Bulldogs (University of NC, Asheville)",
     "Army West Point Black Knights (US Military Academy)",
+    "Santa Barbara Gauchos (Uni. of CAL Santa Barbara)",
+    "Loyola Marymount Lions (Loyola Marymount Uni.)",
   ]) assert.equal(collegeLeague(club, null), "NCAA", club);
 });
 
