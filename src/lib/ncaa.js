@@ -73,6 +73,37 @@ export function matchName(index, name) {
 const authorOf = (body) => (String(body || "").match(/\(([A-Z]{2,3})\)\s*$/) || [])[1] || null;
 const latestBoardYear = (data) => Object.keys(data.boards || {}).sort().at(-1) || null;
 
+// A player's class in a given college season, worked out as the college scouting site does (classForYear there):
+// a report from that season gives it (the senior-most if several; in the player's latest scouted season, their
+// profile's class); otherwise their latest class moves up a year per season since (capped at Grad Student).
+const CLASS_LADDER = ["Freshman", "Sophomore", "Junior", "Senior", "Grad Student"];
+const RS_LADDER = ["R-Freshman", "R-Sophomore", "R-Junior", "R-Senior"];
+const classRank = (c) => (CLASS_LADDER.includes(c) ? CLASS_LADDER.indexOf(c) : RS_LADDER.indexOf(c));
+function advanceClass(cls, steps) {
+  if (!cls || steps <= 0) return cls;
+  for (const ladder of [CLASS_LADDER, RS_LADDER]) {
+    const i = ladder.indexOf(cls);
+    if (i >= 0) return ladder[Math.min(i + steps, ladder.length - 1)];
+  }
+  return cls; // 5th Year and anything unrecognised stay as they are
+}
+export function classForYear(prospect, reports, year) {
+  const exact = reports.filter((r) => r.class && Number(r.year) === Number(year));
+  if (exact.length) {
+    if (Number(year) === Number(prospect.year) && prospect.class) return prospect.class;
+    return exact.slice().sort((a, b) => classRank(b.class) - classRank(a.class))[0].class;
+  }
+  return advanceClass(prospect.class, Math.max(0, Number(year) - (Number(prospect.year) || Number(year))));
+}
+// Each prospect's reports' (year, class), by prospect key.
+function reportClasses(db, keys) {
+  const by = new Map(keys.map((k) => [k, []]));
+  if (!keys.length) return by;
+  for (const r of db.all(`SELECT prospect_key, year, class FROM ncaa_reports WHERE class IS NOT NULL
+      AND prospect_key IN (${keys.map(() => "?").join(",")})`, ...keys)) by.get(r.prospect_key)?.push(r);
+  return by;
+}
+
 // Rewrites one position's ranks with `playerId` at `index` (0-based) among the others.
 function placeAt(db, playerId, position, index) {
   const ids = db.all("SELECT player_id FROM ncaa_board WHERE position = ? AND player_id <> ? ORDER BY rank", position, playerId)
@@ -185,10 +216,10 @@ export function importCollege(db, data, { insertPlayer }) {
       db.run("DELETE FROM ncaa_reports WHERE prospect_key = ?", x.key);
       for (const r of Array.isArray(x.reports) ? x.reports : []) {
         db.run(`INSERT INTO ncaa_reports(prospect_key, dates, match, team, source, grade, grade_present, grade_future,
-            role_code, role_name, position, year, author, body) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            role_code, role_name, position, year, author, body, class) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           x.key, JSON.stringify(r.dates || []), r.match ?? null, r.team ?? null, r.source ?? null, r.grade ?? null,
           r.grade_present ?? null, r.grade_future ?? null, r.role_code ?? null, r.role_name ?? null, r.position ?? null,
-          Number.isFinite(r.year) ? r.year : null, authorOf(r.body), r.body ?? null);
+          Number.isFinite(r.year) ? r.year : null, authorOf(r.body), r.body ?? null, r.class ?? null);
         stats.reports++;
       }
 
@@ -301,11 +332,11 @@ export const ncaaYears = (db) => db.all("SELECT DISTINCT year FROM ncaa_year_boa
 // An earlier year's board, as the college database ranked it: prospects (linked to PINE or not) by position.
 export function ncaaYearBoard(db, year) {
   const board = {};
-  for (const r of db.all(`SELECT b.position, n.key, n.player_id, n.name, n.class, n.year, n.school, n.team, n.grade, n.status,
+  const rows = db.all(`SELECT b.position, n.key, n.player_id, n.name, n.class, n.year, n.school, n.team, n.grade, n.status,
       (SELECT count(*) FROM ncaa_reports r WHERE r.prospect_key = n.key) AS reports, ${L2_JSON}
-    FROM ncaa_year_boards b JOIN ncaa_prospects n ON n.key = b.prospect_key WHERE b.year = ? ORDER BY b.position, b.rank`, year)) {
-    (board[r.position] ||= []).push(parseL2(r));
-  }
+    FROM ncaa_year_boards b JOIN ncaa_prospects n ON n.key = b.prospect_key WHERE b.year = ? ORDER BY b.position, b.rank`, year);
+  const classes = reportClasses(db, rows.map((r) => r.key));
+  for (const r of rows) (board[r.position] ||= []).push({ ...parseL2(r), class_then: classForYear(r, classes.get(r.key), year) });
   return board;
 }
 
@@ -365,6 +396,9 @@ export function ncaaBoardView(db) {
   for (const r of db.all(`SELECT n.player_id, n.key, n.grade, n.grade_present, n.grade_future, n.grade_val, n.class, n.school,
       n.team, n.year, (SELECT count(*) FROM ncaa_reports r WHERE r.prospect_key = n.key) AS reports
       FROM ncaa_prospects n WHERE n.player_id IS NOT NULL ORDER BY n.year NULLS FIRST`)) info[r.player_id] = r; // latest profile wins
+  const liveYear = ncaaYears(db)[0] ?? null;
+  const classes = reportClasses(db, Object.values(info).map((r) => r.key));
+  for (const r of Object.values(info)) r.class_now = liveYear ? classForYear(r, classes.get(r.key), liveYear) : r.class;
   const agents = Object.fromEntries(db.all("SELECT player_id, representation, agent, agency FROM agent_info").map((a) => [a.player_id, a]));
   // The Big Board role each board player would get from "+ BB": their latest college role, in this position.
   const collegeRole = new Map(db.all(`SELECT n.player_id, (SELECT r.role_name FROM ncaa_reports r JOIN ncaa_prospects m ON m.key = r.prospect_key
@@ -393,9 +427,13 @@ const withBoards = (r) => parseL2({ ...r, years: JSON.parse(r.years || "[]"), bo
 
 // The college database as a table: every prospect, linked or not.
 export function ncaaProspects(db) {
-  return db.all(`SELECT n.key, n.player_id, n.name, n.team, n.school, n.class, n.position, n.grade, n.grade_val, n.year, n.years,
+  const rows = db.all(`SELECT n.key, n.player_id, n.name, n.team, n.school, n.class, n.position, n.grade, n.grade_val, n.year, n.years,
       n.status, n.country, (SELECT count(*) FROM ncaa_reports r WHERE r.prospect_key = n.key) AS reports, ${BOARDS_JSON}, ${L2_JSON}
     FROM ncaa_prospects n ORDER BY n.grade_val DESC NULLS LAST, n.name`).map(withBoards);
+  const years = ncaaYears(db);
+  const classes = reportClasses(db, rows.map((r) => r.key));
+  for (const r of rows) r.classes = Object.fromEntries(years.map((y) => [y, classForYear(r, classes.get(r.key), y)]));
+  return rows;
 }
 
 export function prospectDetail(db, { key = null, playerId = null }) {
@@ -407,6 +445,8 @@ export function prospectDetail(db, { key = null, playerId = null }) {
   p.boards = Object.assign({}, ...rows.slice(1).reverse().map((r) => r.boards), p.boards);
   p.reports = db.all(`SELECT * FROM ncaa_reports WHERE prospect_key IN (${rows.map(() => "?").join(",")}) ORDER BY year DESC, id`, ...rows.map((r) => r.key))
     .map((r) => ({ ...r, dates: JSON.parse(r.dates || "[]") }));
+  p.class_year = ncaaYears(db)[0] ?? null;
+  p.class_now = p.class_year ? classForYear(p, p.reports.filter((r) => r.prospect_key === p.key), p.class_year) : p.class;
   return p;
 }
 

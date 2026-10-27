@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { openDb } from "../src/db.js";
 import {
-  bigBoardRole, dismissDeletedCollegePlayers, fillCitizenshipFromCollege, importCollege, matchName, pickCollegeTmMatch, sameSchool, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects, ncaaYearBoard, normName,
+  bigBoardRole, classForYear, dismissDeletedCollegePlayers, fillCitizenshipFromCollege, importCollege, matchName, pickCollegeTmMatch, sameSchool, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects, ncaaYearBoard, normName,
   removeFromNcaaBoard, saveAgent, syncBigBoardNcaa, undoBigBoardAutoLink, unlinkProspect,
 } from "../src/lib/ncaa.js";
 
@@ -270,4 +270,26 @@ test("a deleted college player isn't brought back by the next import", () => {
   importCollege(db, college(), { insertPlayer });
   assert.equal(db.get("SELECT count(*) AS n FROM players WHERE name = 'Ana Striker'").n, 0);
   assert.equal(dismissDeletedCollegePlayers(db), 0);
+});
+
+test("each season's class: a report from that season, else the latest class moved up a year per season", () => {
+  const p = { class: "Junior", year: 2025 };
+  const reports = [{ year: 2024, class: "Sophomore" }, { year: 2024, class: "Freshman" }, { year: 2025, class: "Sophomore" }];
+  assert.equal(classForYear(p, reports, 2026), "Senior", "a Junior in 2025 is a Senior in 2026");
+  assert.equal(classForYear(p, reports, 2025), "Junior", "their latest season uses the profile's class");
+  assert.equal(classForYear(p, reports, 2024), "Sophomore", "the senior-most report that season");
+  assert.equal(classForYear({ class: "Senior", year: 2024 }, [], 2026), "Grad Student", "capped at Grad Student");
+  assert.equal(classForYear({ class: "R-Sophomore", year: 2025 }, [], 2026), "R-Junior");
+  assert.equal(classForYear({ class: "5th Year", year: 2025 }, [], 2026), "5th Year");
+});
+
+test("the live board shows this season's class; reports keep their class", () => {
+  const { db, insertPlayer } = setup();
+  const data = college();
+  data.players[0].class = "Junior"; data.players[0].year = 2025;
+  data.players[0].reports[0].class = "Junior";
+  importCollege(db, data, { insertPlayer });
+  const ana = db.get("SELECT id FROM players WHERE name = 'Ana Striker'").id;
+  assert.equal(ncaaBoardView(db).info[ana].class_now, "Senior");
+  assert.equal(db.get("SELECT class FROM ncaa_reports WHERE prospect_key = 'ana striker'").class, "Junior");
 });

@@ -2404,13 +2404,14 @@ async function loadTmMatch(root) {
 const gradeTone = (g) => ({ A: "g-a", B: "g-b", C: "g-c", D: "g-d" })[String(g || "").split("/").pop().trim()[0]] || "";
 const gradeBadge = (g, cls = "") => (g ? `<span class="grade ${gradeTone(g)} ${cls}" title="College grade ${esc(g)}${g.includes("/") ? " (current/future)" : ""}">${esc(g)}</span>` : "");
 const CLASS_SHORT = { freshman: "Fr", sophomore: "So", junior: "Jr", senior: "Sr", "grad student": "Grad", gr: "Grad", "5th year": "5th" };
-// The class is the one at the player's last scouted season, so it carries that year: "Jr '25".
-function classLabel(c, year) {
+// Classes are worked out per season on the server (classForYear, as the college scouting site does): the live
+// board shows this season's, a past board that season's. "Junior" -> "Jr", "R-Sophomore" -> "R-So".
+function classShort(c) {
   if (!c) return "";
   const [, redshirt, rest] = String(c).trim().match(/^(r-)?(.*)$/i);
-  const short = (redshirt ? "R-" : "") + (CLASS_SHORT[rest.toLowerCase()] || rest);
-  return year ? `${short} '${String(year).slice(-2)}` : short;
+  return (redshirt ? "R-" : "") + (CLASS_SHORT[rest.toLowerCase()] || rest);
 }
+const CLASS_ORDER = ["Freshman", "R-Freshman", "Sophomore", "R-Sophomore", "Junior", "R-Junior", "Senior", "R-Senior", "Grad Student", "5th Year"];
 const REPRESENTATION = [["unknown", "Unknown"], ["none", "No agent"], ["advisor", "Advisor"], ["agent", "Agent"]];
 const repLabel = (r) => (REPRESENTATION.find(([k]) => k === r) || REPRESENTATION[0])[1];
 function repChip(a) {
@@ -2435,7 +2436,7 @@ const textMatch = (q, ...vals) => !q || vals.some((v) => String(v ?? "").toLower
 // Board star); everyone else gets "+ BB", which adds them at the role their college scouting suggests.
 function ncaaRow(p, pos, i, d) {
   const x = d.info[p.id];
-  const sub = [classLabel(x?.class, x?.year), x?.school || x?.team || p.club].filter(Boolean).join(" · ") || p.position || "";
+  const sub = [classShort(x?.class_now), x?.school || x?.team || p.club].filter(Boolean).join(" · ") || p.position || "";
   const onBB = p.roles.length > 0;
   const role = pos && onBB ? starRole(p, pos) : null;
   const on = role ? isTopTarget(p, role) : false;
@@ -2456,7 +2457,7 @@ function ncaaRow(p, pos, i, d) {
 // One row on an earlier year's board: a prospect, who may or may not be in PINE.
 function pastRow(x, i) {
   const p = x.player_id && S.byId.get(x.player_id);
-  const sub = [classLabel(x.class, x.year), x.school || x.team].filter(Boolean).join(" · ");
+  const sub = [classShort(x.class_then), x.school || x.team].filter(Boolean).join(" · ");
   return `<a class="nrow past ${p?.decision ? "v-" + p.decision : ""}" ${p ? `href="#/player/${p.id}"` : `href="#" data-prospect="${esc(x.key)}"`}
       data-q="${esc([x.name, sub, x.status].join(" "))}" data-grade="${esc(x.grade || "")}" title="${p ? "Open the PINE profile" : "Read the reports"}">
     <span class="nrank ${i < 3 ? "lead" : ""}">${i + 1}</span>
@@ -2607,6 +2608,8 @@ async function ncaaDatabase(root, d) {
   // The live board's order is PINE's (players dragged since the import); earlier years are as imported.
   const live = {};
   for (const [pos, ids] of Object.entries(d.board || {})) ids.forEach((id, i) => (live[id] = { position: pos, rank: i }));
+  // The class in the season being looked at: the chosen year, or this season for all years.
+  const classIn = (x) => x.classes?.[f.dbYear || d.live_year] ?? x.class;
   const boardOf = (x) => {
     const y = f.dbYear ? Number(f.dbYear) : Math.max(...Object.keys(x.boards).map(Number), 0) || null;
     if (!y) return null;
@@ -2614,7 +2617,7 @@ async function ncaaDatabase(root, d) {
     return spot ? { year: y, ...spot } : null;
   };
   const key = {
-    name: (x) => x.name.toLowerCase(), position: (x) => x.position || "", class: (x) => x.class || "", school: (x) => (x.school || x.team || "").toLowerCase(),
+    name: (x) => x.name.toLowerCase(), position: (x) => x.position || "", class: (x) => CLASS_ORDER.indexOf(classIn(x)), school: (x) => (x.school || x.team || "").toLowerCase(),
     grade: (x) => x.grade_val ?? -1, years: (x) => Math.max(0, ...x.years), status: (x) => (x.status || "").toLowerCase(), reports: (x) => x.reports,
     board: (x) => { const b = boardOf(x); return b ? b.year * -1000 + b.rank : 1e9; },
   };
@@ -2632,7 +2635,7 @@ async function ncaaDatabase(root, d) {
       const p = x.player_id && S.byId.get(x.player_id), b = boardOf(x);
       return `<tr data-key="${esc(x.key)}">
         <td><div class="nname">${esc(x.name)} ${l2Badge(x.l2)}</div><div class="nsub">${p ? `<a href="#/player/${p.id}">In PINE</a>` : esc(x.country || "")}</div></td>
-        <td>${esc(x.position || "")}</td><td>${esc(classLabel(x.class, x.year))}</td><td>${esc(x.school || x.team || "")}</td>
+        <td>${esc(x.position || "")}</td><td>${esc(classShort(classIn(x)))}</td><td>${esc(x.school || x.team || "")}</td>
         <td>${gradeBadge(x.grade)}</td><td>${esc(x.years.join(", "))}</td><td>${x.status ? `<span class="nnow">${esc(x.status)}</span>` : ""}</td><td>${x.reports || ""}</td>
         <td>${b ? `<span class="nspot">${f.dbYear ? "" : `<i>${b.year}</i>`}${esc(b.position)} <b>${b.rank + 1}</b></span>` : ""}</td></tr>`;
     }).join("") || `<tr><td colspan="${PROSPECT_COLS.length}" class="empty-state">No prospects match these filters.</td></tr>`;
@@ -2658,7 +2661,8 @@ function collegeFacts(x) {
   return `<dl class="facts">
     ${fact("Current / future", x.grade_present || x.grade_future ? `${gradeBadge(x.grade_present)} / ${gradeBadge(x.grade_future)}` : null, true)}
     ${fact("School", x.school || x.team)}
-    ${fact("Class", x.class ? `${x.class}${x.year ? ` (${x.year})` : ""}` : null)}
+    ${fact("Class", x.class_now ? `${esc(x.class_now)}${x.class_year ? ` (${x.class_year})` : ""}${x.class && x.class !== x.class_now && x.year
+      ? ` <span class="muted">· ${esc(x.class)} when last scouted, ${x.year}</span>` : ""}` : null, true)}
     ${fact("Position", pos)}
     ${fact("Foot", x.foot)}
     ${fact("Country", x.country)}

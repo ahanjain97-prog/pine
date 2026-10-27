@@ -703,7 +703,9 @@ app.put("/api/players/:id/agent", async (c) => {
   setTimeout(() => matchCollegeOnTm().catch((e) => console.warn("[ncaa] Transfermarkt match failed:", e.message)), 45_000);
 }
 // First start after the NCAA section (or its year boards) shipped: bring the college database in, in the background.
-if (!db.get("SELECT 1 FROM ncaa_prospects LIMIT 1") || !db.get("SELECT 1 FROM ncaa_year_boards LIMIT 1")) {
+// (Also once more when reports gained their class, so each board year shows the class that season.)
+if (!db.get("SELECT 1 FROM ncaa_prospects LIMIT 1") || !db.get("SELECT 1 FROM ncaa_year_boards LIMIT 1")
+    || !db.get("SELECT 1 FROM ncaa_reports WHERE class IS NOT NULL LIMIT 1")) {
   setTimeout(() => runCollegeImport(null)
     .then((s) => console.log(`[ncaa] imported ${s.prospects} prospects, ${s.reports} reports; ${s.created} new players, ${s.boarded} on the NCAA board`))
     .catch((e) => console.warn("[ncaa] college import failed:", e.message)), 8000);
