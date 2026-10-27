@@ -134,6 +134,8 @@ CREATE TABLE IF NOT EXISTS l2_prospects(
   PRIMARY KEY(year, name)
 );
 CREATE INDEX IF NOT EXISTS l2_prospects_player ON l2_prospects(player_id);
+-- One-time data changes already applied (db.once), so they never run twice.
+CREATE TABLE IF NOT EXISTS done_migrations(name TEXT PRIMARY KEY, at TEXT NOT NULL DEFAULT (datetime('now')));
 -- Taken off the NCAA board by staff: the Big Board sync and later imports don't put them back.
 CREATE TABLE IF NOT EXISTS ncaa_board_removed(
   player_id INTEGER PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
@@ -239,6 +241,15 @@ export function openDb(file) {
     all: (sql, ...p) => raw.prepare(sql).all(...p),
     get: (sql, ...p) => raw.prepare(sql).get(...p),
     run: (sql, ...p) => raw.prepare(sql).run(...p),
+    // Runs fn (in a transaction) the first time `name` is seen, and records it so it never runs again.
+    once(name, fn) {
+      if (raw.prepare("SELECT 1 FROM done_migrations WHERE name = ?").get(name)) return undefined;
+      return this.tx(() => {
+        const r = fn();
+        raw.prepare("INSERT INTO done_migrations(name) VALUES (?)").run(name);
+        return r;
+      });
+    },
     // A tx inside another tx joins it (SQLite can't nest BEGIN): helpers that make their own transaction can be
     // called from a route's. Any error rolls back the outermost one.
     tx(fn) {

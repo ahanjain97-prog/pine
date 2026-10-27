@@ -699,6 +699,23 @@ app.put("/api/players/:id/agent", async (c) => {
   const removed = undoBigBoardAutoLink(db);
   if (removed) logActivity(db, null, null, "unlinked_big_board", { count: removed });
   for (const m of mergeCollegeDuplicates(db)) logActivity(db, null, m.into, "merged_player", { name: m.name, into: m.into_name });
+  // One-time cleanup (2026-10-27), at the owner's request: 51 players nobody had placed on the Big Board or the
+  // NCAA board (staff notes, Hearts of Pine's own players and anyone placed on a board since are kept). Each deletion
+  // is recorded but hidden; one summary line shows in Activity.
+  db.once("tray-cleanup-2026-10-27", () => {
+    let count = 0;
+    for (const id of [428,405,424,329,295,406,459,409,410,400,364,366,606,463,414,411,413,401,438,379,431,430,407,373,480,425,404,432,458,445,296,492,426,363,298,443,402,440,493,608,434,294,496,362,376,484,427,442,290,408,403]) {
+      const p = db.get(`SELECT id, name FROM players WHERE id = ? AND NOT EXISTS (SELECT 1 FROM board_entries WHERE player_id = ?)
+        AND NOT EXISTS (SELECT 1 FROM ncaa_board WHERE player_id = ?)`, id, id, id);
+      if (!p) continue;
+      db.run("UPDATE ncaa_prospects SET no_link = 1 WHERE player_id = ?", id);
+      db.run("INSERT INTO activity(user_id, action, detail, hidden) VALUES (2, 'deleted_player', ?, 1)", JSON.stringify({ name: p.name, id, via: "tray cleanup" }));
+      db.run("DELETE FROM players WHERE id = ?", id);
+      count++;
+    }
+    if (count) logActivity(db, 2, null, "bulk_deleted_players", { count });
+    console.log(`[cleanup] deleted ${count} players not on any board`);
+  });
   fillCitizenshipFromCollege(db);
   setTimeout(() => matchCollegeOnTm().catch((e) => console.warn("[ncaa] Transfermarkt match failed:", e.message)), 45_000);
 }

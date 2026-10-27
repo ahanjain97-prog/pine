@@ -2801,6 +2801,7 @@ function describe(a, onPlayerPage = false) {
     case "requested_card": return `requested a player card for ${who} (${esc(d.position)}, ${esc(d.season)} ${esc(d.competition)})`;
     case "edited_player": return `edited details for ${who}`;
     case "deleted_player": return `deleted ${esc(d.name || "a player")}`;
+    case "bulk_deleted_players": return `deleted ${d.count} players nobody had placed on the Big Board or NCAA board`;
     case "imported_list": return `imported the Impect list “${esc(d.name)}” (${d.created ?? 0} new)`;
     case "refreshed_impect": return "refreshed all the Impect data";
     case "downloaded_backup": return d.via ? "saved its daily copy of the database" : "downloaded a copy of the database";

@@ -83,3 +83,15 @@ test("the college import can create players while each creation re-links L2 pick
   importCollege(db, { boards: { 2026: { p9: ["ana striker"] } }, players: [{ key: "ana striker", name: "Ana Striker", year: 2026, reports: [] }] }, { insertPlayer });
   assert.ok(db.get("SELECT player_id FROM l2_prospects WHERE name = 'Ana Striker'").player_id);
 });
+
+test("db.once runs a one-time change once, inside a transaction", () => {
+  const db = openDb(":memory:");
+  let runs = 0;
+  db.once("demo", () => { runs++; db.run("INSERT INTO players(name) VALUES ('Once')"); });
+  db.once("demo", () => { runs++; });
+  assert.equal(runs, 1);
+  assert.throws(() => db.once("fails", () => { db.run("INSERT INTO players(name) VALUES ('Rolled back')"); throw new Error("no"); }), /no/);
+  assert.equal(db.get("SELECT count(*) AS n FROM players WHERE name = 'Rolled back'").n, 0);
+  db.once("fails", () => { runs++; });
+  assert.equal(runs, 2, "a failed one-time change runs again next time");
+});
