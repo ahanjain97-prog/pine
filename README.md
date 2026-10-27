@@ -167,10 +167,13 @@ the existing sign-in gate. No real player snapshot belongs in this public reposi
   off; someone taken off stays off (neither the Big Board sync nor a re-import puts them back) until dragged
   back in. Earlier years (`#/ncaa/2025`, `#/ncaa/2024`) show those boards as the college database ranked them,
   read-only, including players not in PINE (click one for their reports). Rows show the college grade
-  (current/future, coloured by the future grade), class and school at the last scouted season ("Jr '25"), and
-  DOM / INTL and agent status on the live board, or where the player is now on past boards. **College
-  database** lists every prospect with grade, seasons scouted, where they are now, reports and board spot,
-  filterable by year; click a row for the reports.
+  (current/future, coloured by the future grade; the best grade across their reports, as the college database
+  shows it), their class that season and school, and DOM / INTL and agent status on the live board, or where the
+  player is now on past boards. **College database** lists every prospect with grade, seasons scouted, where they
+  are now, reports and board spot, filterable by year; click a row for the reports. Classes follow the college
+  scouting site's rule (classForYear): a report from that season gives the class, otherwise the latest class
+  moves up a year per season (a 2025 Junior is a 2026 Senior), capped at Grad Student. The live board shows 2026
+  classes, past boards that season's, and the college database the chosen year's.
   Being on the Big Board is what marks a college player as a priority. On the live board those rows carry a
   green **BB** tag (hover for their roles) and the ☆ that makes them a top target (Short Board); filter by
   Big Board or not. Hover anyone else for **+ BB**, which adds them to the Big Board at the role their college
