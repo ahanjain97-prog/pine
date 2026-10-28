@@ -715,11 +715,24 @@ function previewHTML(d) {
         </div>
       </div>
     </div>
-    ${d.duplicate ? "" : `<div class="assign"><div class="rp-host"></div><div class="dec-host"></div>
+    ${d.duplicate ? "" : `<div class="assign"><div class="rp-host"></div><div class="dec-host"></div><div class="college-host"></div>
       <div class="m-actions" style="margin-top:0"><button type="button" class="btn primary" id="tm-save">Add to PINE</button></div></div>`}`;
 }
 
-function openAddPlayer({ role = null, url = "" } = {}) {
+// The college part of Add player: an NCAA board spot and a first report (grade, class, school), for college players.
+const collegeAddHTML = (school, board) => `<div class="college-add"><div class="lbl">College scouting</div>
+  <p class="hint">Optional. A grade and report here give them a college profile, like the imported players.</p>
+  ${collegeFormHTML({}, { school: school || "", board: board || "" })}</div>`;
+async function saveCollegeExtras(player, host) {
+  const form = host?.querySelector(".college-add");
+  if (!form) return;
+  const pos = form.querySelector("[name=ncaa_position]")?.value;
+  if (pos) await api("POST", "/api/ncaa/move", { player_id: player.id, position: pos, index: null });
+  const fields = Object.fromEntries([...form.querySelectorAll("[name]")].filter((el) => el.name !== "ncaa_position").map((el) => [el.name, el.value]));
+  if (fields.grade_present || fields.body?.trim()) await api("POST", `/api/players/${player.id}/college/reports`, fields);
+}
+
+function openAddPlayer({ role = null, url = "", college = false } = {}) {
   const pos = role ? roleInfo(role).position : null;
   const m = modal(`<header class="m-h"><h2>Add a player</h2><button type="button" class="icon-btn" data-close aria-label="Close">×</button></header>
     <div class="tabs" role="tablist"><button type="button" class="on" data-tab="tm">Transfermarkt link</button><button type="button" data-tab="manual">Manual entry</button></div>
@@ -734,11 +747,11 @@ function openAddPlayer({ role = null, url = "" } = {}) {
           <div><label class="lbl" for="mf-name">Name *</label><input id="mf-name" name="name" required></div>
           <div><label class="lbl" for="mf-pos">Position</label><input id="mf-pos" name="position" placeholder="e.g. Centre-Back"></div>
           <div><label class="lbl" for="mf-club">Club</label><input id="mf-club" name="club"></div>
-          <div><label class="lbl" for="mf-league">League</label><input id="mf-league" name="league"></div>
+          <div><label class="lbl" for="mf-league">League</label><input id="mf-league" name="league" value="${college ? "NCAA" : ""}"></div>
           <div><label class="lbl" for="mf-dob">Date of birth</label><input id="mf-dob" name="birthdate" type="date"></div>
           <div><label class="lbl" for="mf-foot">Foot</label><select id="mf-foot" name="foot"><option value="">Unknown</option><option>right</option><option>left</option><option>both</option></select></div>
         </div>
-        <div class="assign"><div class="rp-host"></div><div class="dec-host"></div></div>
+        <div class="assign"><div class="rp-host"></div><div class="dec-host"></div><div class="college-host"></div></div>
         <div class="m-actions"><button class="btn primary" type="submit">Add to PINE</button></div>
       </form>
     </div>`, { wide: true });
@@ -761,11 +774,21 @@ function openAddPlayer({ role = null, url = "" } = {}) {
   const manPane = $('[data-pane="manual"]', m);
   const manRoles = rolePicker($(".rp-host", manPane), { position: pos, selected: role ? [role] : [] });
   const manDec = decisionPicker($(".dec-host", manPane));
+  // The college fields appear once the league says NCAA (or straight away from the NCAA page).
+  const manCollege = $(".college-host", manPane);
+  const showManCollege = () => {
+    const on = isNcaa({ league: $("#mf-league", m).value });
+    if (on && !manCollege.firstChild) manCollege.innerHTML = collegeAddHTML($("#mf-club", m).value, pos || "");
+    manCollege.hidden = !on;
+  };
+  $("#mf-league", m).addEventListener("input", showManCollege);
+  showManCollege();
   $("#man-form", m).addEventListener("submit", async (e) => {
     e.preventDefault();
-    const body = Object.fromEntries(new FormData(e.target));
+    const fields = Object.fromEntries([...e.target.querySelectorAll(".form-grid [name]")].map((el) => [el.name, el.value]));
     try {
-      const r = await api("POST", "/api/players", { ...body, roles: [...manRoles.selected], decision: manDec.value });
+      const r = await api("POST", "/api/players", { ...fields, roles: [...manRoles.selected], decision: manDec.value });
+      if (!manCollege.hidden) await saveCollegeExtras(r.player, manCollege).catch(oops);
       await created(r.player);
     } catch (err) { oops(err); }
   });
@@ -783,12 +806,17 @@ function openAddPlayer({ role = null, url = "" } = {}) {
       if (d.duplicate) return;
       const rp = rolePicker($(".rp-host", out), { position: pos || d.suggested_position, selected: role ? [role] : [] });
       const dp = decisionPicker($(".dec-host", out));
+      const collegeHost = $(".college-host", out);
+      if (college || isNcaa({ league: d.profile.league })) {
+        collegeHost.innerHTML = collegeAddHTML((d.profile.club || "").replace(/\s*\([^)]*\)\s*$/, ""), pos || d.suggested_position || "");
+      }
       $("#tm-save", out).addEventListener("click", async (e) => {
         const btn = e.currentTarget;
         btn.disabled = true;
         btn.textContent = "Adding…";
         try {
           const r = await api("POST", "/api/players", { tm_url: u, roles: [...rp.selected], decision: dp.value });
+          await saveCollegeExtras(r.player, collegeHost).catch(oops);
           await created(r.player);
         } catch (err) { btn.disabled = false; btn.textContent = "Add to PINE"; oops(err); }
       });
@@ -1463,6 +1491,25 @@ function wirePlayer(root, d) {
         return await afterMutation();
       }
       if (t.id === "ncaa-rm") { await api("DELETE", `/api/ncaa/board/${p.id}`); return await afterMutation(); }
+      if (t.id === "college-add" || t.id === "college-cancel") {
+        const f = $("#college-form", root);
+        f.hidden = t.id === "college-cancel";
+        if (!f.hidden) f.querySelector("[name=grade_present]").focus(); else f.reset();
+        return;
+      }
+      if (t.dataset.reportEdit) {
+        const r = d.college.reports.find((x) => x.id === Number(t.dataset.reportEdit));
+        const el = $(`[data-report="${r.id}"]`, root);
+        el.innerHTML = `<form class="college-edit" data-id="${r.id}">${collegeFormHTML(r)}
+          <div class="row end"><button type="button" class="btn sm ghost" data-report-cancel>Cancel</button><button type="submit" class="btn sm primary">Save</button></div></form>`;
+        return;
+      }
+      if (t.dataset.reportCancel !== undefined) return render();
+      if (t.dataset.reportDel) {
+        if (!confirm("Delete this report? The player's grade is worked out again from the rest.")) return;
+        await api("DELETE", `/api/college/reports/${t.dataset.reportDel}`);
+        return await afterMutation();
+      }
       if (t.id === "college-unlink") {
         if (!confirm(`Unlink the college profile “${d.college.name}” (${d.college.school || d.college.team || "college"}) from ${p.name}? It won't be matched to them again.`)) return;
         await api("DELETE", `/api/ncaa/prospects/${encodeURIComponent(d.college.key)}/link`);
@@ -1498,6 +1545,19 @@ function wirePlayer(root, d) {
       f.elements.body.value = "";
       f.elements.context.value = "";
       toast("Note added");
+      await afterMutation();
+    } catch (err) { oops(err); btn.disabled = false; }
+  });
+  root.addEventListener("submit", async (e) => {
+    const f = e.target.closest("#college-form, .college-edit");
+    if (!f) return;
+    e.preventDefault();
+    const btn = $("button[type=submit]", f);
+    btn.disabled = true;
+    try {
+      if (f.id === "college-form") await api("POST", `/api/players/${p.id}/college/reports`, collegeFormData(f));
+      else await api("PUT", `/api/college/reports/${f.dataset.id}`, collegeFormData(f));
+      toast("Report saved");
       await afterMutation();
     } catch (err) { oops(err); btn.disabled = false; }
   });
@@ -2517,6 +2577,7 @@ async function renderNcaa(main, arg) {
         <select id="nf-grade" aria-label="Grade">${GRADE_FILTER.map(([k, l]) => `<option value="${k}" ${f.grade === k ? "selected" : ""}>${l}</option>`).join("")}</select>
         ${live ? `<select id="nf-bb" aria-label="Big Board">${BB_FILTER.map(([k, l]) => `<option value="${k}" ${f.bb === k ? "selected" : ""}>${l}</option>`).join("")}</select>` : ""}
         ${live ? `<select id="nf-rep" aria-label="Representation">${[["", "Any representation"], ...REPRESENTATION].map(([k, l]) => `<option value="${k}" ${f.rep === k ? "selected" : ""}>${l}</option>`).join("")}</select>` : ""}
+        <button type="button" class="btn primary" id="ncaa-add" title="Add a college player from a Transfermarkt link or by hand, with a grade and report">+ Add college player</button>
         ${S.me.is_admin ? `<button type="button" class="btn" id="ncaa-import" title="Pull the latest grades, reports and boards from the college scouting repository">Re-import</button>` : ""}
       </div>
     </div>
@@ -2539,6 +2600,7 @@ async function renderNcaa(main, arg) {
   $("#nf-grade", root).addEventListener("change", (e) => { f.grade = e.target.value; changed(); });
   $("#nf-rep", root)?.addEventListener("change", (e) => { f.rep = e.target.value; changed(); });
   $("#nf-bb", root)?.addEventListener("change", (e) => { f.bb = e.target.value; changed(); });
+  $("#ncaa-add", root).addEventListener("click", () => openAddPlayer({ college: true }));
   $("#ncaa-import", root)?.addEventListener("click", async (e) => {
     e.target.disabled = true;
     e.target.textContent = "Importing…";
@@ -2671,12 +2733,15 @@ function collegeFacts(x) {
     ${fact("Where now", x.status)}
   </dl>`;
 }
+// Reports written in PINE (origin "pine") can be changed by their author or an admin; imported ones can't.
+const canEditReport = (r) => r.origin === "pine" && (r.created_by === S.me.id || S.me.is_admin);
 function reportHTML(r) {
   const when = r.dates?.length ? r.dates.join(", ") : r.year;
   const head = [when, r.match, r.source].filter((v) => v != null && v !== "").map((v) => esc(String(v))).join(" · ");
-  return `<article class="report">
-    <header class="report-h">${gradeBadge(r.grade)}<span class="report-t">${head || "Report"}</span>${r.role_name ? `<span class="chip">${esc(r.role_name)}</span>` : ""}${r.author ? `<span class="muted sm">${esc(r.author)}</span>` : ""}</header>
-    <div class="report-body">${esc(r.body || "")}</div>
+  const edit = canEditReport(r) ? `<button type="button" class="btn link sm" data-report-edit="${r.id}">Edit</button><button type="button" class="btn link sm danger" data-report-del="${r.id}">Delete</button>` : "";
+  return `<article class="report" data-report="${r.id}">
+    <header class="report-h">${gradeBadge(r.grade)}<span class="report-t">${head || "Report"}</span>${r.class ? `<span class="chip">${esc(r.class)}</span>` : ""}${r.role_name ? `<span class="chip">${esc(r.role_name)}</span>` : ""}${r.author ? `<span class="muted sm">${esc(r.author)}${r.origin === "pine" ? " · PINE" : ""}</span>` : ""}${edit}</header>
+    ${r.body ? `<div class="report-body">${esc(r.body)}</div>` : ""}
   </article>`;
 }
 function reportsHTML(reports, shown = 3) {
@@ -2685,6 +2750,30 @@ function reportsHTML(reports, shown = 3) {
   return `<div class="reports">${reports.slice(0, shown).map(reportHTML).join("")}</div>${rest.length
     ? `<details class="more-reports"><summary>${rest.length} more report${rest.length === 1 ? "" : "s"}</summary><div class="reports">${rest.map(reportHTML).join("")}</div></details>` : ""}`;
 }
+
+// The college report form: on the player page (add / edit) and in Add player for college players. Grades are the
+// college database's scale, current then future ("C" now, "B" ceiling); the profile's grade is its best report's.
+function collegeFormHTML(v = {}, { school = null, board = null } = {}) {
+  const C = S.config.college;
+  const opt = (list, cur, blank) => `<option value="">${blank}</option>${list.map((x) => `<option ${x === cur ? "selected" : ""}>${esc(x)}</option>`).join("")}`;
+  const now = new Date(); // local date: in the evening UTC is already tomorrow
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const [mm, dd, yy] = (v.dates?.[0] || "").split("/");
+  return `<div class="college-form">
+    ${board != null ? `<label>NCAA board<select name="ncaa_position"><option value="">Not on the NCAA board</option>${S.config.positions.map((pos) =>
+      `<option value="${pos.code}" ${pos.code === board ? "selected" : ""}>${pos.code} · ${esc(pos.label)}</option>`).join("")}</select></label>` : ""}
+    <label>Grade now<select name="grade_present">${opt(C.grades.slice().reverse(), v.grade_present, "—")}</select></label>
+    <label>Ceiling<select name="grade_future">${opt(C.grades.slice().reverse(), v.grade_future, "Same as now")}</select></label>
+    <label>Class<select name="class">${opt(C.classes, v.class, "—")}</select></label>
+    ${school != null ? `<label>School<input name="school" value="${esc(school)}" placeholder="Their club if left blank"></label>` : ""}
+    <label>Date<input name="date" type="date" value="${yy ? `${yy}-${mm}-${dd}` : today}"></label>
+    <label>Seen<select name="source">${opt(C.sources, v.source, "—")}</select></label>
+    <label class="wide">Match<input name="match" value="${esc(v.match || "")}" placeholder="e.g. Duke vs UNC"></label>
+    <label class="wide">Report<textarea name="body" rows="4" data-draft data-orig="${esc(v.body || "")}" placeholder="What you saw: strengths, weaknesses, projection…">${esc(v.body || "")}</textarea></label>
+  </div>`;
+}
+const collegeFormData = (form) => Object.fromEntries([...new FormData(form)].filter(([k]) => k !== "ncaa_position"));
+const collegeFormFilled = (form) => Boolean(form.querySelector("[name=grade_present]")?.value || form.querySelector("[name=body]")?.value.trim());
 async function openProspect(key) {
   const m = modal(`<div class="loading">Loading…</div>`, { wide: true });
   try {
@@ -2698,13 +2787,16 @@ async function openProspect(key) {
 
 // On a profile: the college database's grades and reports (when the player is in it) ...
 function collegePanel(d) {
-  const x = d.college;
-  if (!x) return "";
+  const x = d.college, p = d.player;
+  if (!x && !isNcaa(p)) return "";
+  const school = x ? (x.origin === "pine" ? x.school || "" : null) : (p.club || "").replace(/\s*\([^)]*\)\s*$/, "");
   return `<section class="panel college" id="college-panel">
-    <header class="panel-h"><h2>College scouting</h2>${gradeBadge(x.grade, "lg")}<span class="muted sm">${x.reports.length} report${x.reports.length === 1 ? "" : "s"}</span>
-      <button type="button" class="btn link sm" id="college-unlink" title="The college profile was matched by name. Unlink it if it's a different player.">Not this player?</button></header>
-    ${collegeFacts(x)}
-    ${reportsHTML(x.reports)}
+    <header class="panel-h"><h2>College scouting</h2>${x ? `${gradeBadge(x.grade, "lg")}<span class="muted sm">${x.reports.length} report${x.reports.length === 1 ? "" : "s"}</span>` : ""}
+      <button type="button" class="btn sm" id="college-add">+ Add report</button>
+      ${x && x.origin !== "pine" ? `<button type="button" class="btn link sm" id="college-unlink" title="The college profile was matched by name. Unlink it if it's a different player.">Not this player?</button>` : ""}</header>
+    <form id="college-form" class="college-new" hidden data-school="${esc(school ?? "")}">${collegeFormHTML({ class: x?.class_now }, { school })}
+      <div class="row end"><button type="button" class="btn sm ghost" id="college-cancel">Cancel</button><button type="submit" class="btn sm primary">Save report</button></div></form>
+    ${x ? `${collegeFacts(x)}${reportsHTML(x.reports)}` : `<p class="empty">No college scouting yet. Add a report with a grade and it shows on the NCAA board like the imported players.</p>`}
   </section>`;
 }
 // ... their spot on the NCAA board ...
@@ -2774,6 +2866,9 @@ function describe(a, onPlayerPage = false) {
       : `${d.from ? "moved" : "put"} ${who} ${d.from ? "to" : "at"} spot ${d.spot + 1} at ${esc(d.to)} on the NCAA board`;
     case "removed_from_ncaa_board": return `took ${who} off the NCAA board${d.position ? ` (${esc(d.position)})` : ""}`;
     case "unlinked_college": return `unlinked the college profile “${esc(d.name)}” from ${who}`;
+    case "added_college_report": return `added a college report on ${who}`;
+    case "edited_college_report": return `edited a college report on ${who}`;
+    case "deleted_college_report": return `deleted a college report on ${who}`;
     case "updated_agent": return `updated agent details for ${who}${d.representation && d.representation !== "unknown" ? ` (${esc(repLabel(d.representation).toLowerCase())})` : ""}`;
     case "set_decision": return d.decision ? `set the club decision on ${who} to ${chip(d.decision)}` : `cleared the club decision on ${who}`;
     case "set_verdict": return d.verdict ? `marked ${who} ${chip(d.verdict)}` : `cleared their verdict on ${who}`;

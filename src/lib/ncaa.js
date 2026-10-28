@@ -213,7 +213,7 @@ export function importCollege(db, data, { insertPlayer }) {
         JSON.stringify(x.years || []), Number.isFinite(x.year) ? x.year : null, x.status ?? null, x.category ?? null);
       stats.prospects++;
 
-      db.run("DELETE FROM ncaa_reports WHERE prospect_key = ?", x.key);
+      db.run("DELETE FROM ncaa_reports WHERE prospect_key = ? AND origin = 'college_db'", x.key); // PINE's own reports stay
       for (const r of Array.isArray(x.reports) ? x.reports : []) {
         db.run(`INSERT INTO ncaa_reports(prospect_key, dates, match, team, source, grade, grade_present, grade_future,
             role_code, role_name, position, year, author, body, class) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -223,6 +223,7 @@ export function importCollege(db, data, { insertPlayer }) {
         stats.reports++;
       }
 
+      if (db.get("SELECT 1 FROM ncaa_reports WHERE prospect_key = ? AND origin = 'pine'", x.key)) recomputeProspect(db, x.key);
       let playerId = existing?.player_id ?? null;
       if (!playerId && !existing?.no_link) { // "Not this player" turns name matching off for this prospect
         // An exact name may join a player already linked (the college database lists some players twice);
@@ -448,6 +449,109 @@ export function prospectDetail(db, { key = null, playerId = null }) {
   p.class_year = ncaaYears(db)[0] ?? null;
   p.class_now = p.class_year ? classForYear(p, p.reports.filter((r) => r.prospect_key === p.key), p.class_year) : p.class;
   return p;
+}
+
+/* ---------- college reports written in PINE ---------- */
+// Grades, worst to best, as the college scouting site ranks them; a grade's value is its place here.
+export const GRADE_SCALE = ["D-", "D", "D+", "C-", "C", "C+", "B-", "B", "B+", "A-", "A", "A+", "A++", "A+++"];
+const gradeVal = (g) => (GRADE_SCALE.includes(g) ? GRADE_SCALE.indexOf(g) : null);
+export const CLASSES = [...CLASS_LADDER, ...RS_LADDER, "5th Year"];
+export const REPORT_SOURCES = ["Live", "Stream", "Video", "Wyscout"];
+
+// A profile's grade is its best report's by future grade (the first if tied), exactly as the college site
+// works it out, so PINE's reports count the same as imported ones. A profile made in PINE also takes its class
+// and season from its latest report.
+function recomputeProspect(db, key) {
+  const reports = db.all("SELECT grade, grade_present, grade_future, year, class FROM ncaa_reports WHERE prospect_key = ? ORDER BY year, id", key);
+  let best = null;
+  for (const r of reports) if (gradeVal(r.grade_future) != null && (!best || gradeVal(r.grade_future) > gradeVal(best.grade_future))) best = r;
+  db.run("UPDATE ncaa_prospects SET grade = ?, grade_present = ?, grade_future = ?, grade_val = ? WHERE key = ?",
+    best?.grade ?? null, best?.grade_present ?? null, best?.grade_future ?? null, best ? gradeVal(best.grade_future) : null, key);
+  if (db.get("SELECT origin FROM ncaa_prospects WHERE key = ?", key)?.origin !== "pine") return;
+  const dated = reports.filter((r) => r.year);
+  db.run("UPDATE ncaa_prospects SET year = ?, class = coalesce(?, class), years = ? WHERE key = ?", dated.at(-1)?.year ?? null,
+    dated.at(-1)?.class ?? null, JSON.stringify([...new Set(dated.map((r) => r.year))]), key);
+}
+
+// Checks a report from the form: grade current/future on the scale, a known class and source, a date.
+function reportFields(body) {
+  const str = (v, max = 4000) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
+  const present = str(body.grade_present, 4), future = str(body.grade_future, 4) || present;
+  for (const g of [present, future]) if (g && !GRADE_SCALE.includes(g)) throw new Error(`Unknown grade ${g}`);
+  if (future && !present) throw new Error("Give the current grade too");
+  const cls = str(body.class, 20);
+  if (cls && !CLASSES.includes(cls)) throw new Error(`Unknown class ${cls}`);
+  const source = str(body.source, 20);
+  if (source && !REPORT_SOURCES.includes(source)) throw new Error(`Unknown source ${source}`);
+  const date = str(body.date, 10);
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("The report date must be a date");
+  const text = str(body.body);
+  if (!present && !text) throw new Error("Add a grade or a written report");
+  const [y, m, dd] = (date || "").split("-");
+  return {
+    grade: present ? `${present}/${future}` : null, grade_present: present, grade_future: future,
+    class: cls, source, dates: JSON.stringify(date ? [`${m}/${dd}/${y}`] : []), year: date ? Number(y) : new Date().getFullYear(),
+    match: str(body.match, 200), position: str(body.position, 20), role_name: str(body.role_name, 60), body: text,
+  };
+}
+
+// Adds a report written in PINE to a player's college profile, making the profile (origin 'pine') if they have
+// none: name, school (given, or their club without the bracketed school), position and country from PINE.
+export function addCollegeReport(db, player, body, user) {
+  const f = reportFields(body);
+  return db.tx(() => {
+    let key = db.get("SELECT key FROM ncaa_prospects WHERE player_id = ? ORDER BY origin = 'pine' DESC, year DESC LIMIT 1", player.id)?.key;
+    const school = typeof body.school === "string" && body.school.trim() ? body.school.trim().slice(0, 120)
+      : player.club ? player.club.replace(/\s*\([^)]*\)\s*$/, "") : null;
+    if (!key) {
+      key = `pine-${player.id}`;
+      db.run(`INSERT INTO ncaa_prospects(key, player_id, name, team, school, class, position, positions, foot, country, intl, years, year, origin)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,'[]',?, 'pine')`,
+        key, player.id, player.name, school, school, f.class, f.position || player.position || null, JSON.stringify(f.position ? [f.position] : []),
+        player.foot ? cap(player.foot) : null, player.citizenship?.[0] || null,
+        player.roster_status ? (player.roster_status === "international" ? 1 : 0) : null, f.year);
+    } else if (typeof body.school === "string" && body.school.trim() && db.get("SELECT origin FROM ncaa_prospects WHERE key = ?", key).origin === "pine") {
+      db.run("UPDATE ncaa_prospects SET school = ?, team = ? WHERE key = ?", school, school, key);
+    }
+    const id = Number(db.run(`INSERT INTO ncaa_reports(prospect_key, dates, match, team, source, grade, grade_present, grade_future, role_name,
+        position, year, author, body, class, origin, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'pine', ?, datetime('now'))`,
+      key, f.dates, f.match, school, f.source, f.grade, f.grade_present, f.grade_future, f.role_name, f.position, f.year, user.name, f.body,
+      f.class, user.id).lastInsertRowid);
+    recomputeProspect(db, key);
+    return id;
+  });
+}
+const cap = (s) => (s ? String(s)[0].toUpperCase() + String(s).slice(1) : s);
+
+// PINE reports only (imported ones belong to the college database), by their author or an admin.
+function ownReport(db, id, user) {
+  const r = db.get("SELECT * FROM ncaa_reports WHERE id = ?", id);
+  if (!r) throw Object.assign(new Error("Report not found"), { status: 404 });
+  if (r.origin !== "pine") throw Object.assign(new Error("Reports from the college database are edited there"), { status: 403 });
+  if (r.created_by !== user.id && !user.is_admin) throw Object.assign(new Error("Only its author or an admin can change this report"), { status: 403 });
+  return r;
+}
+export function updateCollegeReport(db, id, body, user) {
+  const r = ownReport(db, id, user);
+  const f = reportFields(body);
+  db.tx(() => {
+    db.run(`UPDATE ncaa_reports SET dates = ?, match = ?, source = ?, grade = ?, grade_present = ?, grade_future = ?, role_name = ?,
+        position = ?, year = ?, body = ?, class = ? WHERE id = ?`,
+      f.dates, f.match, f.source, f.grade, f.grade_present, f.grade_future, f.role_name, f.position, f.year, f.body, f.class, id);
+    recomputeProspect(db, r.prospect_key);
+  });
+  return r.prospect_key;
+}
+export function deleteCollegeReport(db, id, user) {
+  const r = ownReport(db, id, user);
+  db.tx(() => {
+    db.run("DELETE FROM ncaa_reports WHERE id = ?", id);
+    const left = db.get("SELECT count(*) AS n FROM ncaa_reports WHERE prospect_key = ?", r.prospect_key).n;
+    if (!left && db.get("SELECT origin FROM ncaa_prospects WHERE key = ?", r.prospect_key)?.origin === "pine") {
+      db.run("DELETE FROM ncaa_prospects WHERE key = ?", r.prospect_key); // a PINE profile is only its reports
+    } else recomputeProspect(db, r.prospect_key);
+  });
+  return r.prospect_key;
 }
 
 // Every prospect on the latest college board gets a PINE player at import, so one without a player (and not

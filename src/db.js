@@ -231,6 +231,16 @@ export function openDb(file) {
   if (!raw.prepare("PRAGMA table_info(ncaa_reports)").all().some((c) => c.name === "class")) {
     raw.exec("ALTER TABLE ncaa_reports ADD COLUMN class TEXT");
   }
+  // College profiles and reports written in PINE (origin 'pine') sit beside the imported ones ('college_db'), and a
+  // re-import only replaces its own. (A report's `source` is how it was scouted: Live, Video, Stream, Wyscout.)
+  if (!raw.prepare("PRAGMA table_info(ncaa_prospects)").all().some((c) => c.name === "origin")) {
+    raw.exec("ALTER TABLE ncaa_prospects ADD COLUMN origin TEXT NOT NULL DEFAULT 'college_db'");
+  }
+  if (!raw.prepare("PRAGMA table_info(ncaa_reports)").all().some((c) => c.name === "origin")) {
+    raw.exec("ALTER TABLE ncaa_reports ADD COLUMN origin TEXT NOT NULL DEFAULT 'college_db'");
+    raw.exec("ALTER TABLE ncaa_reports ADD COLUMN created_by INTEGER REFERENCES users(id) ON DELETE SET NULL");
+    raw.exec("ALTER TABLE ncaa_reports ADD COLUMN created_at TEXT");
+  }
   // Entries kept for the record but left out of the Activity feed and player histories.
   if (!raw.prepare("PRAGMA table_info(activity)").all().some((c) => c.name === "hidden")) {
     raw.exec("ALTER TABLE activity ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0");

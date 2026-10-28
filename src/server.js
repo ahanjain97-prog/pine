@@ -34,7 +34,7 @@ import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.j
 import { registerScoutingContext } from "./lib/scouting_context.js";
 import { gatesEligible, moveDate as gatesMoveDate, registerGates } from "./lib/mlsnp_gates.js";
 import {
-  dismissDeletedCollegePlayers, fetchCollegeData, fillCitizenshipFromCollege, getAgent, importCollege, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects,
+  addCollegeReport, CLASSES, deleteCollegeReport, dismissDeletedCollegePlayers, fetchCollegeData, GRADE_SCALE, REPORT_SOURCES, updateCollegeReport, fillCitizenshipFromCollege, getAgent, importCollege, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects,
   ncaaSpot, ncaaSummary, ncaaYearBoard, pickCollegeTmMatch, prospectDetail, removeFromNcaaBoard, saveAgent, undoBigBoardAutoLink, unlinkProspect,
 } from "./lib/ncaa.js";
 import { linkL2, saveL2Report } from "./lib/l2.js";
@@ -379,6 +379,7 @@ app.get("/api/config", (c) =>
     positions: POSITIONS,
     roles: ROLES,
     decisions: DECISIONS,
+    college: { grades: GRADE_SCALE, classes: CLASSES, sources: REPORT_SOURCES },
     staff: db.all("SELECT id, name FROM users ORDER BY sort, id"),
     me: c.get("user"),
     auth: AUTH_OFF ? "off" : "email",
@@ -494,7 +495,9 @@ app.delete("/api/players/:id", (c) => {
   const roles = p.roles.map((r) => r.role);
   removeFromNcaaBoard(db, p.id); // keeps the position's ranks contiguous
   db.tx(() => {
-    // A deleted college player stays deleted: the next college import won't recreate or relink them.
+    // A deleted college player stays deleted: the next college import won't recreate or relink them. A college
+    // profile made in PINE is only theirs, so it goes too.
+    db.run("DELETE FROM ncaa_prospects WHERE player_id = ? AND origin = 'pine'", p.id);
     db.run("UPDATE ncaa_prospects SET no_link = 1 WHERE player_id = ?", p.id);
     logActivity(db, user.id, null, "deleted_player", { name: p.name, id: p.id });
     db.run("DELETE FROM players WHERE id = ?", p.id);
@@ -668,6 +671,33 @@ app.delete("/api/ncaa/board/:id", (c) => {
   if (before) logActivity(db, user.id, p.id, "removed_from_ncaa_board", before);
   return c.json({ ok: true });
 });
+// College reports written in PINE: any player can get one (and with it a college profile and grade). Only the
+// author or an admin can change or delete it; imported reports stay as the college database has them.
+const reportPlayer = (key) => db.get("SELECT player_id FROM ncaa_prospects WHERE key = ?", key)?.player_id ?? null;
+app.post("/api/players/:id/college/reports", async (c) => {
+  const user = c.get("user");
+  const p = getPlayer(c.req.param("id"));
+  let id;
+  try { id = addCollegeReport(db, p, await c.req.json(), user); } catch (e) { fail(e.status || 400, e.message); }
+  logActivity(db, user.id, p.id, "added_college_report", { report_id: id });
+  return c.json({ college: prospectDetail(db, { playerId: p.id }) }, 201);
+});
+app.put("/api/college/reports/:id", async (c) => {
+  const user = c.get("user");
+  let key;
+  try { key = updateCollegeReport(db, Number(c.req.param("id")), await c.req.json(), user); } catch (e) { fail(e.status || 400, e.message); }
+  logActivity(db, user.id, reportPlayer(key), "edited_college_report", { report_id: Number(c.req.param("id")) });
+  return c.json({ ok: true });
+});
+app.delete("/api/college/reports/:id", (c) => {
+  const user = c.get("user");
+  const before = db.get("SELECT prospect_key FROM ncaa_reports WHERE id = ?", Number(c.req.param("id")));
+  const playerId = before ? reportPlayer(before.prospect_key) : null;
+  try { deleteCollegeReport(db, Number(c.req.param("id")), user); } catch (e) { fail(e.status || 400, e.message); }
+  logActivity(db, user.id, playerId, "deleted_college_report", { report_id: Number(c.req.param("id")) });
+  return c.json({ ok: true });
+});
+
 // A name match that's wrong: "not this player" unlinks the college profile for good.
 app.delete("/api/ncaa/prospects/:key/link", (c) => {
   const user = c.get("user");

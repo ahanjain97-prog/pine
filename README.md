@@ -199,6 +199,15 @@ the existing sign-in gate. No real player snapshot belongs in this public reposi
   the PDF locally and replaces that year's list in PINE (`PUT /api/worker/l2-prospects`; `--output FILE` to check
   it first). Entries match PINE players by name, like the college import, and birth years more than a year apart
   rule a match out; players added later are matched when they're created. Code: `src/lib/l2.js`.
+- **College reports written in PINE**: any college player can get a grade and report like the imported ones.
+  On a player page, **+ Add report** (grade now and ceiling on the college database's scale D- to A+++, class,
+  school, date, how they were seen, match, notes); Add player shows the same fields for college players (a
+  Transfermarkt college club, or league NCAA by hand), plus an NCAA board position, and the NCAA page has
+  **+ Add college player**. The first report makes a college profile (origin `pine`); a player already in the
+  college database gets the report on their imported profile. A profile's grade is its best report's by
+  ceiling, exactly as the college database works it out, so PINE and imported reports count the same. Only a
+  report's author or an admin can edit or delete it; imported reports are read-only, and a re-import replaces
+  only its own (`ncaa_reports.origin`).
 - **Agent**: a panel on every player page for who represents them (unknown, no agent, advisor, agent),
   agent and agency names, email, phone, last contact and notes. It is PINE's own record; Transfermarkt's
   agent line is shown beneath it for reference and never overwrites it.

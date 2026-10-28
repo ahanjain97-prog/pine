@@ -259,6 +259,18 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .agent-form input, .agent-form select, .agent-form textarea { width: 100%; text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 13px; color: var(--ink); }
 .agent-form .wide { grid-column: 1 / -1; }
 .agent-notes { white-space: pre-line; font-size: 13px; margin-top: 8px; }
+/* College report form: player page (add / edit) and Add player. */
+.college-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 10px; }
+.college-form label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); min-width: 0; }
+.college-form input, .college-form select, .college-form textarea { width: 100%; text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 13px; color: var(--ink); }
+.college-form .wide { grid-column: 1 / -1; }
+.college-new, .college-edit { margin: 4px 0 14px; padding: 12px; border: 1px dashed var(--line-2); border-radius: 10px; background: var(--surface-2); }
+.college-new .row, .college-edit .row { margin-top: 10px; }
+.college-add { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.college-add .hint { margin: 2px 0 10px; }
+.report-h .btn.link { padding: 0 2px; font-size: 12px; }
+.btn.link.danger { color: var(--fail); }
+@media (max-width: 680px) { .college-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* NCAA page: its own look. College purple instead of the pitch, position columns grouped by line, plain rows. */
 .ncaa-page { --nc: #4a2380; --nc-ink: #ffffff; --nc-soft: #f4effc; --nc-line: #e6dcf6; }
