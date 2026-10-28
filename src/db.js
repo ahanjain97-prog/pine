@@ -52,6 +52,13 @@ CREATE TABLE IF NOT EXISTS board_entries(
   shortlist INTEGER NOT NULL DEFAULT 0, -- a top target for this role: shown on the Shortlist board
   PRIMARY KEY(player_id, role)
 );
+-- Old profile links continue to work after a duplicate import is combined. Keep the original
+-- records privately for recovery; this table is included in normal database backups.
+CREATE TABLE IF NOT EXISTS player_redirects(
+  id INTEGER PRIMARY KEY,
+  player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  snapshot TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS board_role ON board_entries(role, rank);
 CREATE TABLE IF NOT EXISTS verdicts(
   player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,

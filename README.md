@@ -245,6 +245,12 @@ the existing sign-in gate. No real player snapshot belongs in this public reposi
   across PINE per 24 hours. Old `#/maps/<player id>` links open the player page.
 - **Add player**: paste a Transfermarkt link (or paste one anywhere on the page). Physical data and
   Impect are matched automatically by name + date of birth / club.
+  An exact name and date-of-birth match also detects a player already imported from Impect.
+  For older duplicate Transfermarkt imports, admins can use **Combine profiles** beside the matching
+  Impect candidate. This keeps the existing profile's board position, scouting records and connected
+  data, adds the Transfermarkt details, and redirects the duplicate's old links. It only accepts an
+  untouched duplicate with the same name and birthday; staff edits or scouting records block it.
+  Original records are saved privately in the database for recovery and included in backups.
 - **Impect** (`#/impect`): import or sync Impect Scouting short lists (each list maps to a board role;
   centre-back lists split LCB/RCB by foot), or browse every player in our Impect competitions.
 - **Staff** (`#/staff`, admins): set each person's sign-in email, add staff.
