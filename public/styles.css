@@ -106,8 +106,9 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .brand-divider { width: 1px; height: 28px; background: rgba(255, 255, 255, .25); flex: none; }
 .wordmark { font-family: var(--disp); font-weight: 700; font-size: 26px; letter-spacing: .08em; line-height: 1; }
 .tagline { font-size: 11px; color: rgba(255, 255, 255, .62); max-width: 120px; line-height: 1.15; }
+@media (max-width: 1560px) { .top .tagline { display: none; } } /* room for it only on wide screens */
 .nav { display: flex; gap: 2px; }
-.nav a { white-space: nowrap; color: rgba(255, 255, 255, .75); padding: 7px 12px; border-radius: 7px; font-weight: 600; font-size: 13.5px; text-decoration: none; }
+.nav a { white-space: nowrap; color: rgba(255, 255, 255, .75); padding: 7px 10px; border-radius: 7px; font-weight: 600; font-size: 13.5px; text-decoration: none; }
 .nav a:hover { color: #fff; background: rgba(255, 255, 255, .08); }
 .nav a.on { color: #fff; background: rgba(255, 255, 255, .16); }
 .top-r { margin-left: auto; display: flex; align-items: center; gap: 10px; }
@@ -115,7 +116,9 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .top .btn.ghost { color: rgba(255, 255, 255, .8); }
 .top .btn.ghost:hover { background: rgba(255, 255, 255, .1); border-color: transparent; color: #fff; }
 .gsearch { position: relative; }
-.gsearch input { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .18); color: #fff; width: 220px; }
+/* Narrow until used, so the header stays one line; it widens while you type. */
+.gsearch input { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .18); color: #fff; width: 170px; transition: width .15s ease; }
+.gsearch input:focus { width: 260px; }
 .gsearch input::placeholder { color: rgba(255, 255, 255, .55); }
 .gs-res { position: absolute; top: calc(100% + 4px); right: 0; width: 320px; background: var(--surface); color: var(--ink); border: 1px solid var(--line);
   border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; z-index: 60; }
@@ -124,7 +127,17 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .me { display: flex; align-items: center; gap: 7px; }
 .avatar { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 12px; background: var(--pine); color: #fff; flex: none; }
 .me-name { font-weight: 600; font-size: 13px; }
-#act-as { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .22); color: #fff; font-weight: 600; padding: 5px 8px; }
+#act-as { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .22); color: #fff; font-weight: 600; padding: 5px 8px; max-width: 140px; }
+/* Signed in: the avatar opens a small menu with your name and Sign out. */
+.me-menu { position: relative; }
+.me-menu > summary { list-style: none; cursor: pointer; width: 30px; height: 30px; font-size: 13px; }
+.me-menu > summary::-webkit-details-marker { display: none; }
+.me-menu[open] > summary { box-shadow: 0 0 0 2px rgba(255, 255, 255, .5); }
+.me-pop { position: absolute; right: 0; top: calc(100% + 8px); min-width: 170px; background: var(--surface); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 10px; box-shadow: var(--shadow); padding: 10px; display: flex; flex-direction: column; gap: 8px; z-index: 60; }
+.me-pop-name { font-weight: 700; font-size: 13px; }
+.top .me-pop .btn.ghost { color: var(--ink-2); justify-content: flex-start; }
+.top .me-pop .btn.ghost:hover { color: var(--ink); background: var(--surface-2); }
 #act-as option { color: #13201A; background: #fff; }
 .update-pill { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 70; }
 .update-pill .btn { box-shadow: var(--shadow); }
@@ -230,6 +243,16 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .roster.l2 { color: #8a3a00; background: #ffe8d1; border: 1px solid #f5bf8e; }
 /* Unknown roster status: a dashed prompt, not a status. */
 .roster.unk { color: var(--muted); background: transparent; border: 1px dashed var(--line-2); padding: 2px 5px; }
+.roster.more { color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--line-2); cursor: help; }
+/* Board key: a small popover of what each mark means. */
+.legend { position: relative; }
+.legend > summary { list-style: none; }
+.legend > summary::-webkit-details-marker { display: none; }
+.lg-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; width: 380px; background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; }
+.lg-row { display: grid; grid-template-columns: 92px 1fr; gap: 10px; align-items: center; font-size: 12.5px; line-height: 1.35; }
+.lg-mark { display: inline-flex; gap: 4px; align-items: center; justify-content: flex-start; color: var(--hold); }
+.lg-stripe { width: 4px; height: 20px; border-radius: 2px; background: linear-gradient(var(--pass) 33%, var(--hold) 33% 66%, var(--fail) 66%); }
 .tray { margin-top: 16px; }
 .tray-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; min-height: 50px; padding: 4px; }
 .tray-body > .empty { grid-column: 1 / -1; }
@@ -419,6 +442,8 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 13px; }
 .note-meta button { background: none; border: 0; padding: 0; font-size: 11px; color: var(--muted); cursor: pointer; }
 .note-meta button:hover { color: var(--accent); }
 .empty { color: var(--muted); font-size: 12.5px; margin: 0; }
+.evals-quiet { margin: 10px 0 0; }
+.evals[data-quiet] { margin-top: 10px; }
 .phys { border: 1px solid var(--line); border-radius: 9px; padding: 0; margin-bottom: 8px; }
 /* In the Physical tab each linked season is a card, side by side when there's room. */
 .phys-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; align-items: start; }
@@ -713,6 +738,13 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
 .mr-failed { border-left-color: var(--fail); }
 
 /* ---------- responsive ---------- */
+@media (max-width: 1240px) { /* narrower laptops: tighter nav and search so it still fits one line */
+  .top { gap: 12px; }
+  .nav a { padding: 7px 7px; font-size: 13px; }
+  .gsearch input { width: 120px; }
+  .brand .wordmark { font-size: 22px; }
+}
+
 @media (max-width: 1180px) {
   .p-grid { grid-template-columns: 1fr; }
   .p-head { grid-template-columns: auto 1fr; }

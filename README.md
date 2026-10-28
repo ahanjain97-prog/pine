@@ -154,6 +154,8 @@ the existing sign-in gate. No real player snapshot belongs in this public reposi
   College players on the NCAA board without a Big Board role stay in the NCAA board's tray, not this one. Pasting a college player's
   Transfermarkt link sets the league to NCAA (Transfermarkt has no league for college programs; the club name
   ends with the school in brackets, e.g. "Indiana Hoosiers (Indiana University)"). A league edited by hand wins.
+  Each board has a **Key** explaining its marks. Cards show at most three tags (extra ones fold into "+N" with
+  a tooltip), and the verdict dots only once someone has a verdict.
 - **Short Board** (`#/short-board`): the same pitch, positions and roles as the big board, showing only the
   top targets. A player becomes one by the ☆ on their board card (or the ☆ beside a role on their player
   page), per role, so the same player can be a target at one role and not another. Order follows the big
@@ -212,7 +214,8 @@ the existing sign-in gate. No real player snapshot belongs in this public reposi
   agent and agency names, email, phone, last contact and notes. It is PINE's own record; Transfermarkt's
   agent line is shown beneath it for reference and never overwrites it.
 - **Database** (`#/players`): sortable and filterable table of everyone, with CSV export.
-- **Player page**: the header holds Transfermarkt facts, the club decision and the staff verdict tally. Below it,
+- **Player page**: the header holds Transfermarkt facts, the club decision and the staff verdict tally. Staff evaluations
+  show your box and anyone with a verdict or note; the rest are one line with a Show button. Below it,
   the shared summary, college scouting reports (players in the college database) and one evaluation section per staff member (only you can
   write in yours), with big board roles, the NCAA board spot (college players), agent details, lists, the Impect link and history alongside. Underneath are tabs for
   the KPI profile, physical data, pitch maps and player card; one season and position picker drives the three

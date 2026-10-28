@@ -289,13 +289,18 @@ function renderShell() {
       ${S.config.auth === "off"
         ? `<label class="me" title="Notes, verdicts and changes are recorded under this name"><span class="avatar">${esc(S.me.name[0])}</span>
             <select id="act-as" aria-label="Acting as">${S.config.staff.map((s) => `<option value="${s.id}" ${s.id === S.me.id ? "selected" : ""}>${esc(s.name)}</option>`).join("")}</select></label>`
-        : `<div class="me"><span class="avatar">${esc(S.me.name[0])}</span><span class="me-name">${esc(S.me.name)}</span><button class="btn ghost sm" id="logout" type="button">Sign out</button></div>`}
+        : `<details class="me-menu"><summary class="avatar" title="Signed in as ${esc(S.me.name)}" aria-label="Account">${esc(S.me.name[0])}</summary>
+            <div class="me-pop"><div class="me-pop-name">${esc(S.me.name)}</div><button class="btn ghost sm" id="logout" type="button">Sign out</button></div></details>`}
     </div>
   </header>
   <div class="update-pill" id="upd" hidden><button class="btn sm" type="button">New changes from staff · refresh</button></div>
   <main id="main"></main>`;
   $("#add-btn").addEventListener("click", () => openAddPlayer());
   $("#logout")?.addEventListener("click", async () => { try { await api("POST", "/api/auth/logout", {}); } catch {} showLogin(); });
+  if (!S.meMenuWired) { // once: clicking anywhere else closes the account menu
+    S.meMenuWired = true;
+    document.addEventListener("click", (e) => { const m = $(".me-menu[open]"); if (m && !m.contains(e.target)) m.open = false; });
+  }
   $("#act-as")?.addEventListener("change", async (e) => {
     try {
       await api("POST", "/api/auth/act-as", { user_id: Number(e.target.value) });
@@ -382,6 +387,7 @@ function renderBoard(main) {
         <div class="seg" id="bf-dec">${decs.map(([k, l]) => `<button type="button" data-k="${k}" class="${k !== "all" && k !== "none" ? "v-" + k : ""} ${f.decision === k ? "on" : ""}">${l}</button>`).join("")}</div>
         <select id="bf-league" aria-label="League"><option value="">All leagues</option>${leaguesOf().map((l) => `<option value="${esc(l)}" ${f.league === l ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
         <input id="bf-q" type="search" placeholder="Filter the board…" value="${esc(f.q)}" aria-label="Filter the board">
+        ${legendHTML()}
       </div>
     </div>
     <div class="pitch-wrap"><div class="pitch">${S.config.positions.map((pos) => posBox(pos)).join("")}</div></div>
@@ -403,7 +409,7 @@ function renderShortBoard(main) {
         <div class="board-stats"><span><b>${targets.length}</b> top target${targets.length === 1 ? "" : "s"}</span>
           <span><b>${count("pass")}</b> pass</span><span><b>${count("hold")}</b> hold</span><span><b>${count("fail")}</b> fail</span></div></div>
       <div class="spacer"></div>
-      <div class="filters"><span class="muted sm">Star a player on the Big Board to add them here. Drag to reorder, or onto another role to move or duplicate them.</span></div>
+      <div class="filters"><span class="muted sm">Star a player on the Big Board to add them here. Drag to reorder, or onto another role to move or duplicate them.</span>${legendHTML()}</div>
     </div>
     ${targets.length ? "" : `<p class="empty">No top targets yet. On the <a href="#/board">Big Board</a>, click the ☆ on a player's card to add them.</p>`}
     <div class="pitch-wrap"><div class="pitch">${S.config.positions.map((pos) => posBox(pos, true)).join("")}</div></div>
@@ -462,6 +468,30 @@ function l2Badge(entries) {
   const years = [...new Set(entries.map((e) => e.year))].sort();
   return `<span class="roster l2" title="USL League Two Top Prospects: ${esc(entries.map(l2Line).join("; "))}">L2${years.map((y) => `’${String(y).slice(-2)}`).join("")}</span>`;
 }
+// Cards show at most `max` tags, most important first; the rest fold into "+N", whose tooltip says what they are.
+function tagRow(tags, max = 3) {
+  const t = tags.filter(Boolean);
+  if (t.length <= max) return t.join("");
+  const rest = t.slice(max).map((h) => `${h.replace(/<[^>]+>/g, "")}: ${(h.match(/title="([^"]*)"/) || [])[1] || ""}`);
+  return `${t.slice(0, max).join("")}<span class="roster more" title="${rest.join("&#10;")}">+${rest.length}</span>`;
+}
+// What the marks on a board mean, behind a "Key" button.
+function legendHTML(ncaa = false) {
+  const item = (mark, text) => `<div class="lg-row"><span class="lg-mark">${mark}</span><span>${text}</span></div>`;
+  return `<details class="legend"><summary class="btn">Key</summary><div class="lg-pop">
+    ${item(`<span class="lg-stripe"></span>`, "Left stripe: the club decision (green pass, amber hold, red fail)")}
+    ${ncaa ? item(`<span class="bbtag">BB</span>`, "On the Big Board, the college players being pursued; hover anyone else for + BB")
+      : item(`<span class="vdots"><i class="vdot v-pass"></i><i class="vdot v-hold"></i><i class="vdot"></i></span>`, "Staff verdicts, one dot per person (shown once anyone has one)")}
+    ${item("★", "Top target: on the Short Board")}
+    ${item(`<span class="roster dom">DOM</span><span class="roster intl">INTL</span>`, "Domestic or international (US citizenship, or set by hand)")}
+    ${item(`<span class="roster unk">?</span>`, "Roster status not known yet: set it in Edit details")}
+    ${ncaa ? item(`<span class="grade g-a">B/A</span>`, "College grade, now / ceiling, coloured by the ceiling (A green, B blue, C amber, D red)")
+      : item(`<span class="roster ncaa">B/B</span>`, "College player, showing their college grade (now / ceiling)")}
+    ${item(`<span class="roster l2">L2’26</span>`, "Picked for that year's USL League Two Top Prospects report")}
+    ${ncaa ? item(`<span class="rep rep-agent">AGT</span><span class="rep rep-none">NO AGT</span>`, "Represented by an agent, an advisor (ADV), or no one") : ""}
+    ${item(`<span class="roster more">+1</span>`, "More tags: hover to see them")}
+  </div></details>`;
+}
 // College players: their league is entered by hand, so anything naming NCAA ("NCAA", "NCAA D1") counts.
 const isNcaa = (p) => /\bncaa\b/i.test(p.league || "");
 // The lavender chip says college; when the college database grades the player, it shows the grade instead of "NCAA".
@@ -481,7 +511,7 @@ function boardCard(p, role, targetsOnly = false, spot = null) {
     aria-pressed="${on}" title="${on ? "Remove from the Short Board" : "Add to the Short Board as a top target"}">${on ? "★" : "☆"}</span>` : "";
   return `<a class="pcard ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
     ${role ? `<span class="rank ${place < 3 ? "podium" : ""}">${place + 1}</span>` : ""}${photo(p)}
-    <span class="ci"><div class="nm">${esc(p.name)}</div><div class="nm-row"><span class="csub">${esc(sub)}</span>${rosterBadge(p)}${ncaaBadge(p)}${l2Badge(p.l2)}</div></span>${verdictDots(p.verdicts)}${star}</a>`;
+    <span class="ci"><div class="nm">${esc(p.name)}</div><div class="nm-row"><span class="csub">${esc(sub)}</span>${tagRow([rosterBadge(p), ncaaBadge(p), l2Badge(p.l2)])}</div></span>${Object.keys(p.verdicts || {}).length ? verdictDots(p.verdicts) : ""}${star}</a>`;
 }
 
 // Star clicks and Enter/Space on a star, on either board.
@@ -1089,7 +1119,7 @@ async function renderPlayer(main, idArg) {
           <div class="row end" style="margin-top:6px"><button type="button" class="btn sm" id="save-summary">Save summary</button></div>
         </section>
         ${collegePanel(d)}
-        <section class="panel"><header class="panel-h"><h2>Staff evaluations</h2></header><div class="evals">${d.staff.map(evalHTML).join("")}</div></section>
+        <section class="panel"><header class="panel-h"><h2>Staff evaluations</h2></header>${evalsHTML(d.staff)}</section>
       </div>
       <div>
         ${p.tm_url ? "" : `<section class="panel" id="tm-panel"><header class="panel-h"><h2>Transfermarkt</h2></header><div class="loading sm">Searching Transfermarkt…</div></section>`}
@@ -1414,6 +1444,17 @@ function rolesPanel(p) {
     <div class="add-role"><select id="add-role-sel" aria-label="Add to a role"><option value="">Add to a role…</option>${options}</select><button type="button" class="btn sm" id="add-role-btn">Add</button></div>`;
 }
 
+// Your box and everyone who has a verdict or a note; the rest are one line (their boxes are a click away).
+function evalsHTML(staff) {
+  const active = staff.filter((s) => s.user_id === S.me.id || s.verdict || s.notes.length);
+  const quiet = staff.filter((s) => !active.includes(s));
+  const names = quiet.map((s) => s.name);
+  const list = names.length <= 3 ? names.join(", ").replace(/, ([^,]*)$/, " and $1") : `${names.slice(0, 2).join(", ")} and ${names.length - 2} others`;
+  return `<div class="evals">${active.map(evalHTML).join("")}</div>${quiet.length ? `
+    <p class="evals-quiet muted sm">No verdict or notes yet from ${esc(list)}. <button type="button" class="btn link sm" data-show-quiet>Show</button></p>
+    <div class="evals" data-quiet hidden>${quiet.map(evalHTML).join("")}</div>` : ""}`;
+}
+
 function evalHTML(s) {
   const mine = s.user_id === S.me.id;
   return `<article class="eval ${mine ? "mine" : ""}">
@@ -1491,6 +1532,12 @@ function wirePlayer(root, d) {
         return await afterMutation();
       }
       if (t.id === "ncaa-rm") { await api("DELETE", `/api/ncaa/board/${p.id}`); return await afterMutation(); }
+      if (t.dataset.showQuiet !== undefined) {
+        const box = $("[data-quiet]", root);
+        box.hidden = !box.hidden;
+        t.textContent = box.hidden ? "Show" : "Hide";
+        return;
+      }
       if (t.id === "college-add" || t.id === "college-cancel") {
         const f = $("#college-form", root);
         f.hidden = t.id === "college-cancel";
@@ -2510,7 +2557,7 @@ function ncaaRow(p, pos, i, d) {
       data-q="${esc([p.name, sub, p.club].join(" "))}" data-grade="${esc(x?.grade || "")}" data-rep="${esc(d.agents[p.id]?.representation || "unknown")}" data-bb="${onBB ? "on" : "off"}">
     <span class="nrank ${i != null && i < 3 ? "lead" : ""}">${i != null ? i + 1 : ""}</span>
     <span class="nmain"><span class="nname">${esc(p.name)}</span>
-      <span class="nsubrow"><span class="nsub">${esc(sub)}</span><span class="ntags">${bb}${l2Badge(p.l2)}${rosterBadge(p)}${repChip(d.agents[p.id])}${addBB}</span></span></span>
+      <span class="nsubrow"><span class="nsub">${esc(sub)}</span><span class="ntags">${tagRow([bb, l2Badge(p.l2), rosterBadge(p), repChip(d.agents[p.id])])}${addBB}</span></span></span>
     ${star}${gradeBadge(x?.grade)}</a>`;
 }
 
@@ -2577,6 +2624,7 @@ async function renderNcaa(main, arg) {
         <select id="nf-grade" aria-label="Grade">${GRADE_FILTER.map(([k, l]) => `<option value="${k}" ${f.grade === k ? "selected" : ""}>${l}</option>`).join("")}</select>
         ${live ? `<select id="nf-bb" aria-label="Big Board">${BB_FILTER.map(([k, l]) => `<option value="${k}" ${f.bb === k ? "selected" : ""}>${l}</option>`).join("")}</select>` : ""}
         ${live ? `<select id="nf-rep" aria-label="Representation">${[["", "Any representation"], ...REPRESENTATION].map(([k, l]) => `<option value="${k}" ${f.rep === k ? "selected" : ""}>${l}</option>`).join("")}</select>` : ""}
+        ${view === "board" ? legendHTML(true) : ""}
         <button type="button" class="btn primary" id="ncaa-add" title="Add a college player from a Transfermarkt link or by hand, with a grade and report">+ Add college player</button>
         ${S.me.is_admin ? `<button type="button" class="btn" id="ncaa-import" title="Pull the latest grades, reports and boards from the college scouting repository">Re-import</button>` : ""}
       </div>
