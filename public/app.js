@@ -1444,15 +1444,19 @@ function rolesPanel(p) {
     <div class="add-role"><select id="add-role-sel" aria-label="Add to a role"><option value="">Add to a role…</option>${options}</select><button type="button" class="btn sm" id="add-role-btn">Add</button></div>`;
 }
 
-// Your box and everyone who has a verdict or a note; the rest are one line (their boxes are a click away).
+// Everyone's box: yours first, then anyone with a verdict or a note, then the rest. "Hide empty" folds the boxes of
+// staff who haven't weighed in into one line; the choice is remembered in this browser.
+const hideEmptyEvals = () => { try { return localStorage.getItem("pine.hideEmptyEvals") === "1"; } catch { return false; } };
 function evalsHTML(staff) {
-  const active = staff.filter((s) => s.user_id === S.me.id || s.verdict || s.notes.length);
+  const active = staff.filter((s) => s.user_id === S.me.id || s.verdict || s.notes.length)
+    .sort((a, b) => (b.user_id === S.me.id) - (a.user_id === S.me.id));
   const quiet = staff.filter((s) => !active.includes(s));
   const names = quiet.map((s) => s.name);
   const list = names.length <= 3 ? names.join(", ").replace(/, ([^,]*)$/, " and $1") : `${names.slice(0, 2).join(", ")} and ${names.length - 2} others`;
-  return `<div class="evals">${active.map(evalHTML).join("")}</div>${quiet.length ? `
-    <p class="evals-quiet muted sm">No verdict or notes yet from ${esc(list)}. <button type="button" class="btn link sm" data-show-quiet>Show</button></p>
-    <div class="evals" data-quiet hidden>${quiet.map(evalHTML).join("")}</div>` : ""}`;
+  const hide = hideEmptyEvals();
+  return `<div class="evals">${active.map(evalHTML).join("")}${hide ? "" : quiet.map(evalHTML).join("")}</div>${quiet.length ? `
+    <p class="evals-quiet muted sm">${hide ? `No verdict or notes yet from ${esc(list)}.` : `${quiet.length} with no verdict or notes yet.`}
+      <button type="button" class="btn link sm" data-toggle-empty>${hide ? "Show them" : "Hide empty"}</button></p>` : ""}`;
 }
 
 function evalHTML(s) {
@@ -1532,11 +1536,9 @@ function wirePlayer(root, d) {
         return await afterMutation();
       }
       if (t.id === "ncaa-rm") { await api("DELETE", `/api/ncaa/board/${p.id}`); return await afterMutation(); }
-      if (t.dataset.showQuiet !== undefined) {
-        const box = $("[data-quiet]", root);
-        box.hidden = !box.hidden;
-        t.textContent = box.hidden ? "Show" : "Hide";
-        return;
+      if (t.dataset.toggleEmpty !== undefined) {
+        try { localStorage.setItem("pine.hideEmptyEvals", hideEmptyEvals() ? "0" : "1"); } catch {}
+        return render();
       }
       if (t.id === "college-add" || t.id === "college-cancel") {
         const f = $("#college-form", root);

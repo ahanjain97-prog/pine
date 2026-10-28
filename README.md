@@ -215,7 +215,8 @@ the existing sign-in gate. No real player snapshot belongs in this public reposi
   agent line is shown beneath it for reference and never overwrites it.
 - **Database** (`#/players`): sortable and filterable table of everyone, with CSV export.
 - **Player page**: the header holds Transfermarkt facts, the club decision and the staff verdict tally. Staff evaluations
-  show your box and anyone with a verdict or note; the rest are one line with a Show button. Below it,
+  show everyone's box (yours first, then anyone who has weighed in); "Hide empty" folds the rest into one line,
+  remembered per browser. Below it,
   the shared summary, college scouting reports (players in the college database) and one evaluation section per staff member (only you can
   write in yours), with big board roles, the NCAA board spot (college players), agent details, lists, the Impect link and history alongside. Underneath are tabs for
   the KPI profile, physical data, pitch maps and player card; one season and position picker drives the three

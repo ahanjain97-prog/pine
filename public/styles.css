@@ -443,7 +443,6 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 13px; }
 .note-meta button:hover { color: var(--accent); }
 .empty { color: var(--muted); font-size: 12.5px; margin: 0; }
 .evals-quiet { margin: 10px 0 0; }
-.evals[data-quiet] { margin-top: 10px; }
 .phys { border: 1px solid var(--line); border-radius: 9px; padding: 0; margin-bottom: 8px; }
 /* In the Physical tab each linked season is a card, side by side when there's room. */
 .phys-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; align-items: start; }
