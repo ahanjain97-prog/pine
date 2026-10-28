@@ -1060,6 +1060,7 @@ async function renderPlayer(main, idArg) {
   }
   if (route().view !== "player" || Number(route().arg) !== id) return;
   const p = d.player;
+  if (p.id !== id) { location.replace(`/p/${p.id}`); return; }
   setTitle(p.name);
   const counts = { pass: 0, hold: 0, fail: 0 };
   d.staff.forEach((s) => s.verdict && counts[s.verdict]++);
@@ -1742,7 +1743,7 @@ function impCand(x) {
   return `<div class="cand"><span class="ci"><b>${esc(x.name)}</b>${x.birthdate ? ` · ${esc(fmtDate(x.birthdate))}` : ""}
     <div class="muted sm">${esc([x.squad, x.competition, x.season].filter(Boolean).join(" · "))}</div></span>
     ${x.confidence === "high" ? `<span class="why"><span>name + dob</span></span>` : ""}
-    ${x.pine_id ? `<a class="sm" href="#/player/${x.pine_id}">In PINE</a>` : `<button type="button" class="btn sm" data-imp-link="${x.impect_id}">Link</button>`}</div>`;
+    ${x.pine_id ? `<a class="sm" href="#/player/${x.pine_id}">In PINE</a>${x.can_merge && S.me.is_admin ? `<button type="button" class="btn sm" data-imp-merge="${x.pine_id}">Combine profiles</button>` : ""}` : `<button type="button" class="btn sm" data-imp-link="${x.impect_id}">Link</button>`}</div>`;
 }
 
 async function loadImpectPanel(root, p) {
@@ -1773,6 +1774,16 @@ async function loadImpectPanel(root, p) {
     }, 300));
   }
   el.addEventListener("click", async (e) => {
+    const merge = e.target.closest("[data-imp-merge]");
+    if (merge) {
+      merge.disabled = true;
+      try {
+        const result = await api("POST", `/api/players/${p.id}/merge-impect`, { into_id: Number(merge.dataset.impMerge) });
+        toast("Profiles combined; existing board position and scouting data kept");
+        location.replace(`/p/${result.player.id}`);
+      } catch (err) { merge.disabled = false; oops(err); }
+      return;
+    }
     const link = e.target.closest("[data-imp-link]");
     const unlink = e.target.closest("[data-imp-unlink]");
     if (!link && !unlink) return;
@@ -2909,6 +2920,7 @@ function describe(a, onPlayerPage = false) {
     case "added_player": return `added ${who}${d.list ? ` from the Impect list “${esc(d.list)}”` : d.source === "transfermarkt" ? " from Transfermarkt" : d.source === "impect" ? " from Impect" : ""}`;
     case "imported_college": return `imported the college scouting database: ${d.prospects ?? 0} prospects, ${d.reports ?? 0} reports${d.created ? `, ${d.created} new player${d.created === 1 ? "" : "s"}` : ""}${d.boarded ? `, ${d.boarded} added to the NCAA board` : ""}${d.big_board ? `, ${d.big_board} added to the Big Board` : ""}`;
     case "merged_player": return `merged the college import “${esc(d.name)}” into ${who}, the same player already in PINE`;
+    case "combined_profiles": return `combined a duplicate Transfermarkt profile into ${who}, keeping the connected data and board position`;
     case "unlinked_big_board": return `took ${d.count} college player${d.count === 1 ? "" : "s"} it had added back off the Big Board (the NCAA board marks who is on it)`;
     case "linked_big_board": return `put ${d.count} NCAA board player${d.count === 1 ? "" : "s"} on the Big Board at their position`;
     case "moved_on_ncaa_board": return d.from && d.from !== d.to

@@ -40,6 +40,7 @@ import {
 import { linkL2, saveL2Report } from "./lib/l2.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
+import { connectedDuplicate, connectionMergeProblem, mergeConnection, resolvePlayerId } from "./lib/player_connections.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 if (existsSync(join(ROOT, ".env"))) process.loadEnvFile(join(ROOT, ".env"));
@@ -165,9 +166,11 @@ const PLAYER_SELECT = `
       WHERE a.player_id = p.id AND a.user_id IS NOT NULL AND a.action <> 'added_player') AS changed_by_json
   FROM players p`;
 
-const getPlayer = (id) => hydrate(db.get(`${PLAYER_SELECT} WHERE p.id = ?`, Number(id))) || fail(404, "Player not found");
+const getPlayer = (id) => hydrate(db.get(`${PLAYER_SELECT} WHERE p.id = ?`, resolvePlayerId(db, id))) || fail(404, "Player not found");
 
 function insertPlayer(fields, userId, source) {
+  // SQLite may reuse a deleted maximum ROWID; merged profile URLs must stay reserved.
+  fields = { ...fields, id: db.get("SELECT coalesce(max(id), 0) + 1 AS id FROM (SELECT id FROM players UNION ALL SELECT id FROM player_redirects)").id };
   const cols = Object.keys(fields);
   const vals = cols.map((k) => (JSON_COLS.includes(k) ? JSON.stringify(fields[k] ?? []) : fields[k] ?? null));
   const r = db.run(
@@ -425,13 +428,14 @@ app.post("/api/tm/preview", async (c) => {
   const { url } = await c.req.json();
   const parsed = parseTmUrl(url);
   if (!parsed) fail(400, "That doesn't look like a Transfermarkt player link");
-  const dup = db.get("SELECT id, name FROM players WHERE tm_id = ?", parsed.id);
+  let dup = db.get("SELECT id, name FROM players WHERE tm_id = ?", parsed.id);
   const profile = await fetchTmPlayer(url);
   const suggested = suggestPosition(profile.position, profile.foot);
   let physical = [];
   try { physical = matchPhysical(await loadPhysical(PHYS_CACHE), profile).slice(0, 6); } catch {}
   let impect = null;
   try { if (impectConfigured()) impect = (await matchImpect(profile)).best; } catch {}
+  dup ||= connectedDuplicate(db, profile, impect?.impect_id);
   return c.json({ profile, duplicate: dup || null, suggested_position: suggested, physical, impect });
 });
 
@@ -445,6 +449,10 @@ app.post("/api/players", async (c) => {
     const dup = db.get("SELECT id, name FROM players WHERE tm_id = ?", parsed.id);
     if (dup) fail(409, `${dup.name} is already in PINE`, { player_id: dup.id });
     const tm = await fetchTmPlayer(body.tm_url);
+    // Check after the fetch too: an Impect import may already represent this person, or
+    // another request may have added the same Transfermarkt profile while we were fetching.
+    const existing = db.get("SELECT id, name FROM players WHERE tm_id = ?", parsed.id) || connectedDuplicate(db, tm);
+    if (existing) fail(409, `${existing.name} is already in PINE`, { player_id: existing.id });
     fields = { ...pick(tm, TM_FIELDS), citizenship: tm.citizenship, other_positions: tm.other_positions, tm_synced_at: new Date().toISOString() };
     source = "transfermarkt";
   } else if (body.impect_id) {
@@ -972,7 +980,20 @@ app.get("/api/players/:id/impect-kpis", async (c) => {
 
 app.get("/api/players/:id/impect-candidates", async (c) => {
   const p = getPlayer(c.req.param("id"));
-  return c.json(await matchImpect(p));
+  const matches = await matchImpect(p);
+  const from = db.get("SELECT * FROM players WHERE id = ?", p.id);
+  return c.json({ ...matches, candidates: matches.candidates.map((candidate) => {
+    const into = db.get("SELECT * FROM players WHERE impect_id = ?", candidate.impect_id);
+    return { ...candidate, pine_id: into?.id ?? null, can_merge: !!into && !connectionMergeProblem(db, from, into) };
+  }) });
+});
+
+app.post("/api/players/:id/merge-impect", async (c) => {
+  const user = c.get("user");
+  if (!user.is_admin) fail(403, "Only admins can combine profiles");
+  const { into_id } = await c.req.json();
+  const id = mergeConnection(db, Number(c.req.param("id")), Number(into_id), user.id);
+  return c.json({ player: getPlayer(id) });
 });
 
 /* ---------- player cards (PDFs and their PNGs, rendered by the card worker) ---------- */
@@ -1318,6 +1339,8 @@ app.get("/index.html", (c) => page(c, sitePreview(siteOrigin(c))));
 // still serves the app, which shows its own "Player not found". See src/lib/share.js.
 app.get("/p/:id", (c) => {
   const id = Number(c.req.param("id"));
+  const canonicalId = Number.isInteger(id) && id > 0 ? resolvePlayerId(db, id) : null;
+  if (canonicalId && canonicalId !== id) return c.redirect(`/p/${canonicalId}`, 302);
   const row = Number.isInteger(id) && id > 0
     ? db.get("SELECT id, name, birthdate, position, club, league, photo_url FROM players WHERE id = ?", id)
     : null;
