@@ -771,3 +771,36 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
   .evals { grid-template-columns: 1fr; }
   .bar { grid-template-columns: 1fr 80px 28px; }
 }
+
+/* Player career: one compact row per season, fixture marks on a shared calendar. */
+.playing-time { --pt-team-0: var(--pine); --pt-team-1: var(--accent); --pt-team-2: #8576a8; --pt-team-3: #a27720; }
+@media (prefers-color-scheme: dark) { .playing-time { --pt-team-0: #70bea0; --pt-team-2: #bbacdf; --pt-team-3: #e1b75d; } }
+.playing-time .panel-h { gap: 8px; flex-wrap: wrap; }
+.pt-months { margin-left: 138px; margin-right: 78px; display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
+.pt-season { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.pt-season:last-child { border-bottom: 0; }
+.pt-year { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 12px; font-variant-numeric: tabular-nums; }
+.pt-year > b { font-weight: 600; }
+.pt-total { margin-left: auto; text-align: right; white-space: nowrap; }
+.pt-share, .pt-message { color: var(--muted); font-size: 11px; }
+.pt-lane { display: grid; grid-template-columns: 130px minmax(0, 1fr) 70px; gap: 8px; align-items: center; }
+.pt-team { font-size: 11px; color: var(--ink-2); overflow-wrap: anywhere; }
+.pt-plot { min-width: 0; }
+.pt-chart { display: block; width: 100%; overflow: visible; }
+.pt-baseline { stroke: var(--line); }
+.pt-played { fill: var(--pt-color); }
+.pt-zero { fill: var(--muted); }
+.pt-unknown { fill: var(--surface); stroke: var(--muted); }
+.pt-team-total { text-align: right; font-size: 11px; font-variant-numeric: tabular-nums; }
+.pt-team-total .pt-share { display: block; }
+.pt-legend { display: flex; flex-wrap: wrap; gap: 5px 14px; margin-top: 10px; color: var(--muted); font-size: 11px; }
+.pt-key { display: inline-block; vertical-align: middle; margin-right: 5px; background: var(--muted); }
+.pt-key.played { width: 3px; height: 10px; background: var(--pt-team-0); }
+.pt-key.zero { width: 6px; height: 2px; }
+.pt-game-detail { margin: 6px 0 0; font-size: 11px; color: var(--ink-2); }
+@media (max-width: 600px) {
+  .pt-lane { grid-template-columns: minmax(0, 1fr) 64px; gap: 2px 5px; }
+  .pt-team { grid-column: 1 / -1; margin-top: 3px; }
+  .pt-months { margin-left: 0; margin-right: 69px; }
+  .pt-year { gap: 5px; }
+}

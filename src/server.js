@@ -22,6 +22,7 @@ import {
   shortLists as impectShortLists, shortListPlayerMeta, warmPool, poolStatus,
 } from "./lib/impect.js";
 import { BENCHMARK_LEAGUES, cohortStatus, playerKpiCard, warmCohort, warmDefinitions } from "./lib/impect_kpi.js";
+import { playingTime } from "./lib/playing_time.js";
 import { configureDiskCache } from "./lib/disk_cache.js";
 import { playerCardOptions } from "./lib/card_options.js";
 import { MAX_CARD_BYTES, DAILY_CARD_LIMIT, cardErrorCode, cardProgress, claimCard, isPdf, isPng, saveCardFile, sqlTime } from "./lib/cards.js";
@@ -969,6 +970,19 @@ app.post("/api/impect/shortlists/:id/import", async (c) => {
   logActivity(db, user.id, null, "imported_list", out);
   for (const id of fresh) await autoLink(id);
   return c.json(out);
+});
+
+// All covered league seasons, or one season's compact fixture timeline.
+app.get("/api/players/:id/playing-time", async (c) => {
+  const p = getPlayer(c.req.param("id"));
+  if (!p.impect_id) return c.json({ seasons: [] });
+  const season = c.req.query("season");
+  if (season) {
+    if (!/^\d{4}(?:[/-]\d{2,4})?$/.test(season)) fail(400, "Invalid season");
+    return c.json(await playingTime.season(p.impect_id, season, { joined: p.joined, club: p.club }));
+  }
+  const { seasons } = await playingTime.manifest(p.impect_id);
+  return c.json({ seasons });
 });
 
 // Pooled and league KPI percentiles with a fixed qualification floor.

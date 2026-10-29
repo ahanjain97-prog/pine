@@ -1,3 +1,5 @@
+import { loadPlayingTimePanel } from "./playing-time.js";
+
 // PINE front end: single page, no build step.
 // Routes: #/board  #/short-board  #/ncaa[/database]  #/players  #/player/:id  #/impect  #/activity  #/staff
 // Shared links come in as /p/:id, which the server rewrites to #/player/:id before this boots.
@@ -1115,6 +1117,7 @@ async function renderPlayer(main, idArg) {
 
     <div class="p-grid">
       <div>
+        <section class="panel playing-time" id="playing-time-panel"><header class="panel-h"><h2>Playing time</h2></header><div class="loading sm">Loading…</div></section>
         <section class="panel">
           <header class="panel-h"><h2>Summary</h2><span class="muted sm">Shared club summary</span></header>
           <textarea id="summary" rows="3" data-draft data-orig="${esc(p.summary || "")}" placeholder="Overall summary, fit, next steps…">${esc(p.summary || "")}</textarea>
@@ -1144,6 +1147,7 @@ async function renderPlayer(main, idArg) {
   </div>`;
   const root = main.firstElementChild;
   wirePlayer(root, d);
+  loadPlayingTimePanel($("#playing-time-panel", root), p, api);
   if (!p.tm_url) loadTmPanel(root, p);
   loadImpectPanel(root, p);
   wireAnalytics(root, p);

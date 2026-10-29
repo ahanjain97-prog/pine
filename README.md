@@ -120,6 +120,12 @@ and stores only the supported fields. Inputs and their rule/source versions live
 database and are included in normal backups. Staff read `GET /api/players/:id/mlsnp-gates` through
 the existing sign-in gate. No real player snapshot belongs in this public repository.
 
+## Player playing time
+
+Each player page has a compact league-fixture timeline, season minutes and minute share, with separate club rows for transfers. Bars show minutes played; short baseline marks are team games with zero recorded minutes. Empty calendar space has no fixture. Played playoffs count, cups and future games do not. Unlinked players have a simple Impect-link prompt, and missing seasons/data are not presented as zero minutes.
+
+Minute share divides recorded player minutes by actual match duration across the relevant team fixtures, including added and extra time. A matching current club/join date bounds the current stint; non-overlapping historical transfers use the next club’s first appearance as an approximate boundary. Injury absences stay in the denominator. Seasons load newest first, and reduced squad/match data are shared across players and cached on disk for 12 hours.
+
 ## Configuration (`.env`, never committed)
 
 | Variable | Purpose |
