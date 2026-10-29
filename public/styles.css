@@ -789,14 +789,14 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
 .pt-chart { display: block; width: 100%; overflow: visible; }
 .pt-baseline { stroke: var(--line); }
 .pt-played { fill: var(--pt-color); }
-.pt-zero { fill: var(--muted); }
+.pt-zero { fill: var(--fail); }
 .pt-unknown { fill: var(--surface); stroke: var(--muted); }
 .pt-team-total { text-align: right; font-size: 11px; font-variant-numeric: tabular-nums; }
 .pt-team-total .pt-share { display: block; }
 .pt-legend { display: flex; flex-wrap: wrap; gap: 5px 14px; margin-top: 10px; color: var(--muted); font-size: 11px; }
 .pt-key { display: inline-block; vertical-align: middle; margin-right: 5px; background: var(--muted); }
 .pt-key.played { width: 3px; height: 10px; background: var(--pt-team-0); }
-.pt-key.zero { width: 6px; height: 2px; }
+.pt-key.zero { width: 6px; height: 4px; background: var(--fail); }
 .pt-game-detail { margin: 6px 0 0; font-size: 11px; color: var(--ink-2); }
 @media (max-width: 600px) {
   .pt-lane { grid-template-columns: minmax(0, 1fr) 64px; gap: 2px 5px; }

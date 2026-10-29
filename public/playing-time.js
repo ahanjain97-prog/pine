@@ -30,8 +30,8 @@ function timeline(team, season, color) {
     const label = `${date} · ${team.name} v ${g.opponent} · ${g.minutes == null ? "data unavailable" : `${number(g.minutes)} min`}`;
     const data = `data-game="${escape(label)}"`;
     if (g.minutes == null) return `<circle cx="${x}%" cy="30" r="2" class="pt-unknown" ${data}><title>${escape(label)}</title></circle>`;
-    const h = g.minutes > 0 ? Math.max(2, 26 * g.minutes / max) : 2;
-    return `<rect x="${x}%" y="${30 - h}" width="3" height="${h}" class="${g.minutes > 0 ? "pt-played" : "pt-zero"}" ${data}><title>${escape(label)}</title></rect>`;
+    const h = g.minutes > 0 ? Math.max(2, 26 * g.minutes / max) : 4;
+    return `<rect x="${x}%" y="${30 - h}" width="${g.minutes > 0 ? 3 : 5}" height="${h}" class="${g.minutes > 0 ? "pt-played" : "pt-zero"}" ${data}><title>${escape(label)}</title></rect>`;
   }).join("");
   return `<svg class="pt-chart" role="img" aria-label="${escape(title)}" style="--pt-color:var(--pt-team-${color})" height="${height}">
     <title>${escape(title)}</title><desc>${escape(games.map((g) => `${new Date(g.date).toISOString().slice(0, 10)}: ${g.minutes == null ? "data unavailable" : `${number(g.minutes)} minutes`}`).join("; "))}</desc>
