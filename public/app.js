@@ -1117,7 +1117,6 @@ async function renderPlayer(main, idArg) {
 
     <div class="p-grid">
       <div>
-        <section class="panel playing-time" id="playing-time-panel"><header class="panel-h"><h2>Playing time</h2></header><div class="loading sm">Loading…</div></section>
         <section class="panel">
           <header class="panel-h"><h2>Summary</h2><span class="muted sm">Shared club summary</span></header>
           <textarea id="summary" rows="3" data-draft data-orig="${esc(p.summary || "")}" placeholder="Overall summary, fit, next steps…">${esc(p.summary || "")}</textarea>
@@ -1144,6 +1143,7 @@ async function renderPlayer(main, idArg) {
       </header>
       ${anTabs(p).map(([k], i) => `<div class="an-body" role="tabpanel" aria-labelledby="an-${k}-tab" id="${k}-panel" ${i ? "hidden" : ""}><div class="loading sm">Loading…</div></div>`).join("")}
     </section>
+    <section class="panel playing-time" id="playing-time-panel"><header class="panel-h"><h2>Playing time</h2></header><div class="loading sm">Loading…</div></section>
   </div>`;
   const root = main.firstElementChild;
   wirePlayer(root, d);
