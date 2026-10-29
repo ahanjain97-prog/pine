@@ -1,3 +1,5 @@
+import { loadPlayingTimePanel } from "./playing-time.js";
+
 // PINE front end: single page, no build step.
 // Routes: #/board  #/short-board  #/ncaa[/database]  #/players  #/player/:id  #/impect  #/activity  #/staff
 // Shared links come in as /p/:id, which the server rewrites to #/player/:id before this boots.
@@ -1141,9 +1143,11 @@ async function renderPlayer(main, idArg) {
       </header>
       ${anTabs(p).map(([k], i) => `<div class="an-body" role="tabpanel" aria-labelledby="an-${k}-tab" id="${k}-panel" ${i ? "hidden" : ""}><div class="loading sm">Loading…</div></div>`).join("")}
     </section>
+    <section class="panel playing-time" id="playing-time-panel"><header class="panel-h"><h2>Playing time</h2></header><div class="loading sm">Loading…</div></section>
   </div>`;
   const root = main.firstElementChild;
   wirePlayer(root, d);
+  loadPlayingTimePanel($("#playing-time-panel", root), p, api);
   if (!p.tm_url) loadTmPanel(root, p);
   loadImpectPanel(root, p);
   wireAnalytics(root, p);
