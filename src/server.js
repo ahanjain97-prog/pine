@@ -383,7 +383,7 @@ app.get("/api/config", (c) =>
     roles: ROLES,
     decisions: DECISIONS,
     college: { grades: GRADE_SCALE, classes: CLASSES, sources: REPORT_SOURCES },
-    staff: db.all("SELECT id, name FROM users ORDER BY sort, id"),
+    staff: db.all("SELECT id, name, in_evals FROM users ORDER BY sort, id"),
     me: c.get("user"),
     auth: AUTH_OFF ? "off" : "email",
     impect: impectConfigured(),
@@ -403,16 +403,18 @@ function ncaaPlace(player) {
 
 app.get("/api/players/:id", (c) => {
   const player = getPlayer(c.req.param("id"));
-  const staff = db.all("SELECT id, name FROM users ORDER BY sort, id").map((u) => {
+  const me = c.get("user");
+  const staff = db.all("SELECT id, name, in_evals FROM users ORDER BY sort, id").map((u) => {
     const v = db.get("SELECT verdict, updated_at FROM verdicts WHERE player_id = ? AND user_id = ?", player.id, u.id);
     return {
       user_id: u.id,
       name: u.name,
+      in_evals: u.in_evals,
       verdict: v?.verdict || null,
       verdict_at: v?.updated_at || null,
       notes: db.all("SELECT id, context, body, created_at, updated_at FROM notes WHERE player_id = ? AND user_id = ? ORDER BY created_at DESC, id DESC", player.id, u.id),
     };
-  });
+  }).filter((s) => s.in_evals || s.verdict || s.notes.length || s.user_id === me?.id); // staff left out of evaluations
   const activity = db.all(
     `SELECT a.id, a.action, a.detail, a.created_at, u.name AS user FROM activity a LEFT JOIN users u ON u.id = a.user_id
      WHERE a.player_id = ? AND a.hidden = 0 ORDER BY a.id DESC LIMIT 40`, player.id);
@@ -776,6 +778,8 @@ app.put("/api/worker/l2-prospects", bodyLimit({ maxSize: 1024 * 1024 }), async (
 });
 linkL2(db);
 
+// Left out of evaluations at the owner's request (2026-10-28): a staff account that has never signed in or written anything.
+db.once("gabe-out-of-evals-2026-10-28", () => db.run("UPDATE users SET in_evals = 0 WHERE id = 8 AND name = 'Gabe Hoffman-Johnson'"));
 // Hidden at the owner's request (2026-10-26): his three player deletions that afternoon. Still in the database.
 db.run("UPDATE activity SET hidden = 1 WHERE id IN (2626, 2627, 2628) AND action = 'deleted_player' AND user_id = 2");
 
@@ -1233,7 +1237,7 @@ app.post("/api/worker/maps/:id/fail", async (c) => {
 app.get("/api/users", (c) => {
   const user = c.get("user");
   const cols = user.is_admin
-    ? `id, name, email, is_admin, password_hash IS NOT NULL AS has_password,
+    ? `id, name, email, is_admin, in_evals, password_hash IS NOT NULL AS has_password,
        (SELECT max(expires_at) FROM setup_links l WHERE l.user_id = users.id AND l.expires_at > ${Date.now()}) AS link_expires_at`
     : "id, name, is_admin";
   return c.json({ users: db.all(`SELECT ${cols} FROM users ORDER BY sort, id`) });
@@ -1254,12 +1258,13 @@ app.patch("/api/users/:id", async (c) => {
   const user = c.get("user");
   if (!user.is_admin) fail(403, "Only admins can manage staff");
   const target = db.get("SELECT * FROM users WHERE id = ?", Number(c.req.param("id"))) || fail(404, "User not found");
-  const { email, is_admin } = await c.req.json();
+  const { email, is_admin, in_evals } = await c.req.json();
   const e = email === undefined ? target.email : String(email || "").trim() || null;
   if (e && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) fail(400, "That email doesn't look right");
   if (target.id === user.id && is_admin === false) fail(400, "You can't remove your own admin access");
   try {
-    db.run("UPDATE users SET email = ?, is_admin = ? WHERE id = ?", e, is_admin === undefined ? target.is_admin : is_admin ? 1 : 0, target.id);
+    db.run("UPDATE users SET email = ?, is_admin = ?, in_evals = ? WHERE id = ?", e, is_admin === undefined ? target.is_admin : is_admin ? 1 : 0,
+      in_evals === undefined ? target.in_evals : in_evals ? 1 : 0, target.id);
   } catch { fail(409, "Another staff member already uses that email"); }
   logActivity(db, user.id, null, "edited_staff", { name: target.name });
   return c.json({ ok: true });

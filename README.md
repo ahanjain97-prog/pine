@@ -253,7 +253,8 @@ the existing sign-in gate. No real player snapshot belongs in this public reposi
   Original records are saved privately in the database for recovery and included in backups.
 - **Impect** (`#/impect`): import or sync Impect Scouting short lists (each list maps to a board role;
   centre-back lists split LCB/RCB by foot), or browse every player in our Impect competitions.
-- **Staff** (`#/staff`, admins): set each person's sign-in email, add staff.
+- **Staff** (`#/staff`, admins): set each person's sign-in email, add staff, and choose who gets an evaluation
+  section and verdict dot on every player (**Evaluations**; someone unticked still shows where they've written).
 
 ## Data sources
 

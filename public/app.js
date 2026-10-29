@@ -135,7 +135,8 @@ const decisionChip = (d, lg = false) => `<span class="dchip ${d ? "v-" + d : ""}
 const verdictChip = (v) => `<span class="dchip ${v ? "v-" + v : ""}">${v ? cap(v) : "No verdict"}</span>`;
 const fact = (label, value, html = false) => (value == null || value === "" ? "" : `<div><dt>${esc(label)}</dt><dd>${html ? value : esc(value)}</dd></div>`);
 function verdictDots(verdicts, wide = false) {
-  return `<span class="vdots ${wide ? "wide" : ""}">${S.config.staff.map((s) => {
+  // One dot per staff member in evaluations (plus anyone else who has given this player a verdict).
+  return `<span class="vdots ${wide ? "wide" : ""}">${S.config.staff.filter((s) => s.in_evals !== 0 || verdicts?.[s.name]).map((s) => {
     const v = verdicts?.[s.name];
     return `<i class="vdot ${v ? "v-" + v : ""}" title="${esc(s.name)}: ${v ? cap(v) : "no verdict"}"></i>`;
   }).join("")}</span>`;
@@ -3007,14 +3008,15 @@ async function renderStaff(main) {
   if (!S.me.is_admin) { location.hash = "#/board"; return; }
   const { users } = await api("GET", "/api/users");
   main.innerHTML = `<div class="page" style="max-width:1000px">
-    <div class="page-h"><div><h1>Staff</h1><div class="sub">Everyone on this list gets their own evaluation section on every player. To let someone sign in, or to reset a forgotten password,
+    <div class="page-h"><div><h1>Staff</h1><div class="sub">Everyone ticked under <b>Evaluations</b> gets their own evaluation section and verdict dot on every player (anyone unticked still shows where they've written something). To let someone sign in, or to reset a forgotten password,
       click <b>Email sign-in link</b>: a Gmail draft opens, addressed to them with their link, and you press Send. They open the link, choose a password, and from then on sign in with their email and that password.
       A link works once and expires after 7 days.</div></div></div>
-    <div class="table-wrap"><table class="grid"><thead><tr><th>Name</th><th>Sign-in email</th><th>Sign-in</th><th>Admin</th><th></th></tr></thead><tbody>
+    <div class="table-wrap"><table class="grid"><thead><tr><th>Name</th><th>Sign-in email</th><th>Sign-in</th><th>Admin</th><th>Evaluations</th><th></th></tr></thead><tbody>
       ${users.map((u) => `<tr data-uid="${u.id}" data-has-password="${u.has_password ? 1 : 0}" style="cursor:default"><td><b>${esc(u.name)}</b></td>
         <td><input type="email" value="${esc(u.email || "")}" placeholder="Add an email to let ${esc(u.name)} sign in" style="width:260px" aria-label="${esc(u.name)} email"></td>
         <td>${signInStatus(u)}</td>
-        <td><input type="checkbox" ${u.is_admin ? "checked" : ""} ${u.id === S.me.id ? "disabled" : ""} aria-label="${esc(u.name)} is admin"></td>
+        <td><input type="checkbox" name="is_admin" ${u.is_admin ? "checked" : ""} ${u.id === S.me.id ? "disabled" : ""} aria-label="${esc(u.name)} is admin"></td>
+        <td><input type="checkbox" name="in_evals" ${u.in_evals ? "checked" : ""} aria-label="${esc(u.name)} has an evaluation section"></td>
         <td class="staff-actions"><button type="button" class="btn sm" data-save-user>Save</button>
           <button type="button" class="btn sm primary" data-link-user>${u.has_password ? "Email new link" : "Email sign-in link"}</button></td></tr>`).join("")}
     </tbody></table></div>
@@ -3036,7 +3038,8 @@ async function renderStaff(main) {
     const tr = e.target.closest("tr");
     try {
       if (saveBtn) {
-        await api("PATCH", `/api/users/${tr.dataset.uid}`, { email: $("input[type=email]", tr).value, is_admin: $("input[type=checkbox]", tr).checked });
+        await api("PATCH", `/api/users/${tr.dataset.uid}`, { email: $("input[type=email]", tr).value, is_admin: $("input[name=is_admin]", tr).checked,
+          in_evals: $("input[name=in_evals]", tr).checked });
         toast("Staff member saved");
         return;
       }

@@ -248,6 +248,11 @@ export function openDb(file) {
     raw.exec("ALTER TABLE ncaa_reports ADD COLUMN created_by INTEGER REFERENCES users(id) ON DELETE SET NULL");
     raw.exec("ALTER TABLE ncaa_reports ADD COLUMN created_at TEXT");
   }
+  // Staff who get an evaluation box (and verdict dot) on every player. Off for people who never use PINE; anyone
+  // who has written a verdict or note on a player still shows there.
+  if (!raw.prepare("PRAGMA table_info(users)").all().some((c) => c.name === "in_evals")) {
+    raw.exec("ALTER TABLE users ADD COLUMN in_evals INTEGER NOT NULL DEFAULT 1");
+  }
   // Entries kept for the record but left out of the Activity feed and player histories.
   if (!raw.prepare("PRAGMA table_info(activity)").all().some((c) => c.name === "hidden")) {
     raw.exec("ALTER TABLE activity ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0");
