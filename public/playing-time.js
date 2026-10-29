@@ -12,6 +12,23 @@ async function read(api, path) {
   return promise;
 }
 
+// Keep equal-width game marks apart in congested weeks, nudging dates only when needed.
+export function fixturePositions(fractions, width) {
+  const left = 3, right = Math.max(left, width - 3);
+  const gap = Math.min(5, (right - left) / Math.max(1, fractions.length - 1));
+  const xs = fractions.map((f) => Math.max(left, Math.min(right, f * width)));
+  for (let i = 1; i < xs.length; i++) xs[i] = Math.max(xs[i], xs[i - 1] + gap);
+  if (xs.length) xs[xs.length - 1] = Math.min(xs.at(-1), right);
+  for (let i = xs.length - 2; i >= 0; i--) xs[i] = Math.min(xs[i], xs[i + 1] - gap);
+  return xs;
+}
+function spaceFixtureMarks(chart) {
+  const marks = [...chart.querySelectorAll("[data-time]")];
+  const xs = fixturePositions(marks.map((m) => Number(m.dataset.time)), chart.getBoundingClientRect().width);
+  marks.forEach((m, i) => m.setAttribute(m.tagName === "circle" ? "cx" : "x", m.tagName === "circle" ? xs[i] : xs[i] - 1.5));
+}
+if (typeof window !== "undefined") window.addEventListener("resize", () => document.querySelectorAll(".pt-chart").forEach(spaceFixtureMarks));
+
 function timeline(team, season, color) {
   const games = team.fixtures;
   const startYear = Number(String(season).slice(0, 4));
@@ -28,10 +45,10 @@ function timeline(team, season, color) {
     const x = 2 + 96 * (Date.parse(g.date) - start) / (end - start);
     const date = new Date(g.date).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
     const label = `${date} · ${team.name} v ${g.opponent} · ${g.minutes == null ? "data unavailable" : `${number(g.minutes)} min`}`;
-    const data = `data-game="${escape(label)}"`;
-    if (g.minutes == null) return `<circle cx="${x}%" cy="30" r="2" class="pt-unknown" ${data}><title>${escape(label)}</title></circle>`;
+    const data = `data-time="${x / 100}" data-game="${escape(label)}"`;
+    if (g.minutes == null) return `<circle cx="${x}%" cy="30" r="1.5" class="pt-unknown" ${data}><title>${escape(label)}</title></circle>`;
     const h = g.minutes > 0 ? Math.max(2, 26 * g.minutes / max) : 4;
-    return `<rect x="${x}%" y="${30 - h}" width="${g.minutes > 0 ? 3 : 5}" height="${h}" class="${g.minutes > 0 ? "pt-played" : "pt-zero"}" ${data}><title>${escape(label)}</title></rect>`;
+    return `<rect x="${x}%" y="${30 - h}" width="3" height="${h}" class="${g.minutes > 0 ? "pt-played" : "pt-zero"}" ${data}><title>${escape(label)}</title></rect>`;
   }).join("");
   return `<svg class="pt-chart" role="img" aria-label="${escape(title)}" style="--pt-color:var(--pt-team-${color})" height="${height}">
     <title>${escape(title)}</title><desc>${escape(games.map((g) => `${new Date(g.date).toISOString().slice(0, 10)}: ${g.minutes == null ? "data unavailable" : `${number(g.minutes)} minutes`}`).join("; "))}</desc>
@@ -73,6 +90,7 @@ export async function loadPlayingTimePanel(el, p, api) {
       <div class="pt-legend"><span><i class="pt-key played"></i>Minutes played</span><span><i class="pt-key zero"></i>Team played, 0 min</span><span>Blank = no game</span>
         ${[...seasons.values()].some((s) => s.teams.some((t) => t.fixtures.some((g) => g.minutes === null))) ? `<span>○ Data unavailable</span>` : ""}</div>
       <p class="pt-game-detail" aria-live="polite" hidden></p>`;
+    el.querySelectorAll(".pt-chart").forEach(spaceFixtureMarks);
     el.querySelectorAll("[data-pt-season]").forEach((b) => b.onclick = () => load(b.dataset.ptSeason));
     el.querySelectorAll(".pt-chart").forEach((chart) => chart.addEventListener("click", (e) => {
       const mark = e.target.closest("[data-game]");
