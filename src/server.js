@@ -1295,12 +1295,21 @@ app.post("/api/users", async (c) => {
   logActivity(db, user.id, null, "added_staff", { name });
   return c.json({ ok: true }, 201);
 });
+// The Activity page groups this by player. Notes and college reports carry the start of what was written
+// (if it still exists), so a group shows the report without opening the player.
 app.get("/api/activity", (c) =>
   c.json({
     activity: db.all(
-      `SELECT a.id, a.action, a.detail, a.created_at, u.name AS user, a.player_id, p.name AS player
+      `SELECT a.id, a.action, a.detail, a.created_at, a.user_id, u.name AS user, a.player_id, p.name AS player,
+         CASE WHEN a.action IN ('added_note', 'edited_note') THEN
+             (SELECT substr(n.body, 1, 220) FROM notes n WHERE n.id = json_extract(a.detail, '$.note_id'))
+           WHEN a.action IN ('added_college_report', 'edited_college_report') THEN
+             (SELECT coalesce(r.grade || ' · ', '') || coalesce(substr(r.body, 1, 200), '') FROM ncaa_reports r WHERE r.id = json_extract(a.detail, '$.report_id'))
+         END AS snippet,
+         CASE WHEN a.action IN ('added_note', 'edited_note') THEN
+             (SELECT n.context FROM notes n WHERE n.id = json_extract(a.detail, '$.note_id')) END AS snippet_context
        FROM activity a LEFT JOIN users u ON u.id = a.user_id LEFT JOIN players p ON p.id = a.player_id
-       WHERE a.action <> 'signed_in' AND a.hidden = 0 ORDER BY a.id DESC LIMIT ?`, Math.min(Number(c.req.query("limit")) || 60, 300)),
+       WHERE a.action <> 'signed_in' AND a.hidden = 0 ORDER BY a.id DESC LIMIT ?`, Math.min(Number(c.req.query("limit")) || 60, 1500)),
   })
 );
 

@@ -2975,12 +2975,111 @@ function describe(a, onPlayerPage = false) {
   }
 }
 
+/* ---------- Activity: grouped by player ---------- */
+// Notes and college reports are reports: marked "Your report" when you wrote them, "<Name>'s report" otherwise.
+const REPORT_ACTIONS = new Set(["added_note", "edited_note", "added_college_report", "edited_college_report"]);
+const isReport = (a) => REPORT_ACTIONS.has(a.action);
+S.activity = { q: "", reports: false, who: "", backups: false, open: new Set() };
+
+function dayLabel(s) {
+  const d = toDate(s), now = new Date();
+  const start = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((start(now) - start(d)) / 864e5);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return d.toLocaleDateString("en-US", { weekday: "long" });
+  return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: d.getFullYear() === now.getFullYear() ? undefined : "numeric" });
+}
+const reportTag = (a) => (a.user_id === S.me.id
+  ? `<span class="rtag mine">Your report</span>` : `<span class="rtag">${esc(actor(a))}'s report</span>`);
+
+function activityEntry(a, inGroup) {
+  const snip = a.snippet ? `<div class="act-snip">${a.snippet_context ? `<b>${esc(a.snippet_context)}</b> · ` : ""}${esc(a.snippet)}${a.snippet.length >= 200 ? "…" : ""}</div>` : "";
+  return `<li class="${isReport(a) ? "is-report" : ""}"><span class="avatar">${esc(actor(a)[0])}</span>
+    <span class="act-main"><span><b>${esc(actor(a))}</b> ${isReport(a) ? reportTag(a) : ""}${inGroup ? describe(a, true) : describe(a)}</span>${snip}</span>
+    <span class="when" title="${esc(fmtDateTime(a.created_at))}">${esc(relTime(a.created_at))}</span></li>`;
+}
+
+function activityGroup(g) {
+  const p = g.player_id && S.byId.get(g.player_id);
+  const latest = g.items[0];
+  const reports = g.items.filter(isReport);
+  // One marker per report author, yours first.
+  const authors = [...new Map(reports.map((a) => [a.user_id, a])).values()].sort((a, b) => (b.user_id === S.me.id) - (a.user_id === S.me.id));
+  const people = [...new Set(g.items.map(actor))];
+  const title = g.player_id
+    ? `<a href="#/player/${g.player_id}">${esc(p?.name || g.name || "A player")}</a>${p?.club ? `<span class="muted sm">${esc(isNcaa(p) ? p.club.replace(/\s*\([^)]*\)\s*$/, "") : p.club)}</span>` : ""}`
+    : `<span>General</span><span class="muted sm">imports, staff and PINE</span>`;
+  return `<details class="act-group" data-key="${g.key}" ${S.activity.open.has(g.key) ? "open" : ""}>
+    <summary class="act-h">
+      ${p ? photo(p) : `<span class="act-ico">${g.player_id ? "?" : "P"}</span>`}
+      <span class="act-title"><span class="act-name">${title}</span>
+        <span class="act-latest"><b>${esc(actor(latest))}</b> ${g.player_id ? describe(latest, true) : describe(latest)}</span></span>
+      <span class="act-badges">${authors.slice(0, 3).map(reportTag).join("")}${authors.length > 3 ? `<span class="rtag">+${authors.length - 3}</span>` : ""}</span>
+      <span class="act-meta"><span><b>${g.items.length}</b> update${g.items.length === 1 ? "" : "s"}</span><span class="muted">${esc(people.slice(0, 3).join(", "))}${people.length > 3 ? ` +${people.length - 3}` : ""} · ${esc(relTime(latest.created_at))}</span></span>
+    </summary>
+    <ul class="feed">${g.items.map((a) => activityEntry(a, Boolean(g.player_id))).join("")}</ul>
+  </details>`;
+}
+
 async function renderActivity(main) {
-  main.innerHTML = `<div class="page" style="max-width:900px"><div class="page-h"><h1>Activity</h1></div><section class="panel"><ul class="feed" id="feed"><li class="loading">Loading…</li></ul></section></div>`;
-  try {
-    const { activity } = await api("GET", "/api/activity?limit=250");
-    $("#feed").innerHTML = activity.map((a) => `<li><span class="avatar">${esc(actor(a)[0])}</span><span><b>${esc(actor(a))}</b> ${describe(a)}</span><span class="when" title="${esc(fmtDateTime(a.created_at))}">${esc(relTime(a.created_at))}</span></li>`).join("") || `<li class="empty">Nothing yet.</li>`;
-  } catch (e) { $("#feed").innerHTML = `<li class="empty">${esc(e.message)}</li>`; }
+  const f = S.activity;
+  main.innerHTML = `<div class="page" style="max-width:1000px">
+    <div class="page-h"><div><h1>Activity</h1><div class="sub" id="act-count"></div></div><div class="spacer"></div>
+      <div class="filters">
+        <input id="af-q" type="search" placeholder="Find a player…" value="${esc(f.q)}" aria-label="Find a player">
+        <div class="seg" id="af-kind"><button type="button" data-k="all" class="${f.reports ? "" : "on"}">Everything</button><button type="button" data-k="reports" class="${f.reports ? "on" : ""}">Reports only</button></div>
+        <select id="af-who" aria-label="Who"><option value="">Anyone</option>${S.config.staff.map((u) => `<option value="${u.id}" ${String(u.id) === f.who ? "selected" : ""}>${esc(u.name)}</option>`).join("")}<option value="pine" ${f.who === "pine" ? "selected" : ""}>PINE (automatic)</option></select>
+        <label class="act-toggle"><input type="checkbox" id="af-backups" ${f.backups ? "checked" : ""}> Backups</label>
+        <button type="button" class="btn sm ghost" id="af-expand">Expand all</button>
+      </div></div>
+    <div id="act-body"><div class="loading">Loading…</div></div>
+  </div>`;
+  const root = main.firstElementChild, body = $("#act-body", root);
+  let activity;
+  try { ({ activity } = await api("GET", "/api/activity?limit=1000")); } catch (e) { body.innerHTML = `<p class="empty">${esc(e.message)}</p>`; return; }
+  const draw = () => {
+    const q = f.q.trim().toLowerCase();
+    const items = activity.filter((a) => (f.backups || a.action !== "downloaded_backup") && (!f.reports || isReport(a))
+      && (!f.who || (f.who === "pine" ? !a.user_id : String(a.user_id) === f.who)));
+    // Player groups hold all of that player's updates and sit under the day of the latest; other updates are a
+    // "General" group per day.
+    const groups = new Map();
+    for (const a of items) {
+      const key = a.player_id ? `p${a.player_id}` : `g${toDate(a.created_at).toDateString()}`;
+      if (!groups.has(key)) groups.set(key, { key, player_id: a.player_id, name: a.player, items: [] });
+      groups.get(key).items.push(a);
+    }
+    const shown = [...groups.values()].filter((g) => !q || (g.player_id && String(S.byId.get(g.player_id)?.name || g.name || "").toLowerCase().includes(q)));
+    $("#act-count", root).textContent = `${shown.length} player${shown.length === 1 ? "" : "s"} and groups · ${items.length} updates (last ${activity.length} shown)`;
+    let day = null, html = "";
+    for (const g of shown) {
+      const d = dayLabel(g.items[0].created_at);
+      if (d !== day) { html += `${day ? "</div>" : ""}<h3 class="act-day">${esc(d)}</h3><div class="act-list">`; day = d; }
+      html += activityGroup(g);
+    }
+    body.innerHTML = html ? `${html}</div>` : `<p class="empty">${f.reports ? "No reports match." : "Nothing matches."}</p>`;
+  };
+  draw();
+  body.addEventListener("toggle", (e) => {
+    const d = e.target.closest?.(".act-group");
+    if (d) { if (d.open) f.open.add(d.dataset.key); else f.open.delete(d.dataset.key); }
+  }, true);
+  $("#af-q", root).addEventListener("input", (e) => { f.q = e.target.value; draw(); });
+  $("#af-kind", root).addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-k]");
+    if (!b) return;
+    f.reports = b.dataset.k === "reports";
+    $$("#af-kind button", root).forEach((x) => x.classList.toggle("on", x === b));
+    draw();
+  });
+  $("#af-who", root).addEventListener("change", (e) => { f.who = e.target.value; draw(); });
+  $("#af-backups", root).addEventListener("change", (e) => { f.backups = e.target.checked; draw(); });
+  $("#af-expand", root).addEventListener("click", (e) => {
+    const all = $$(".act-group", body), open = !all.every((d) => d.open);
+    all.forEach((d) => (d.open = open));
+    e.target.textContent = open ? "Collapse all" : "Expand all";
+  });
 }
 
 function signInStatus(u) {

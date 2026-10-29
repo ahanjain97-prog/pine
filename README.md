@@ -259,6 +259,10 @@ Minute share divides recorded player minutes by actual match duration across the
   Original records are saved privately in the database for recovery and included in backups.
 - **Impect** (`#/impect`): import or sync Impect Scouting short lists (each list maps to a board role;
   centre-back lists split LCB/RCB by foot), or browse every player in our Impect competitions.
+- **Activity** (`#/activity`): grouped by player under day headings (Today, Yesterday, …), each group collapsed to
+  its latest update with a count; open one for its full history. Notes and college reports are marked **Your
+  report** (green) or **<Name>'s report**, with the start of what was written. Non-player updates (imports, staff,
+  PINE) form a General group per day. Filter by player, Reports only, who, and backups (hidden by default).
 - **Staff** (`#/staff`, admins): set each person's sign-in email, add staff, and choose who gets an evaluation
   section and verdict dot on every player (**Evaluations**; someone unticked still shows where they've written).
 
