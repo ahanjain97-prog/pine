@@ -98,3 +98,75 @@ test('invalid or missing duration fails instead of inventing a denominator', () 
   assert.throws(() => reduceMatch({ squadHome: { players: [] } }), /Incomplete/);
   assert.throws(() => reduceMatch({ squadHome: { players: [] }, squadAway: { players: [] } }), /duration/);
 });
+
+test('saved player timelines return during a stalled refresh and survive a restart', async () => {
+  const { service, disk, options } = fixture();
+  const original = await service.season(1, '2026');
+  let calls = 0, release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const get = options.get;
+  const restarted = createPlayingTimeService({ ...options, now: () => clock + 13 * 60 * 60 * 1000,
+    get: async (path) => { calls++; await gate; return get(path); } });
+  const result = await Promise.race([restarted.season(1, '2026'), new Promise((_, reject) => setTimeout(() => reject(Error('Blocked on refresh')), 100))]);
+  assert.deepEqual(result, original);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(calls > 0, 'refresh started independently');
+  release();
+  // Wait for the replacement snapshot, not just the first resource download.
+  for (let n = 0; n < 40 && ![...disk].some(([key, v]) => key.startsWith('playing-time-player-') && v.at > clock); n++) await new Promise((r) => setTimeout(r, 5));
+  assert.ok([...disk].some(([key, v]) => key.startsWith('playing-time-player-') && v.at > clock));
+});
+
+test('completed historical matches are reused when the season index expires', async () => {
+  const { service, options, calls, disk } = fixture();
+  await service.season(1, '2026');
+  for (const [key] of disk) if (key.startsWith('playing-time-player-')) disk.delete(key);
+  await createPlayingTimeService({ ...options, now: () => clock + 13 * 60 * 60 * 1000 }).season(1, '2026');
+  assert.equal(calls.get('/v5/customerapi/matches/1/player-kpis'), 1);
+  assert.equal(calls.get('/v5/customerapi/iterations/100/matches'), 2);
+});
+
+test('background warm-up makes a previously unseen player need no additional match downloads', async () => {
+  const { service, calls } = fixture();
+  await service.warm({ id: 100, season: '2026' });
+  const before = [...calls.values()].reduce((a, b) => a + b, 0);
+  const keeper = await service.season(2, '2026');
+  assert.equal(keeper.share, 100);
+  assert.equal([...calls.values()].reduce((a, b) => a + b, 0), before);
+});
+
+test('cached transfer bounds are not reused after the player club/join date changes', async () => {
+  const { service } = fixture();
+  const before = await service.season(1, '2026', { club: 'Second FC', joined: '2026-06-15' });
+  const after = await service.season(1, '2026', { club: 'Second FC', joined: '2026-07-15' });
+  assert.notEqual(before.share, after.share);
+  assert.equal(before.minutes, after.minutes);
+});
+
+test('an offline refresh preserves the saved timeline and backs off instead of retrying every view', async () => {
+  const { service, options } = fixture();
+  const original = await service.season(1, '2026');
+  let calls = 0;
+  const restarted = createPlayingTimeService({ ...options, now: () => clock + 13 * 60 * 60 * 1000,
+    get: async () => { calls++; throw Error('Offline fixture'); } });
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    assert.deepEqual(await restarted.season(1, '2026'), original);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const afterFailure = calls;
+    assert.ok(afterFailure > 0);
+    assert.deepEqual(await restarted.season(1, '2026'), original);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(calls, afterFailure);
+  } finally { console.warn = warn; }
+});
+
+test('the explicit refresh action can replace otherwise-fresh match data', async () => {
+  const { service, calls } = fixture();
+  await service.warm({ id: 100, season: '2026' });
+  await service.warm({ id: 100, season: '2026' });
+  assert.equal(calls.get('/v5/customerapi/matches/1/player-kpis'), 1);
+  await service.warm({ id: 100, season: '2026' }, { force: true });
+  assert.equal(calls.get('/v5/customerapi/matches/1/player-kpis'), 2);
+});

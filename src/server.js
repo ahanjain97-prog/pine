@@ -93,6 +93,13 @@ async function warmImpect({ force = false } = {}) {
         impectRefresh.failed.push({ name, error: e.message }); // keep going: one league failing shouldn't stop the rest
       }
     }
+    // Prepare current-season fixture data once for every player, rather than asking the first
+    // person opening each club's profile to download it. Foreground requests take queue priority.
+    for (const it of leagues.filter((i) => String(i.season) === newest)) {
+      impectRefresh.current = `${it.competition} ${it.season} playing time`;
+      try { await playingTime.warm(it, { force }); }
+      catch (e) { impectRefresh.failed.push({ name: impectRefresh.current, error: e.message }); }
+    }
     console.log(`[impect] ${force ? "refresh" : "warm"} in ${Math.round((Date.now() - started) / 1000)}s; downloaded: ${impectRefresh.done.join(", ") || "nothing (all fresh)"}${impectRefresh.failed.length ? `; failed: ${impectRefresh.failed.map((f) => f.name).join(", ")}` : ""}`);
   } catch (e) {
     impectRefresh.failed.push({ name: impectRefresh.current || "Impect", error: e.message });
