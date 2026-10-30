@@ -145,6 +145,13 @@ Minute share divides recorded player minutes by actual match duration across the
 
 ## What's where
 
+Official signings have a magenta frame and **✓ Signed** badge on the player page, Big Board,
+Short Board, NCAA board, player list and search results. Any signed-in staff member can use
+**Mark as signed** under **Signing status** on a player page; press the same button to remove
+the status if needed. This is separate from Pass / Hold / Fail and does not move the player,
+change their club details or alter board ranks. Changes are saved in Activity. Transfermarkt
+syncs leave the signing status alone.
+
 - **Big Board** (`#/board`): pitch layout of all 11 positions and 25 roles from the depth chart. Drag cards
   to rank within a role or move between roles; drag to "Not on the board" to take a player off. Card stripe
   = club decision, dots = the six staff verdicts, DOM / INTL = domestic (US citizen, from Transfermarkt citizenship)

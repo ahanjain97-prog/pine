@@ -23,7 +23,7 @@ export function connectionMergeProblem(db, from, into) {
   if (!from || !into || from.id === into.id) return "Choose two existing profiles";
   if (!from.tm_id || from.impect_id || !into.impect_id || into.tm_id) return "These profiles cannot be combined automatically";
   if (!from.birthdate || from.birthdate !== into.birthdate || norm(from.name) !== norm(into.name)) return "The names and dates of birth must match exactly";
-  if (from.summary || from.decision || from.roster_status || JSON.parse(from.tm_overrides || "[]").length || from.phys_confirmed) return "The new profile has staff edits; reconcile them first";
+  if (from.summary || from.decision || from.is_signed || from.roster_status || JSON.parse(from.tm_overrides || "[]").length || from.phys_confirmed) return "The new profile has staff edits; reconcile them first";
   for (const table of ["notes", "verdicts", "board_entries", "list_members", "agent_info", "cards", "maps", "ncaa_prospects", "ncaa_board", "ncaa_board_removed", "l2_prospects"]) {
     if (db.get(`SELECT 1 FROM ${table} WHERE player_id = ? LIMIT 1`, from.id)) return "The new profile has scouting records; reconcile them first";
   }

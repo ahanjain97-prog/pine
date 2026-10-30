@@ -42,6 +42,7 @@ import { linkL2, saveL2Report } from "./lib/l2.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
 import { connectedDuplicate, connectionMergeProblem, mergeConnection, resolvePlayerId } from "./lib/player_connections.js";
+import { registerSigning } from "./lib/signing.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 if (existsSync(join(ROOT, ".env"))) process.loadEnvFile(join(ROOT, ".env"));
@@ -152,6 +153,7 @@ function hydrate(p) {
     delete p.changed_by_json;
   }
   p.age = ageFrom(p.birthdate);
+  p.is_signed = Boolean(p.is_signed);
   p.mlsnp_gates_eligible = gatesEligible(p);
   if ("roles_json" in p) { p.roles = JSON.parse(p.roles_json || "[]").sort((a, b) => a.role.localeCompare(b.role)); delete p.roles_json; }
   if ("verdicts_json" in p) { p.verdicts = JSON.parse(p.verdicts_json || "{}"); delete p.verdicts_json; }
@@ -565,6 +567,7 @@ app.get("/api/players/:id/tm-candidates", async (c) => {
 });
 
 /* ---------- decisions, verdicts, notes ---------- */
+registerSigning(app, { db, getPlayer });
 app.put("/api/players/:id/decision", async (c) => {
   const user = c.get("user");
   const p = getPlayer(c.req.param("id"));
