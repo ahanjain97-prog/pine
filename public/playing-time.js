@@ -73,7 +73,7 @@ export async function loadPlayingTimePanel(el, p, api) {
   const seasons = new Map(), failed = new Set();
   const draw = () => {
     if (!el.isConnected) return;
-    const teamIds = [...new Set([...seasons.values()].flatMap((s) => s.teams.map((t) => t.id)))];
+    const teamIds = [...new Set(manifest.seasons.flatMap((s) => (seasons.get(s.season)?.teams || []).map((t) => t.id)))];
     el.innerHTML = `${head}<div class="pt-months" aria-hidden="true"><span>Jan</span><span>Apr</span><span>Jul</span><span>Oct</span><span>Dec</span></div>
       <div class="pt-seasons">${manifest.seasons.map(({ season, covered }) => {
         const s = seasons.get(season);
@@ -108,9 +108,10 @@ export async function loadPlayingTimePanel(el, p, api) {
     draw();
   };
   draw();
-  // Recent years appear first; navigation away stops queuing older downloads.
-  for (const { season, covered } of manifest.seasons) {
-    if (!el.isConnected) break;
-    if (covered) await load(season);
+  // Two seasons at a time: a slow uncached year must not hold every other year behind it.
+  const pending = manifest.seasons.filter((s) => s.covered);
+  async function worker() {
+    while (el.isConnected && pending.length) await load(pending.shift().season);
   }
+  await Promise.all([worker(), worker()]);
 }
