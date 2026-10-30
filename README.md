@@ -261,7 +261,9 @@ Minute share divides recorded player minutes by actual match duration across the
   centre-back lists split LCB/RCB by foot), or browse every player in our Impect competitions.
 - **Activity** (`#/activity`): grouped by player under day headings (Today, Yesterday, …), each group collapsed to
   its latest update with a count; open one for its full history. Notes and college reports are marked **Your
-  report** (green) or **<Name>'s report**, with the start of what was written. Non-player updates (imports, staff,
+  report** (green) or **New report · <Name>** (blue), with the start of what was written and a tinted row; edits are a
+  quiet **Report edited**. Any player with a report added in the last 7 days carries a ✎ after their name on the
+  boards and tables (green when the latest is yours; hover for who and when). Non-player updates (imports, staff,
   PINE) form a General group per day. Filter by player, Reports only, who, and backups (hidden by default).
 - **Staff** (`#/staff`, admins): set each person's sign-in email, add staff, and choose who gets an evaluation
   section and verdict dot on every player (**Evaluations**; someone unticked still shows where they've written).

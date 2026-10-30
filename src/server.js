@@ -149,6 +149,8 @@ function hydrate(p) {
   if ("roles_json" in p) { p.roles = JSON.parse(p.roles_json || "[]").sort((a, b) => a.role.localeCompare(b.role)); delete p.roles_json; }
   if ("verdicts_json" in p) { p.verdicts = JSON.parse(p.verdicts_json || "{}"); delete p.verdicts_json; }
   if ("ncaa_json" in p) { p.ncaa_board = p.ncaa_json ? JSON.parse(p.ncaa_json) : null; delete p.ncaa_json; }
+  // The latest report anyone wrote on them (a staff note or a PINE college report): drives the "new report" mark.
+  if ("last_report_json" in p) { p.last_report = p.last_report_json ? JSON.parse(p.last_report_json) : null; delete p.last_report_json; }
   if ("l2_json" in p) { p.l2 = JSON.parse(p.l2_json || "[]").sort((a, b) => b.year - a.year); delete p.l2_json; }
   return p;
 }
@@ -159,6 +161,12 @@ const PLAYER_SELECT = `
     (SELECT json_group_object(u.name, v.verdict) FROM verdicts v JOIN users u ON u.id = v.user_id WHERE v.player_id = p.id) AS verdicts_json,
     (SELECT count(*) FROM notes n WHERE n.player_id = p.id) AS note_count,
     (SELECT max(n.created_at) FROM notes n WHERE n.player_id = p.id) AS last_note_at,
+    (SELECT json_object('at', x.at, 'by', x.by_id) FROM (
+        SELECT n.created_at AS at, n.user_id AS by_id FROM notes n WHERE n.player_id = p.id
+        UNION ALL
+        SELECT r.created_at, r.created_by FROM ncaa_reports r JOIN ncaa_prospects np ON np.key = r.prospect_key
+          WHERE np.player_id = p.id AND r.origin = 'pine' AND r.created_at IS NOT NULL
+      ) x ORDER BY x.at DESC LIMIT 1) AS last_report_json,
     (SELECT json_object('position', nb.position, 'rank', nb.rank) FROM ncaa_board nb WHERE nb.player_id = p.id) AS ncaa_json,
     (SELECT np.grade FROM ncaa_prospects np WHERE np.player_id = p.id ORDER BY np.year DESC LIMIT 1) AS college_grade,
     (SELECT json_group_array(json_object('year', l.year, 'tier', l.tier, 'position', l.position, 'club', l.club, 'status', l.status))

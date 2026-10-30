@@ -463,6 +463,17 @@ function rosterBadge(p) {
   const why = p.roster_status ? `set manually${cit ? ` (citizenship: ${cit})` : ""}` : cit || "from the USL League Two Top Prospects report";
   return `<span class="roster ${dom ? "dom" : "intl"}" title="${dom ? "Domestic" : "International"}: ${esc(why)}">${dom ? "DOM" : "INTL"}</span>`;
 }
+// A report (staff note or PINE college report) added in the last week: a ✎ after the name, green if the latest is
+// yours, blue if someone else's; hover for who and when.
+const NEW_REPORT_DAYS = 7;
+function newReportMark(p) {
+  const r = p.last_report, at = r && toDate(r.at);
+  if (!at || Date.now() - at > NEW_REPORT_DAYS * 864e5) return "";
+  const mine = r.by === S.me.id;
+  const who = mine ? "you" : S.config.staff.find((u) => u.id === r.by)?.name || "someone";
+  return `<span class="newrpt ${mine ? "mine" : ""}" title="New report by ${esc(who)} · ${esc(relTime(r.at))}" aria-label="New report by ${esc(who)}">✎</span>`;
+}
+const nameWithMark = (p, cls = "nm") => `<span class="name-line"><span class="${cls}">${esc(p.name)}</span>${newReportMark(p)}</span>`;
 // Picked for a USL League Two Top Prospects report: "L2 '26", or "L2 '25 '26" for both years.
 const L2_TIER = { First: "Best XI", Second: "Second XI", Third: "Third XI", Fourth: "Fourth XI", Fifth: "Fifth XI" };
 const l2Line = (e) => [e.year, L2_TIER[e.tier] || e.tier, e.position, e.club].filter(Boolean).join(" · ");
@@ -491,6 +502,7 @@ function legendHTML(ncaa = false) {
     ${ncaa ? item(`<span class="grade g-a">B/A</span>`, "College grade, now / ceiling, coloured by the ceiling (A green, B blue, C amber, D red)")
       : item(`<span class="roster ncaa">B/B</span>`, "College player, showing their college grade (now / ceiling)")}
     ${item(`<span class="roster l2">L2’26</span>`, "Picked for that year's USL League Two Top Prospects report")}
+    ${item(`<span class="newrpt">✎</span><span class="newrpt mine">✎</span>`, `New report in the last ${NEW_REPORT_DAYS} days (green: the latest is yours); hover for who`)}
     ${ncaa ? item(`<span class="rep rep-agent">AGT</span><span class="rep rep-none">NO AGT</span>`, "Represented by an agent, an advisor (ADV), or no one") : ""}
     ${item(`<span class="roster more">+1</span>`, "More tags: hover to see them")}
   </div></details>`;
@@ -514,7 +526,7 @@ function boardCard(p, role, targetsOnly = false, spot = null) {
     aria-pressed="${on}" title="${on ? "Remove from the Short Board" : "Add to the Short Board as a top target"}">${on ? "★" : "☆"}</span>` : "";
   return `<a class="pcard ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
     ${role ? `<span class="rank ${place < 3 ? "podium" : ""}">${place + 1}</span>` : ""}${photo(p)}
-    <span class="ci"><div class="nm">${esc(p.name)}</div><div class="nm-row"><span class="csub">${esc(sub)}</span>${tagRow([rosterBadge(p), ncaaBadge(p), l2Badge(p.l2)])}</div></span>${Object.keys(p.verdicts || {}).length ? verdictDots(p.verdicts) : ""}${star}</a>`;
+    <span class="ci">${nameWithMark(p)}<div class="nm-row"><span class="csub">${esc(sub)}</span>${tagRow([rosterBadge(p), ncaaBadge(p), l2Badge(p.l2)])}</div></span>${Object.keys(p.verdicts || {}).length ? verdictDots(p.verdicts) : ""}${star}</a>`;
 }
 
 // Star clicks and Enter/Space on a star, on either board.
@@ -985,7 +997,7 @@ function renderTable(main) {
     const list = tableFiltered();
     $("#t-count", root).textContent = `${list.length} of ${S.players.length} players`;
     $("#t-body", root).innerHTML = list.map((p) => `<tr data-href="#/player/${p.id}">
-      <td class="name">${photo(p)}<div><div class="nm">${esc(p.name)}</div><div class="csub">${esc(p.position || "")} ${l2Badge(p.l2)}</div></div></td>
+      <td class="name">${photo(p)}<div>${nameWithMark(p)}<div class="csub">${esc(p.position || "")} ${l2Badge(p.l2)}</div></div></td>
       <td>${p.age ?? ""}</td>
       <td>${p.roles.map((r) => `<span class="chip" title="${esc(roleLabel(r.role))}, rank ${r.rank + 1}">${esc(roleShort(r.role))} <b>${r.rank + 1}</b></span>`).join("")}${p.ncaa_board
         ? `<span class="chip ncaa-chip" title="NCAA board, ${esc(p.ncaa_board.position)} rank ${p.ncaa_board.rank + 1}">NCAA ${esc(p.ncaa_board.position)} <b>${p.ncaa_board.rank + 1}</b></span>` : ""}</td>
@@ -2574,7 +2586,7 @@ function ncaaRow(p, pos, i, d) {
   return `<a class="pcard nrow ${onBB ? "is-bb" : ""} ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${pos ? `data-pos="${pos}"` : ""}
       data-q="${esc([p.name, sub, p.club].join(" "))}" data-grade="${esc(x?.grade || "")}" data-rep="${esc(d.agents[p.id]?.representation || "unknown")}" data-bb="${onBB ? "on" : "off"}">
     <span class="nrank ${i != null && i < 3 ? "lead" : ""}">${i != null ? i + 1 : ""}</span>
-    <span class="nmain"><span class="nname">${esc(p.name)}</span>
+    <span class="nmain">${nameWithMark(p, "nname")}
       <span class="nsubrow"><span class="nsub">${esc(sub)}</span><span class="ntags">${tagRow([bb, l2Badge(p.l2), rosterBadge(p), repChip(d.agents[p.id])])}${addBB}</span></span></span>
     ${star}${gradeBadge(x?.grade)}</a>`;
 }
@@ -2586,7 +2598,7 @@ function pastRow(x, i) {
   return `<a class="nrow past ${p?.decision ? "v-" + p.decision : ""}" ${p ? `href="#/player/${p.id}"` : `href="#" data-prospect="${esc(x.key)}"`}
       data-q="${esc([x.name, sub, x.status].join(" "))}" data-grade="${esc(x.grade || "")}" title="${p ? "Open the PINE profile" : "Read the reports"}">
     <span class="nrank ${i < 3 ? "lead" : ""}">${i + 1}</span>
-    <span class="nmain"><span class="nname">${esc(x.name)}</span>
+    <span class="nmain">${p ? nameWithMark({ ...p, name: x.name }, "nname") : `<span class="nname">${esc(x.name)}</span>`}
       <span class="nsubrow"><span class="nsub">${esc(sub)}</span><span class="ntags">${l2Badge(x.l2)}${x.status ? `<span class="nnow" title="Where now">${esc(x.status)}</span>` : ""}</span></span></span>
     ${gradeBadge(x.grade)}</a>`;
 }
@@ -2762,7 +2774,7 @@ async function ncaaDatabase(root, d) {
     $("#pt-body", body).innerHTML = list.map((x) => {
       const p = x.player_id && S.byId.get(x.player_id), b = boardOf(x);
       return `<tr data-key="${esc(x.key)}">
-        <td><div class="nname">${esc(x.name)} ${l2Badge(x.l2)}</div><div class="nsub">${p ? `<a href="#/player/${p.id}">In PINE</a>` : esc(x.country || "")}</div></td>
+        <td><div class="name-line">${p ? nameWithMark({ ...p, name: x.name }, "nname") : `<span class="nname">${esc(x.name)}</span>`} ${l2Badge(x.l2)}</div><div class="nsub">${p ? `<a href="#/player/${p.id}">In PINE</a>` : esc(x.country || "")}</div></td>
         <td>${esc(x.position || "")}</td><td>${esc(classShort(classIn(x)))}</td><td>${esc(x.school || x.team || "")}</td>
         <td>${gradeBadge(x.grade)}</td><td>${esc(x.years.join(", "))}</td><td>${x.status ? `<span class="nnow">${esc(x.status)}</span>` : ""}</td><td>${x.reports || ""}</td>
         <td>${b ? `<span class="nspot">${f.dbYear ? "" : `<i>${b.year}</i>`}${esc(b.position)} <b>${b.rank + 1}</b></span>` : ""}</td></tr>`;
@@ -2990,12 +3002,13 @@ function dayLabel(s) {
   if (days < 7) return d.toLocaleDateString("en-US", { weekday: "long" });
   return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: d.getFullYear() === now.getFullYear() ? undefined : "numeric" });
 }
-const reportTag = (a) => (a.user_id === S.me.id
-  ? `<span class="rtag mine">Your report</span>` : `<span class="rtag">${esc(actor(a))}'s report</span>`);
+const isNewReport = (a) => a.action === "added_note" || a.action === "added_college_report";
+const reportTag = (a) => (!isNewReport(a) ? `<span class="rtag edit">Report edited</span>`
+  : a.user_id === S.me.id ? `<span class="rtag new mine">✎ Your new report</span>` : `<span class="rtag new">✎ New report · ${esc(actor(a))}</span>`);
 
 function activityEntry(a, inGroup) {
   const snip = a.snippet ? `<div class="act-snip">${a.snippet_context ? `<b>${esc(a.snippet_context)}</b> · ` : ""}${esc(a.snippet)}${a.snippet.length >= 200 ? "…" : ""}</div>` : "";
-  return `<li class="${isReport(a) ? "is-report" : ""}"><span class="avatar">${esc(actor(a)[0])}</span>
+  return `<li class="${isReport(a) ? "is-report" : ""} ${isNewReport(a) ? `is-new-report ${a.user_id === S.me.id ? "mine" : ""}` : ""}"><span class="avatar">${esc(actor(a)[0])}</span>
     <span class="act-main"><span><b>${esc(actor(a))}</b> ${isReport(a) ? reportTag(a) : ""}${inGroup ? describe(a, true) : describe(a)}</span>${snip}</span>
     <span class="when" title="${esc(fmtDateTime(a.created_at))}">${esc(relTime(a.created_at))}</span></li>`;
 }
@@ -3003,7 +3016,7 @@ function activityEntry(a, inGroup) {
 function activityGroup(g) {
   const p = g.player_id && S.byId.get(g.player_id);
   const latest = g.items[0];
-  const reports = g.items.filter(isReport);
+  const reports = g.items.filter(isNewReport); // the header marks new reports; edits show inside
   // One marker per report author, yours first.
   const authors = [...new Map(reports.map((a) => [a.user_id, a])).values()].sort((a, b) => (b.user_id === S.me.id) - (a.user_id === S.me.id));
   const people = [...new Set(g.items.map(actor))];
