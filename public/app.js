@@ -4,6 +4,8 @@ import { loadPlayingTimePanel } from "./playing-time.js";
 // Routes: #/board  #/short-board  #/ncaa[/database]  #/players  #/player/:id  #/impect  #/activity  #/staff
 // Shared links come in as /p/:id, which the server rewrites to #/player/:id before this boots.
 
+import { matchText, textMatch } from "./search.js";
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -148,11 +150,6 @@ function seg(current, attr) {
     `<button type="button" class="v-${d} ${current === d ? "on" : ""}" data-${attr}="${d}" aria-pressed="${current === d}">${cap(d)}</button>`).join("")}${
     current ? `<button type="button" data-${attr}="" title="Clear">Clear</button>` : ""}</div>`;
 }
-const matchText = (p, q) => {
-  if (!q) return true;
-  const n = q.toLowerCase();
-  return [p.name, p.club, p.league, p.position, (p.citizenship || []).join(" ")].some((x) => String(x || "").toLowerCase().includes(n));
-};
 const matchDecision = (p, d) => d === "all" || (d === "none" ? !p.decision : p.decision === d);
 const leaguesOf = () => [...new Set(S.players.map((p) => p.league).filter(Boolean))].sort();
 const debounce = (fn, ms = 250) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
@@ -2566,7 +2563,6 @@ S.ncaa = { q: "", grade: "", rep: "", bb: "", dbYear: "", sort: "grade", dir: -1
 const BB_FILTER = [["", "Big Board or not"], ["on", "On the Big Board"], ["off", "Not on the Big Board"]];
 const GRADE_FILTER = [["", "Any grade"], ["A", "A ceiling"], ["B", "B ceiling"], ["C", "C ceiling"], ["D", "D ceiling"]];
 const gradeMatch = (g, want) => !want || gradeTone(g) === `g-${want.toLowerCase()}`;
-const textMatch = (q, ...vals) => !q || vals.some((v) => String(v ?? "").toLowerCase().includes(q.toLowerCase()));
 
 // One row on the live board (or, without a position, in the tray below it).
 // Being on the Big Board is what makes a college player a priority: those rows carry a BB tag (and the Short
