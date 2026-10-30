@@ -74,6 +74,8 @@ test("scouting records and manual edits on the duplicate block an automatic merg
   assert.throws(() => mergeConnection(db,20,10,1),/staff edits/);
   db.run("UPDATE players SET summary=NULL, phys_confirmed=1 WHERE id=20");
   assert.throws(() => mergeConnection(db,20,10,1),/staff edits/);
+  db.run("UPDATE players SET phys_confirmed=0, is_signed=1 WHERE id=20");
+  assert.throws(() => mergeConnection(db,20,10,1),/staff edits/);
 });
 
 test("incompatible links, self-merges and repeated requests fail without changing data", (t) => {

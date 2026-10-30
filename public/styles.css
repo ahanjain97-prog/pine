@@ -4,6 +4,7 @@
   --navy: #15305A; --navy-2: #1F4378; --accent: #1F4378; --accent-ink: #FFFFFF; --pine: #1F5A3E;
   --pass: #1B9657; --pass-bg: #E2F3E9; --hold: #C98A12; --hold-bg: #FBEFD6; --fail: #CC3F35; --fail-bg: #FBE2DF;
   --none: #A9B0AB; --none-bg: #ECEEEC;
+  --signed: #B91E79; --signed-bg: #FFF1F9; --signed-fill: #B91E79; --signed-ink: #FFFFFF;
   --pitch-a: #3B8A4C; --pitch-b: #429359; --pitch-line: rgba(255, 255, 255, .5); --pos-bg: rgba(255, 255, 255, .95);
   --b0: #DA3A3F; --b1: #EF9C9F; --b2: #9AA1AC; --b3: #7ED289; --b4: #39B15A;
   --pc-att: #A3192F; --pc-mid: #0B8599; --pc-def: #2D5BC8; --pc-gk: #7A47C2;
@@ -21,6 +22,7 @@
     --navy: #0D1F3B; --navy-2: #2A5698; --accent: #6FA2EE; --accent-ink: #0B1526;
     --pass: #3CC27A; --pass-bg: rgba(60, 194, 122, .15); --hold: #E6AF43; --hold-bg: rgba(230, 175, 67, .15);
     --fail: #EE6C61; --fail-bg: rgba(238, 108, 97, .15); --none: #66716B; --none-bg: rgba(255, 255, 255, .06);
+    --signed: #FF86CF; --signed-bg: #302031; --signed-fill: #F5A3D8; --signed-ink: #361426;
     --pitch-a: #1F4A2A; --pitch-b: #245231; --pitch-line: rgba(255, 255, 255, .22); --pos-bg: rgba(21, 29, 25, .96);
     --pc-att: #C8344B; --pc-mid: #4CC9DA; --pc-def: #86A8F6; --pc-gk: #B994F2;
     --pc-att-ink: #FFFFFF; --pc-mid-ink: #0B1220; --pc-def-ink: #0B1220; --pc-gk-ink: #0B1220;
@@ -838,6 +840,24 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
 .pt-key.played { width: 3px; height: 10px; background: var(--pt-team-0); }
 .pt-key.zero { width: 3px; height: 4px; background: var(--fail); }
 .pt-game-detail { margin: 6px 0 0; font-size: 11px; color: var(--ink-2); }
+
+/* Official signings: a persistent marker separate from the decision stripe and shortlist star. */
+.signed-badge { display: inline-flex; align-items: center; gap: 3px; flex: none; white-space: nowrap;
+  padding: 2px 6px; border-radius: 999px; background: var(--signed-fill); color: var(--signed-ink);
+  font-size: 9px; font-weight: 700; line-height: 1.35; text-transform: uppercase; letter-spacing: .035em; }
+.signed-badge.lg { padding: 4px 10px; font-size: 12px; gap: 5px; }
+.p-head.is-signed { border: 2px solid var(--signed); background: linear-gradient(115deg, var(--surface) 25%, var(--signed-bg)); }
+.pcard.is-signed, .nrow.past.is-signed { border-top-color: var(--signed); border-right-color: var(--signed); border-bottom-color: var(--signed);
+  background: var(--signed-bg); box-shadow: 0 0 0 1px var(--signed); }
+.pcard.is-signed:hover, .nrow.past.is-signed:hover { box-shadow: 0 0 0 2px var(--signed); }
+.pcard.is-signed .nm { color: var(--ink); }
+.pcard.is-signed .name-line, .nrow.is-signed .name-line { flex-wrap: wrap; gap: 2px 5px; }
+.nrow.is-signed { border-top: 1px solid var(--signed); border-right: 1px solid var(--signed); border-bottom: 1px solid var(--signed); box-shadow: inset 0 0 0 1px var(--signed); }
+.signing-toggle { align-self: flex-start; }
+.signing-toggle.on { color: var(--signed); border-color: var(--signed); background: var(--signed-bg); }
+.grid tr.is-signed td { background: var(--signed-bg); }
+.grid tr.is-signed td:first-child { box-shadow: inset 3px 0 var(--signed); }
+.gs-res a.is-signed { box-shadow: inset 3px 0 var(--signed); }
 @media (max-width: 600px) {
   .pt-lane { grid-template-columns: minmax(0, 1fr) 64px; gap: 2px 5px; }
   .pt-team { grid-column: 1 / -1; margin-top: 3px; }

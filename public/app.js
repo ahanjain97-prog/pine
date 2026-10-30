@@ -136,6 +136,7 @@ const photo = (p, size = "") => p.photo_url
   ? `<img class="ph ${size}" src="${esc(p.photo_url)}" alt="" loading="lazy" data-ini="${esc(initials(p.name))}" style="--av:${avatarHue(p.name)}">`
   : `<span class="ph ini ${size}" style="--av:${avatarHue(p.name)}">${esc(initials(p.name))}</span>`;
 const decisionChip = (d, lg = false) => `<span class="dchip ${d ? "v-" + d : ""} ${lg ? "lg" : ""}">${d ? cap(d) : "Undecided"}</span>`;
+const signedBadge = (p, lg = false) => p.is_signed ? `<span class="signed-badge ${lg ? "lg" : ""}"><span aria-hidden="true">✓</span> Signed</span>` : "";
 const verdictChip = (v) => `<span class="dchip ${v ? "v-" + v : ""}">${v ? cap(v) : "No verdict"}</span>`;
 const fact = (label, value, html = false) => (value == null || value === "" ? "" : `<div><dt>${esc(label)}</dt><dd>${html ? value : esc(value)}</dd></div>`);
 function verdictDots(verdicts, wide = false) {
@@ -320,7 +321,7 @@ function wireGlobalSearch() {
   let results = [], hl = 0;
   const draw = () => {
     box.hidden = !results.length;
-    box.innerHTML = results.map((p, i) => `<a href="#/player/${p.id}" class="${i === hl ? "hl" : ""}">${photo(p)}<span class="ci"><div class="nm">${esc(p.name)}</div><div class="csub">${esc([p.age, p.club].filter((x) => x != null && x !== "").join(" · "))}</div></span>${decisionChip(p.decision)}</a>`).join("");
+    box.innerHTML = results.map((p, i) => `<a href="#/player/${p.id}" class="${i === hl ? "hl" : ""} ${p.is_signed ? "is-signed" : ""}">${photo(p)}<span class="ci">${nameWithMark(p)}<div class="csub">${esc([p.age, p.club].filter((x) => x != null && x !== "").join(" · "))}</div></span>${decisionChip(p.decision)}</a>`).join("");
   };
   inp.addEventListener("input", () => { const q = inp.value.trim(); results = q ? S.players.filter((p) => matchText(p, q)).slice(0, 8) : []; hl = 0; draw(); });
   inp.addEventListener("keydown", (e) => {
@@ -470,7 +471,7 @@ function newReportMark(p) {
   const who = mine ? "you" : S.config.staff.find((u) => u.id === r.by)?.name || "someone";
   return `<span class="newrpt ${mine ? "mine" : ""}" title="New report by ${esc(who)} · ${esc(relTime(r.at))}" aria-label="New report by ${esc(who)}">✎</span>`;
 }
-const nameWithMark = (p, cls = "nm") => `<span class="name-line"><span class="${cls}">${esc(p.name)}</span>${newReportMark(p)}</span>`;
+const nameWithMark = (p, cls = "nm") => `<span class="name-line"><span class="${cls}">${esc(p.name)}</span>${signedBadge(p)}${newReportMark(p)}</span>`;
 // Picked for a USL League Two Top Prospects report: "L2 '26", or "L2 '25 '26" for both years.
 const L2_TIER = { First: "Best XI", Second: "Second XI", Third: "Third XI", Fourth: "Fourth XI", Fifth: "Fifth XI" };
 const l2Line = (e) => [e.year, L2_TIER[e.tier] || e.tier, e.position, e.club].filter(Boolean).join(" · ");
@@ -491,6 +492,7 @@ function legendHTML(ncaa = false) {
   const item = (mark, text) => `<div class="lg-row"><span class="lg-mark">${mark}</span><span>${text}</span></div>`;
   return `<details class="legend"><summary class="btn">Key</summary><div class="lg-pop">
     ${item(`<span class="lg-stripe"></span>`, "Left stripe: the club decision (green pass, amber hold, red fail)")}
+    ${item(signedBadge({ is_signed: true }), "Officially signed to Hearts of Pine; magenta frame on the player card")}
     ${ncaa ? item(`<span class="bbtag">BB</span>`, "On the Big Board, the college players being pursued; hover anyone else for + BB")
       : item(`<span class="vdots"><i class="vdot v-pass"></i><i class="vdot v-hold"></i><i class="vdot"></i></span>`, "Staff verdicts, one dot per person (shown once anyone has one)")}
     ${item("★", "Top target: on the Short Board")}
@@ -521,7 +523,7 @@ function boardCard(p, role, targetsOnly = false, spot = null) {
   // intercepts it before the link fires.
   const star = role ? `<span class="star ${on ? "on" : ""}" data-star="${role}" role="button" tabindex="0"
     aria-pressed="${on}" title="${on ? "Remove from the Short Board" : "Add to the Short Board as a top target"}">${on ? "★" : "☆"}</span>` : "";
-  return `<a class="pcard ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
+  return `<a class="pcard ${p.is_signed ? "is-signed" : ""} ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
     ${role ? `<span class="rank ${place < 3 ? "podium" : ""}">${place + 1}</span>` : ""}${photo(p)}
     <span class="ci">${nameWithMark(p)}<div class="nm-row"><span class="csub">${esc(sub)}</span>${tagRow([rosterBadge(p), ncaaBadge(p), l2Badge(p.l2)])}</div></span>${Object.keys(p.verdicts || {}).length ? verdictDots(p.verdicts) : ""}${star}</a>`;
 }
@@ -687,8 +689,8 @@ function openRolePicker(role) {
   const draw = () => {
     const q = $("#rp-q", m).value.trim();
     const list = S.players.filter((p) => !p.roles.some((r) => r.role === role) && matchText(p, q)).slice(0, 60);
-    $("#rp-list", m).innerHTML = list.map((p) => `<button type="button" class="pcard ${p.decision ? "v-" + p.decision : ""}" data-pick="${p.id}">${photo(p)}
-      <span class="ci"><div class="nm">${esc(p.name)}</div><div class="csub">${esc([p.position, p.club].filter(Boolean).join(" · "))}</div></span>
+    $("#rp-list", m).innerHTML = list.map((p) => `<button type="button" class="pcard ${p.is_signed ? "is-signed" : ""} ${p.decision ? "v-" + p.decision : ""}" data-pick="${p.id}">${photo(p)}
+      <span class="ci">${nameWithMark(p)}<div class="csub">${esc([p.position, p.club].filter(Boolean).join(" · "))}</div></span>
       ${p.roles.length ? `<span class="chip">${esc(p.roles.map((r) => roleShort(r.role)).join(", "))}</span>` : ""}</button>`).join("")
       || `<p class="empty">No matching players. Add a new one from Transfermarkt.</p>`;
   };
@@ -993,7 +995,7 @@ function renderTable(main) {
   const draw = () => {
     const list = tableFiltered();
     $("#t-count", root).textContent = `${list.length} of ${S.players.length} players`;
-    $("#t-body", root).innerHTML = list.map((p) => `<tr data-href="#/player/${p.id}">
+    $("#t-body", root).innerHTML = list.map((p) => `<tr class="${p.is_signed ? "is-signed" : ""}" data-href="#/player/${p.id}">
       <td class="name">${photo(p)}<div>${nameWithMark(p)}<div class="csub">${esc(p.position || "")} ${l2Badge(p.l2)}</div></div></td>
       <td>${p.age ?? ""}</td>
       <td>${p.roles.map((r) => `<span class="chip" title="${esc(roleLabel(r.role))}, rank ${r.rank + 1}">${esc(roleShort(r.role))} <b>${r.rank + 1}</b></span>`).join("")}${p.ncaa_board
@@ -1081,10 +1083,10 @@ async function renderPlayer(main, idArg) {
 
   main.innerHTML = `<div class="page">
     <button type="button" class="back" id="back">← Back</button>
-    <section class="panel p-head">
+    <section class="panel p-head ${p.is_signed ? "is-signed" : ""}">
       ${photo(p, "xl")}
       <div style="min-width:0">
-        <div class="p-name-row"><h1>${esc(p.name)}</h1>${p.shirt_number ? `<span class="shirt">#${p.shirt_number}</span>` : ""}${decisionChip(p.decision, true)}</div>
+        <div class="p-name-row"><h1>${esc(p.name)}</h1>${p.shirt_number ? `<span class="shirt">#${p.shirt_number}</span>` : ""}${signedBadge(p, true)}${decisionChip(p.decision, true)}</div>
         <div class="p-sub">${p.club_logo_url ? `<img class="club-logo" src="${esc(p.club_logo_url)}" alt="">` : ""}${esc([p.position, p.club, p.league].filter(Boolean).join(" · "))}</div>
         <dl class="facts">
           ${fact("Age", p.age != null ? `${p.age} <span class="muted">(${esc(fmtDate(p.birthdate))})</span>` : null, true)}
@@ -1115,6 +1117,8 @@ async function renderPlayer(main, idArg) {
         </div>
       </div>
       <aside class="p-decision">
+        <div class="lbl">Signing status</div>
+        <button type="button" class="btn sm signing-toggle ${p.is_signed ? "on" : ""}" id="toggle-signed" aria-pressed="${p.is_signed}">${p.is_signed ? "✓ Signed · remove status" : "Mark as signed"}</button>
         <div class="lbl">Club decision</div>
         ${seg(p.decision, "decision")}
         <div class="muted sm">${p.decision ? `Set by ${esc(p.decision_by_name || "unknown")} · ${esc(relTime(p.decision_at))}` : "No decision yet"}</div>
@@ -1502,6 +1506,14 @@ function wirePlayer(root, d) {
     if (!t || t.closest("#physical-panel, #impect-panel")) return;
     try {
       if (t.id === "back") { if (history.length > 1) history.back(); else location.hash = "#/board"; return; }
+      if (t.id === "toggle-signed") {
+        t.disabled = true;
+        try {
+          await api("PUT", `/api/players/${p.id}/signing`, { signed: !p.is_signed });
+          toast(p.is_signed ? "Signed status removed" : "Player marked as signed");
+          return await afterMutation();
+        } finally { t.disabled = false; }
+      }
       if (t.dataset.decision !== undefined) { await api("PUT", `/api/players/${p.id}/decision`, { decision: t.dataset.decision || null }); return await afterMutation(); }
       if (t.dataset.verdict !== undefined) { await api("PUT", `/api/players/${p.id}/verdict`, { verdict: t.dataset.verdict || null }); return await afterMutation(); }
       if (t.id === "sync-tm") {
@@ -2579,7 +2591,7 @@ function ncaaRow(p, pos, i, d) {
   const bb = onBB ? `<span class="bbtag" title="On the Big Board: ${esc(p.roles.map((r) => `${roleLabel(r.role)} (rank ${r.rank + 1})`).join(", "))}">BB</span>` : "";
   // Last in the row's tags: it's hidden until hover, and shouldn't leave a gap before the others.
   const addBB = !onBB && suggest ? `<span class="addbb" data-add-bb="${suggest}" role="button" tabindex="0" title="Add to the Big Board at ${esc(roleLabel(suggest))}">+ BB</span>` : "";
-  return `<a class="pcard nrow ${onBB ? "is-bb" : ""} ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${pos ? `data-pos="${pos}"` : ""}
+  return `<a class="pcard nrow ${p.is_signed ? "is-signed" : ""} ${onBB ? "is-bb" : ""} ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${pos ? `data-pos="${pos}"` : ""}
       data-q="${esc([p.name, sub, p.club].join(" "))}" data-grade="${esc(x?.grade || "")}" data-rep="${esc(d.agents[p.id]?.representation || "unknown")}" data-bb="${onBB ? "on" : "off"}">
     <span class="nrank ${i != null && i < 3 ? "lead" : ""}">${i != null ? i + 1 : ""}</span>
     <span class="nmain">${nameWithMark(p, "nname")}
@@ -2591,7 +2603,7 @@ function ncaaRow(p, pos, i, d) {
 function pastRow(x, i) {
   const p = x.player_id && S.byId.get(x.player_id);
   const sub = [classShort(x.class_then), x.school || x.team].filter(Boolean).join(" · ");
-  return `<a class="nrow past ${p?.decision ? "v-" + p.decision : ""}" ${p ? `href="#/player/${p.id}"` : `href="#" data-prospect="${esc(x.key)}"`}
+  return `<a class="nrow past ${p?.is_signed ? "is-signed" : ""} ${p?.decision ? "v-" + p.decision : ""}" ${p ? `href="#/player/${p.id}"` : `href="#" data-prospect="${esc(x.key)}"`}
       data-q="${esc([x.name, sub, x.status].join(" "))}" data-grade="${esc(x.grade || "")}" title="${p ? "Open the PINE profile" : "Read the reports"}">
     <span class="nrank ${i < 3 ? "lead" : ""}">${i + 1}</span>
     <span class="nmain">${p ? nameWithMark({ ...p, name: x.name }, "nname") : `<span class="nname">${esc(x.name)}</span>`}
@@ -2946,6 +2958,7 @@ function describe(a, onPlayerPage = false) {
     case "deleted_college_report": return `deleted a college report on ${who}`;
     case "updated_agent": return `updated agent details for ${who}${d.representation && d.representation !== "unknown" ? ` (${esc(repLabel(d.representation).toLowerCase())})` : ""}`;
     case "set_decision": return d.decision ? `set the club decision on ${who} to ${chip(d.decision)}` : `cleared the club decision on ${who}`;
+    case "set_signed": return d.signed ? `marked ${who} as signed to Hearts of Pine` : `removed the signed status from ${who}`;
     case "set_verdict": return d.verdict ? `marked ${who} ${chip(d.verdict)}` : `cleared their verdict on ${who}`;
     case "added_note": return `added a note on ${who}`;
     case "edited_note": return `edited a note on ${who}`;
