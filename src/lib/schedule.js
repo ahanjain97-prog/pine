@@ -1,6 +1,19 @@
 import { football, FOOTBALL_DAY, FOOTBALL_HOUR } from "./football.js";
 
 export const SCHEDULE_TIMEZONE = "America/New_York";
+const ACTIVE = new Set(["1H", "HT", "2H", "ET", "BT", "P", "LIVE", "INT", "SUSP"]);
+const FINAL = new Set(["FT", "AET", "PEN", "AWD", "WO"]);
+
+// A single shared day lookup, independent of how many games or staff are watching.
+// Include the hour before kickoff so a not-started snapshot doesn't delay the first update.
+export function fixtureRefreshMs(fixtures, teamIds, date, now = Date.now()) {
+  const distance = Math.round((Date.parse(date + "T12:00:00Z") - Date.parse(scheduleDate(now) + "T12:00:00Z")) / FOOTBALL_DAY);
+  if (distance !== 0) return Math.abs(distance) <= 2 ? 6 * FOOTBALL_HOUR : FOOTBALL_DAY;
+  const games = fixtures.filter((g) => scheduleDate(Date.parse(g.date)) === date && (teamIds.has(g.home.id) || teamIds.has(g.away.id)));
+  if (games.some((g) => ACTIVE.has(g.status) || (g.status === "NS" && Date.parse(g.date) <= now + FOOTBALL_HOUR && Date.parse(g.date) >= now - 3 * FOOTBALL_HOUR))) return FOOTBALL_HOUR / 2;
+  if (games.length && games.every((g) => FINAL.has(g.status))) return 6 * FOOTBALL_HOUR;
+  return FOOTBALL_HOUR;
+}
 // TM codes identify the competition even when its displayed name varies by source.
 const LEAGUE_CODES = { MLS1: 253, USL: 255, USC3: 489, MNP3: 909, CDN1: 479,
   SE1: 113, SE2: 114, DK2: 120, SC2: 180, PO2: 95, AUS1: 188, HO1A: 234, IR1: 357, UGL1: 585 };
@@ -76,7 +89,7 @@ export function createScheduleService({ client = football, now = Date.now } = {}
   async function day(players, requestedDate) {
     const date = validateScheduleDate(requestedDate || scheduleDate(now()), now());
     const base = { date, timezone: SCHEDULE_TIMEZONE, configured: client.configured(), games: [], unmatched: [], warnings: [],
-      updated_at: null, stale: false, total_players: players.length, matched_players: 0, refresh_hours: 1 };
+      updated_at: null, stale: false, total_players: players.length, matched_players: 0, refresh_after_ms: FOOTBALL_HOUR, cache_minutes: 60 };
     if (!base.configured || !players.length) return base;
     const snapshots = [];
     const get = async (...args) => {
@@ -123,11 +136,16 @@ export function createScheduleService({ client = football, now = Date.now } = {}
     }
     if (mapped.size) {
       try {
-        const distance = Math.round((Date.parse(date + "T12:00:00Z") - Date.parse(scheduleDate(now()) + "T12:00:00Z")) / FOOTBALL_DAY);
-        const ttl = distance === 0 ? FOOTBALL_HOUR : Math.abs(distance) <= 2 ? 6 * FOOTBALL_HOUR : FOOTBALL_DAY;
+        const teamIds = new Set(mapped.keys());
+        const ttl = (fixtures) => fixtureRefreshMs(fixtures, teamIds, date, now());
         // One global day request catches cup fixtures and matches outside a player's league.
         const fixtures = await get("fixtures", { date, timezone: SCHEDULE_TIMEZONE }, { ttl, reduce: (rows) => rows.map(reduceFixture) });
         base.updated_at = new Date(snapshots.at(-1).at).toISOString();
+        base.cache_minutes = ttl(fixtures) / 60_000;
+        // Check Pine's shared cache every half hour while this date still has games ahead.
+        // Completed/past days need only hourly UI checks, including the rollover to Today.
+        const today = date === scheduleDate(now());
+        base.refresh_after_ms = today && base.cache_minutes < 360 ? FOOTBALL_HOUR / 2 : FOOTBALL_HOUR;
         const byId = new Map();
         for (const game of fixtures) {
           if (scheduleDate(Date.parse(game.date)) !== date) continue;

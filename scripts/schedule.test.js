@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { Hono } from "hono";
 import { openDb } from "../src/db.js";
 import { createFootballClient, FOOTBALL_DAY, FOOTBALL_HOUR } from "../src/lib/football.js";
-import { createScheduleService, matchTeam, matchLeague, registerSchedule, scheduleDate, validateScheduleDate } from "../src/lib/schedule.js";
-import { easternDate, fixtureGroup } from "../public/today.js";
+import { createScheduleService, fixtureRefreshMs, matchTeam, matchLeague, reduceFixture, registerSchedule, scheduleDate, validateScheduleDate } from "../src/lib/schedule.js";
+import { easternDate, fixtureGroup, freshnessText, resultsHtml } from "../public/today.js";
 
 const NOW = Date.parse("2026-10-31T18:00:00Z");
 const payload = (response, errors = []) => Response.json({ response, errors, results: response.length, paging: { current: 1, total: 1 } });
@@ -86,6 +86,26 @@ test("the in-process request cap still holds if the disk cache cannot persist wr
   assert.equal(t.calls.length, 1);
 });
 
+test("Pine leaves twenty percent of the provider allowance available for other account use", async () => {
+  const t = setup();
+  t.handle(() => Response.json({ response: [], errors: [], results: 0 }, { headers: {
+    "x-ratelimit-requests-limit": "7500", "x-ratelimit-requests-remaining": "1500",
+  } }));
+  await t.client.get("fixtures", { date: "2026-10-31" });
+  await assert.rejects(t.client.get("fixtures", { date: "2026-11-01" }), /budget/);
+  assert.equal(t.calls.length, 1);
+});
+
+test("a cached not-started fixture switches to the shorter cache as kickoff approaches", async () => {
+  const t = setup();
+  const kickoff = NOW + FOOTBALL_HOUR;
+  const ttl = () => t.shared.now() >= kickoff - FOOTBALL_HOUR / 2 ? FOOTBALL_HOUR / 2 : FOOTBALL_HOUR;
+  const get = () => t.client.get("fixtures", { date: "2026-10-31" }, { ttl });
+  await get();
+  t.advance(FOOTBALL_HOUR / 2 - 1); await get(); assert.equal(t.calls.length, 1);
+  t.advance(1); await get(); assert.equal(t.calls.length, 2);
+});
+
 test("RapidAPI uses its own host and headers; unconfigured clients never dispatch", async () => {
   const t = setup({ credentials: () => ({ key: "rapid-key", rapid: true }) });
   await t.client.get("fixtures");
@@ -119,6 +139,34 @@ function serviceSetup() {
       : payload([fixture(2, richmond, greenville, "2026-11-01T02:00:00Z", 1095, "FT"), fixture(3, richmond, greenville, "2026-11-01T05:00:00Z")]));
   return { ...t, service: createScheduleService({ client: t.client, now: t.shared.now }) };
 }
+
+test("refresh cadence follows tracked games, preserving slow checks outside match windows", () => {
+  const ids = new Set([10]), date = "2026-10-31";
+  const next = { ...reduceFixture(leagueGames[0]), date: new Date(NOW + 4 * FOOTBALL_HOUR).toISOString() };
+  assert.equal(fixtureRefreshMs([next], ids, date, NOW), FOOTBALL_HOUR);
+  assert.equal(fixtureRefreshMs([{ ...next, date: new Date(NOW + FOOTBALL_HOUR).toISOString() }], ids, date, NOW), FOOTBALL_HOUR / 2);
+  assert.equal(fixtureRefreshMs([{ ...next, status: "2H" }], ids, date, NOW), FOOTBALL_HOUR / 2);
+  assert.equal(fixtureRefreshMs([{ ...next, status: "FT" }], ids, date, NOW), 6 * FOOTBALL_HOUR);
+  assert.equal(fixtureRefreshMs([{ ...next, status: "2H", home: { id: 30 }, away: { id: 40 } }], ids, date, NOW), FOOTBALL_HOUR);
+  assert.equal(fixtureRefreshMs([], ids, date, NOW), FOOTBALL_HOUR);
+  assert.equal(fixtureRefreshMs([next], ids, "2026-11-01", NOW), 6 * FOOTBALL_HOUR);
+});
+
+test("active and completed games show snapshot scores without a live minute or inferred appearances", () => {
+  const game = { ...reduceFixture(leagueGames[0]), status: "2H", goals: { home: 1, away: 0 }, players: [
+    { id: 1, name: "Example One", club: "Richmond Kickers", position: "CM", short_board: true },
+  ] };
+  const data = { configured: true, total_players: 1, games: [game], warnings: [], unmatched: [], stale: false,
+    cache_minutes: 30, updated_at: new Date(NOW).toISOString() };
+  const active = resultsHtml(data);
+  assert.match(active, /In progress/); assert.match(active, /<b>1<\/b>/); assert.match(active, /<b>0<\/b>/);
+  assert.match(active, /★ Short Board/); assert.match(active, /appearances aren't verified/);
+  assert.doesNotMatch(active, /LIVE|minute|lineup/i);
+  const finished = resultsHtml({ ...data, games: [{ ...game, status: "FT" }] });
+  assert.match(finished, /Full time/); assert.doesNotMatch(finished, /In progress/);
+  assert.match(freshnessText(data), /30 min/);
+  assert.match(freshnessText({ ...data, cache_minutes: 360 }), /few hours/);
+});
 
 test("schedule matches both teams by league and stable ID, includes cups, preserves 0–0, and honors Eastern dates", async () => {
   const t = serviceSetup();

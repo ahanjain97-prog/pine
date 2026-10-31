@@ -187,6 +187,8 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .sched-section h2 > span { font: 11px/1.4 var(--body); text-transform: none; letter-spacing: 0; color: var(--muted); margin-left: 7px; }
 .sched-game { display: grid; grid-template-columns: 85px minmax(190px, .8fr) minmax(0, 1.3fr); gap: 18px; padding: 15px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .sched-game + .sched-game { margin-top: 9px; }
+.sched-game.sched-active { border-left: 3px solid var(--pass); padding-left: 14px; }
+.sched-time .sched-status-active { color: var(--pass); font-weight: 600; }
 .sched-time { display: flex; flex-direction: column; gap: 4px; padding-top: 3px; font-variant-numeric: tabular-nums; }
 .sched-time > b { font-size: 14px; white-space: nowrap; }
 .sched-time > span, .sched-league { font-size: 11px; color: var(--muted); }

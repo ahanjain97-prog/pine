@@ -38,7 +38,8 @@ export function createFootballClient({ read = readDisk, write = writeDisk, now =
     if (!key) throw new Error("API-Football is not configured.");
     const limit = Math.max(1, Math.floor(Number(dailyLimit()) || 80));
     let budget = ledger();
-    if (budget.count >= limit || (budget.remaining != null && budget.remaining <= 5)) {
+    const reserve = Math.max(5, Math.ceil((budget.provider_limit || 0) * 0.2));
+    if (budget.count >= limit || (budget.remaining != null && budget.remaining <= reserve)) {
       throw new Error("Today's football API request budget is reserved or used up. Cached schedules are still available.");
     }
     if (budget.blocked_until > now()) throw new Error(budget.error || "The football API is temporarily unavailable. It will retry later.");
@@ -54,7 +55,9 @@ export function createFootballClient({ read = readDisk, write = writeDisk, now =
     try { response = await fetcher(`${base}/${path}?${new URLSearchParams(params)}`, { headers, signal: AbortSignal.timeout(20_000) }); }
     catch { throw new Error("Couldn't reach API-Football. It will retry in an hour."); }
     const remaining = response.headers.get("x-ratelimit-requests-remaining");
+    const providerLimit = response.headers.get("x-ratelimit-requests-limit");
     if (remaining != null && Number.isFinite(Number(remaining))) budget.remaining = Number(remaining);
+    if (Number(providerLimit) > 0) budget.provider_limit = Number(providerLimit);
     saveBudget(budget);
     let body;
     try { body = await response.json(); } catch { throw new Error("API-Football returned an unreadable response."); }
@@ -80,7 +83,8 @@ export function createFootballClient({ read = readDisk, write = writeDisk, now =
   async function get(path, params = {}, { ttl = FOOTBALL_HOUR, reduce = (data) => data } = {}) {
     const key = keyFor(path, params), old = memory.get(key) || read(key);
     const cached = old?.format === 1 && Array.isArray(old.data) && Number.isFinite(old.at);
-    if (cached && now() - old.at < ttl) return { ...old, stale: false, error: null };
+    const maxAge = cached && typeof ttl === "function" ? ttl(old.data) : ttl;
+    if (cached && now() - old.at < maxAge) return { ...old, stale: false, error: null };
     if (old?.retry_at > now()) {
       if (cached) return { ...old, stale: true };
       throw new Error(old.error);

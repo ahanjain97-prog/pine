@@ -11,13 +11,14 @@ export function fixtureGroup(status) {
   return STARTED.has(status) ? "In progress" : FINISHED.has(status) ? "Finished" : ["NS", "TBD"].includes(status) ? "Upcoming" : "Other fixtures";
 }
 function gameHtml(game) {
-  const finished = FINISHED.has(game.status), scored = finished && game.goals.home != null && game.goals.away != null;
-  const status = STARTED.has(game.status) ? "In progress" : finished ? game.status_label : game.status === "NS" ? "Kickoff" : game.status_label;
-  return `<article class="sched-game" aria-label="${esc(game.home.name)} versus ${esc(game.away.name)}">
-    <div class="sched-time"><b>${game.status === "TBD" ? "Time TBC" : esc(clock(game.date))}</b><span>${esc(status)}</span></div>
-    <div class="sched-match"><div class="sched-league">${esc(game.league.name)}</div>
-      <div class="sched-team"><span>${esc(game.home.name)}</span>${scored ? `<b>${game.goals.home}</b>` : ""}</div>
-      <div class="sched-team"><span>${esc(game.away.name)}</span>${scored ? `<b>${game.goals.away}</b>` : ""}</div>
+  const finished = FINISHED.has(game.status), active = STARTED.has(game.status);
+  const scored = (finished || active) && game.goals.home != null && game.goals.away != null;
+  const status = active ? "In progress" : finished ? game.status === "FT" ? "Full time" : game.status_label : game.status === "NS" ? "Kickoff" : game.status_label;
+  return `<article class="sched-game ${active ? "sched-active" : ""}" aria-label="${esc(game.home.name)} versus ${esc(game.away.name)}">
+    <div class="sched-time"><b>${game.status === "TBD" ? "Time TBC" : esc(clock(game.date))}</b><span class="${active ? "sched-status-active" : ""}">${esc(status)}</span></div>
+    <div class="sched-match"><div class="sched-league">${esc([game.league.name, game.league.country !== "USA" ? game.league.country : null].filter(Boolean).join(" · "))}</div>
+      <div class="sched-team"><span>${esc(game.home.name)}</span>${scored ? `<b>${esc(game.goals.home)}</b>` : ""}</div>
+      <div class="sched-team"><span>${esc(game.away.name)}</span>${scored ? `<b>${esc(game.goals.away)}</b>` : ""}</div>
     </div>
     <div class="sched-roster"><div class="sched-roster-h">Board players · ${game.players.length}</div>
       <ul>${game.players.map((p) => `<li><a href="#/player/${p.id}"><b>${esc(p.name)}</b><span>${esc([p.position, p.club].filter(Boolean).join(" · "))}</span></a>
@@ -25,7 +26,7 @@ function gameHtml(game) {
     </div>
   </article>`;
 }
-function resultsHtml(data) {
+export function resultsHtml(data) {
   if (!data.configured) return `<p class="empty">The schedule isn't connected yet. Connect an API-Football account to see games.</p>`;
   if (!data.total_players) return `<p class="empty">Add players to the <a href="#/board">Big Board</a> to see their teams' games here.</p>`;
   const warnings = data.warnings.map((message) => `<div class="banner warn">${esc(message)}</div>`).join("");
@@ -42,6 +43,11 @@ function resultsHtml(data) {
   return `${warnings}${data.stale ? '<div class="banner info">Showing a saved schedule while the provider is unavailable. Results may be out of date.</div>' : ""}
     ${games || `<p class="empty">${empty}</p>`}${unmatched}
     <div class="sched-footer"><span>Players are listed by current club; appearances aren't verified.</span><span>★ Short Board players are also on the Big Board.</span></div>`;
+}
+
+export function freshnessText(data) {
+  const cadence = data.cache_minutes === 30 ? "Updates about every 30 min" : data.cache_minutes >= 1440 ? "Updates daily" : data.cache_minutes >= 360 ? "Checks every few hours" : "Updates about hourly";
+  return data.updated_at ? `${data.stale ? "Saved" : "Updated"} ${new Date(data.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: ZONE })} at ${clock(data.updated_at)} ET · ${cadence}` : cadence;
 }
 
 export async function loadToday(main, api) {
@@ -61,7 +67,7 @@ export async function loadToday(main, api) {
   </div>`;
   const root = main.querySelector("#schedule-view"), input = root.querySelector("[data-sched-date]");
   const results = root.querySelector("[data-sched-results]"), count = root.querySelector("[data-sched-count]"), updated = root.querySelector("[data-sched-updated]");
-  let request = 0;
+  let request = 0, timer = null;
   async function load() {
     if (!root.isConnected) return;
     const serial = ++request;
@@ -76,11 +82,13 @@ export async function loadToday(main, api) {
       const players = [...new Map(data.games.flatMap((game) => game.players).map((p) => [p.id, p])).values()];
       const day = new Date(data.date + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: ZONE });
       count.innerHTML = `<b>${esc(day)}</b> · <b>${data.games.length}</b> ${data.games.length === 1 ? "game" : "games"} · <b>${players.length}</b> board players · <b>${players.filter((p) => p.short_board).length}</b> Short Board`;
-      updated.textContent = data.updated_at ? `${data.stale ? "Saved" : "Fixtures updated"} ${new Date(data.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: ZONE })} at ${clock(data.updated_at)} ET · Updates at most hourly` : "Updates at most hourly";
+      updated.textContent = freshnessText(data);
       results.innerHTML = resultsHtml(data);
+      scheduleCheck(data.refresh_after_ms);
     } catch (error) {
       if (!root.isConnected || serial !== request) return;
       results.innerHTML = `<div class="banner err">Couldn't load the schedule: ${esc(error.message)}</div>`;
+      scheduleCheck(HOUR);
     }
   }
   root.querySelectorAll("[data-sched-shift]").forEach((button) => button.addEventListener("click", () => {
@@ -89,12 +97,15 @@ export async function loadToday(main, api) {
   }));
   root.querySelector("[data-sched-today]").addEventListener("click", () => { selectedDate = easternDate(); followingToday = true; load(); });
   input.addEventListener("change", () => { if (input.value && input.validity.valid) { selectedDate = input.value; followingToday = selectedDate === easternDate(); load(); } else input.value = selectedDate; });
-  // No score/lineup polling. A visible schedule checks the shared server cache once an hour.
-  const tick = () => setTimeout(async () => {
-    if (!root.isConnected) return;
-    if (!document.hidden) { if (followingToday) selectedDate = easternDate(); await load(); }
-    tick();
-  }, HOUR);
-  tick();
+  // Only the shared fixtures endpoint. Never fetch individual scores, events or lineups.
+  function scheduleCheck(delay = HOUR) {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      if (!root.isConnected) return;
+      if (document.hidden) { scheduleCheck(delay); return; }
+      if (followingToday) selectedDate = easternDate();
+      await load();
+    }, Math.max(HOUR / 2, Math.min(HOUR, Number(delay) || HOUR)));
+  }
   await load();
 }
