@@ -213,9 +213,23 @@ test("current club takes precedence over old Impect links and missing mappings r
     { ...players[1], league: "NCAA" },
   ], "2026-10-31");
   assert.equal(result.games.length, 0); assert.equal(result.unmatched.length, 2);
-  assert.match(result.unmatched[0].reason, /unique team/);
-  assert.match(result.unmatched[1].reason, /Competition/);
+  assert.match(result.unmatched.find((p) => p.id === 1).reason, /unique team/);
+  assert.match(result.unmatched.find((p) => p.id === 2).reason, /College games aren't supported yet/);
+  assert.equal(result.college_players, 1);
   assert.equal(t.calls.length, 2, "no global day call when no team can be matched");
+});
+
+test("college-only boards show unsupported coverage without spending provider requests", async () => {
+  const t = serviceSetup();
+  const result = await t.service.day([{ ...players[0], league: "NCAA Division I" }], "2026-10-31");
+  assert.equal(t.calls.length, 0);
+  assert.equal(result.college_players, 1);
+  assert.equal(result.unmatched.length, 1);
+  assert.match(result.unmatched[0].reason, /NCAA soccer/);
+  const html = resultsHtml(result);
+  assert.match(html, /College games aren’t supported yet/);
+  assert.match(html, /College schedules aren't available yet/);
+  assert.doesNotMatch(html, /No games scheduled|needs.*matching/);
 });
 
 test("free-plan denial is a coverage warning, never a falsely complete empty day", async () => {

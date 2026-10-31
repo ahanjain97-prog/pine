@@ -90,7 +90,12 @@ export function createScheduleService({ client = football, now = Date.now } = {}
     const date = validateScheduleDate(requestedDate || scheduleDate(now()), now());
     const base = { date, timezone: SCHEDULE_TIMEZONE, configured: client.configured(), games: [], unmatched: [], warnings: [],
       updated_at: null, stale: false, total_players: players.length, matched_players: 0, refresh_after_ms: FOOTBALL_HOUR, cache_minutes: 60 };
-    if (!base.configured || !players.length) return base;
+    const college = players.filter((p) => /\bncaa\b/i.test(p.league || ""));
+    base.college_players = college.length;
+    base.unmatched = college.map((p) => ({ id: p.id, name: p.name, club: p.club || p.impect_squad, league: p.league,
+      reason: "College games aren't supported yet; API-Football doesn't cover NCAA soccer" }));
+    const supported = players.filter((p) => !/\bncaa\b/i.test(p.league || ""));
+    if (!base.configured || !supported.length) return base;
     const snapshots = [];
     const get = async (...args) => {
       const result = await client.get(...args); snapshots.push(result);
@@ -105,7 +110,7 @@ export function createScheduleService({ client = football, now = Date.now } = {}
       })) });
     } catch (error) { base.warnings.push(error.message); return base; }
     const access = new Map(), mapped = new Map();
-    for (const player of players) {
+    for (const player of supported) {
       const club = player.club || player.impect_squad;
       const league = matchLeague(player, leagues), season = league && seasonFor(league, date);
       const missing = (reason) => base.unmatched.push({ id: player.id, name: player.name, club, league: player.league, reason });

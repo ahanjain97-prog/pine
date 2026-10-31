@@ -30,17 +30,19 @@ export function resultsHtml(data) {
   if (!data.configured) return `<p class="empty">The schedule isn't connected yet. Connect an API-Football account to see games.</p>`;
   if (!data.total_players) return `<p class="empty">Add players to the <a href="#/board">Big Board</a> to see their teams' games here.</p>`;
   const warnings = data.warnings.map((message) => `<div class="banner warn">${esc(message)}</div>`).join("");
+  const college = data.college_players ? '<div class="banner info">College games aren’t supported yet. API-Football doesn’t cover NCAA soccer.</div>' : "";
   const groups = ["In progress", "Upcoming", "Finished", "Other fixtures"];
   const games = groups.map((group) => {
     const rows = data.games.filter((game) => fixtureGroup(game.status) === group);
     return rows.length ? `<section class="sched-section"><h2>${group} <span>${rows.length} ${rows.length === 1 ? "game" : "games"}</span></h2>${rows.map(gameHtml).join("")}</section>` : "";
   }).join("");
   const empty = data.warnings.length ? "The schedule is unavailable or incomplete. Try again later."
-    : data.unmatched.length ? "No games found for the matched clubs. Some players still need matching below."
+    : data.college_players === data.total_players ? "College schedules aren't available yet."
+    : data.unmatched.length ? "No games found for the matched clubs. Some board players aren't covered; see details below."
       : "No games scheduled for your board players' teams on this day.";
-  const unmatched = data.unmatched.length ? `<details class="sched-unmatched"><summary>${data.unmatched.length} ${data.unmatched.length === 1 ? "player needs" : "players need"} club or competition matching</summary>
+  const unmatched = data.unmatched.length ? `<details class="sched-unmatched"><summary>${data.unmatched.length} ${data.unmatched.length === 1 ? "player" : "players"} outside schedule coverage</summary>
     <ul>${data.unmatched.map((p) => `<li><a href="#/player/${p.id}">${esc(p.name)}</a><span>${esc(p.club || "No club")} · ${esc(p.reason)}</span></li>`).join("")}</ul></details>` : "";
-  return `${warnings}${data.stale ? '<div class="banner info">Showing a saved schedule while the provider is unavailable. Results may be out of date.</div>' : ""}
+  return `${college}${warnings}${data.stale ? '<div class="banner info">Showing a saved schedule while the provider is unavailable. Results may be out of date.</div>' : ""}
     ${games || `<p class="empty">${empty}</p>`}${unmatched}
     <div class="sched-footer"><span>Players are listed by current club; appearances aren't verified.</span><span>★ Short Board players are also on the Big Board.</span></div>`;
 }

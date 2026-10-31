@@ -68,8 +68,10 @@ league match or explicit Transfermarkt league code, and exact normalized team na
 alias list. Reserve-team and women's markers are preserved. Missing or ambiguous mappings are
 listed in the view; no fuzzy player-name matching or historical roster inference is performed.
 Fresh board membership is joined on every request and is never cached with provider fixtures.
-Coverage depends on API-Football's leagues and schedule publication; NCAA and unidentified
-competitions are shown as unmatched. To inspect coverage, use the authenticated
+College games aren't supported yet: API-Football's soccer coverage does not include NCAA.
+Today shows an explicit college coverage notice and lists affected board players; a college-only
+board makes no provider requests. Other coverage depends on the provider's leagues and schedule
+publication, with unidentified competitions listed for review. To inspect coverage, use the authenticated
 `GET /api/schedule?date=YYYY-MM-DD` endpoint. It reports matched/unmatched players, warnings,
 fixture freshness and games without requesting scouting notes or verdicts.
 
