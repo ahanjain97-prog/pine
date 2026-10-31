@@ -43,6 +43,7 @@ import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
 import { connectedDuplicate, connectionMergeProblem, mergeConnection, resolvePlayerId } from "./lib/player_connections.js";
 import { registerSigning } from "./lib/signing.js";
+import { registerSchedule } from "./lib/schedule.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 if (existsSync(join(ROOT, ".env"))) process.loadEnvFile(join(ROOT, ".env"));
@@ -411,6 +412,7 @@ app.get("/api/changes", (c) => c.json({ version: db.get("SELECT coalesce(max(id)
 
 /* ---------- players ---------- */
 app.get("/api/players", (c) => c.json({ players: db.all(`${PLAYER_SELECT} ORDER BY p.name COLLATE NOCASE`).map(hydrate) }));
+registerSchedule(app, { db });
 
 // The player's NCAA board spot and how many share the position, or the position they'd be added at.
 function ncaaPlace(player) {

@@ -26,6 +26,58 @@ member can edit the big board, add players and write in their own evaluation sec
 players and manage the staff list. With `PINE_AUTH=off` (local development) there is no sign-in: pick who you
 are from the name menu in the top bar.
 
+## Today: board players' fixtures
+
+**Today**, between Database and Impect, lists games involving the current clubs of players on
+the Big Board. Gold stars mark Short Board players. Each player appears once per game even if
+they have multiple board roles, and player names open their profiles. Browse dates in Eastern
+time, including daylight-saving changes. Scores are snapshots with a visible update time, without
+a live minute or event feed. Club membership does not assert a start, bench place or appearance.
+
+Set `APIFOOTBALL_KEY` on the server for a direct API-Sports account with current-season access.
+Alternatively, set `APIFOOTBALL_RAPIDAPI_KEY` for the RapidAPI channel; the direct key takes
+precedence. Keys never reach the browser. A free-plan response can include a broad date list
+while rejecting a specific current league-season, so Today checks season access explicitly and
+shows coverage failures rather than a misleading empty schedule.
+
+All staff share one persistent cache next to the database (`cache/football-v1-*.json`):
+
+- Today's global fixture list: hourly outside match windows, every 30 minutes while a tracked
+  game is in progress or within an hour of kickoff, and every six hours once all tracked games
+  are finished. A visible Today page checks the shared cache every 30 minutes while games remain;
+  finished and historical views check Pine hourly. Nothing polls when no one uses the view.
+- Dates within two days: six hours; other dates: one day. Browsing is limited to one year
+  before or after today.
+- League index: 30 days. League-season fixtures: one day. These fixtures provide a team-ID
+  directory scoped to the player's league, so no team, player, lineup or event requests are needed.
+- One global date lookup includes cup games as well as league fixtures for matched teams.
+  Even a full day at the fastest cadence needs only 48 shared date lookups, plus one season lookup
+  per represented league per day. Normal match windows use fewer calls. Browsing additional dates
+  uses additional shared cache entries; all requests count against the same cap.
+
+Requests run serially, at least 6.5 seconds apart. `PINE_FOOTBALL_DAILY_LIMIT` defaults to 80
+attempts per UTC day, including failures. A durable ledger survives restarts, respects the
+provider's remaining quota with a 20% reserve (at least five requests if its limit is unknown),
+and pauses requests for an hour after
+plan, authentication or rate-limit failures. Successful cached data remains available with its
+original timestamp and a stale warning when refresh fails. Run a single web instance against
+this volume; the ledger is not a distributed lock across replicas.
+
+Matching uses the current saved club (the Impect squad only when no club is saved), a unique
+league match or explicit Transfermarkt league code, and exact normalized team names with a small
+alias list. Reserve-team and women's markers are preserved. Missing or ambiguous mappings are
+listed in the view; no fuzzy player-name matching or historical roster inference is performed.
+Fresh board membership is joined on every request and is never cached with provider fixtures.
+College games aren't supported yet: API-Football's soccer coverage does not include NCAA.
+Today shows an explicit college coverage notice and lists affected board players; a college-only
+board makes no provider requests. Other coverage depends on the provider's leagues and schedule
+publication, with unidentified competitions listed for review. To inspect coverage, use the authenticated
+`GET /api/schedule?date=YYYY-MM-DD` endpoint. It reports matched/unmatched players, warnings,
+fixture freshness and games without requesting scouting notes or verdicts.
+
+`node --test scripts/schedule.test.js` verifies caching, quotas, restarts, provider failures,
+cup inclusion, team identity, board membership and Eastern-time dates without network calls.
+
 ## KPI benchmarks
 
 KPI bars rank players against qualified players at the same position and in the same season across
