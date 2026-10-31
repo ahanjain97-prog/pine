@@ -1,7 +1,8 @@
 import { loadPlayingTimePanel } from "./playing-time.js";
+import { loadToday } from "./today.js";
 
 // PINE front end: single page, no build step.
-// Routes: #/board  #/short-board  #/ncaa[/database]  #/players  #/player/:id  #/impect  #/activity  #/staff
+// Routes: #/board  #/short-board  #/ncaa[/database]  #/players  #/today  #/player/:id  #/impect  #/activity  #/staff
 // Shared links come in as /p/:id, which the server rewrites to #/player/:id before this boots.
 
 import { matchText, textMatch } from "./search.js";
@@ -280,6 +281,7 @@ function renderShell() {
       <a href="#/short-board" data-v="short-board">Short Board</a>
       <a href="#/ncaa" data-v="ncaa">NCAA</a>
       <a href="#/players" data-v="players">Database</a>
+      <a href="#/today" data-v="today">Today</a>
       <a href="#/impect" data-v="impect">Impect</a>
       <a href="#/activity" data-v="activity">Activity</a>
       ${S.me.is_admin ? `<a href="#/staff" data-v="staff">Staff</a>` : ""}
@@ -358,7 +360,7 @@ async function render() {
   const { view, arg } = route();
   $$("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.v === view || (view === "player" && a.dataset.v === "players")));
   $("#upd").hidden = true;
-  const views = { board: renderBoard, "short-board": renderShortBoard, ncaa: renderNcaa, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
+  const views = { board: renderBoard, "short-board": renderShortBoard, ncaa: renderNcaa, players: renderTable, today: (main) => loadToday(main, api), player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
   // Pitch maps had their own tab for a day; its links now open the player's page, where the maps live.
   if (view === "maps") { location.hash = arg ? `#/player/${arg}` : "#/players"; return; }
   if (!views[view]) { location.hash = "#/board"; return; }
@@ -366,7 +368,7 @@ async function render() {
   const want = canonicalUrl({ view, arg });
   if (location.pathname + location.hash !== want) history.replaceState(null, "", want);
   // The player view retitles itself once the profile loads.
-  setTitle({ board: "Big Board", ncaa: "NCAA", players: "Database", impect: "Impect", activity: "Activity", staff: "Staff" }[view]);
+  setTitle({ board: "Big Board", ncaa: "NCAA", players: "Database", today: "Today", impect: "Impect", activity: "Activity", staff: "Staff" }[view]);
   await views[view]($("#main"), arg);
 }
 
