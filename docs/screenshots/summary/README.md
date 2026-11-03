@@ -7,6 +7,11 @@ Saving replaces the editor with readable text and a Saved marker. Edit reopens t
 Cancel discards edits. Delete asks for confirmation and returns the panel to its empty state.
 Failed requests keep the text and offer a retry. Saving a summary preserves unfinished staff notes.
 
+Existing summaries appear as saved immediately: the view reads the same `players.summary` field
+as before. There is no migration, copying, or automatic resave. Opening the editor and cancelling
+does not write to the database. Existing activity rows remain intact; the activity log records
+who edited the summary and when, but does not store earlier versions of the summary text.
+
 | State | Desktop light | Desktop dark | Phone light | Phone dark |
 | --- | --- | --- | --- | --- |
 | Empty / deleted | [View](desktop-light-empty.png) | [View](desktop-dark-empty.png) | [View](phone-light-empty.png) | [View](phone-dark-empty.png) |
@@ -24,3 +29,9 @@ cancel, delete, and preservation of another composer's draft. Delayed and failed
 intercepted to check pending controls, retry, and retention of the existing saved summary on a
 failed deletion. Empty/unchanged saves are disabled; HTML-like text is displayed literally and
 long words wrap. All four size/theme combinations passed without page errors or horizontal overflow.
+
+Compatibility was also checked against a database created with the pre-change `main` code.
+Existing summaries (including spaces, paragraph breaks, Unicode, and HTML-like text) appeared
+in the saved view and reopened unchanged for editing. Empty values retained their original
+database values. Viewing and cancelling edits issued no write requests, and the stored summaries,
+player update timestamps, and existing activity rows were identical before and after the checks.
