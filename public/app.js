@@ -1135,10 +1135,22 @@ async function renderPlayer(main, idArg) {
 
     <div class="p-grid">
       <div>
-        <section class="panel">
-          <header class="panel-h"><h2>Summary</h2><span class="muted sm">Shared club summary</span></header>
-          <textarea id="summary" rows="3" data-draft data-orig="${esc(p.summary || "")}" placeholder="Overall summary, fit, next steps…">${esc(p.summary || "")}</textarea>
-          <div class="row end" style="margin-top:6px"><button type="button" class="btn sm" id="save-summary">Save summary</button></div>
+        <section class="panel" id="summary-panel" aria-labelledby="summary-heading">
+          <header class="panel-h"><h2 id="summary-heading">Summary</h2><span class="muted sm">Shared club summary</span></header>
+          <div id="summary-view">
+            ${summaryViewHTML(p.summary)}
+          </div>
+          <form id="summary-form" hidden>
+            <label class="lbl" for="summary">Club summary</label>
+            <textarea id="summary" rows="5" data-draft data-orig="${esc(p.summary || "")}" aria-describedby="summary-hint" placeholder="Overall summary, fit, next steps…">${esc(p.summary || "")}</textarea>
+            <div class="summary-actions row"><span class="muted sm" id="summary-hint">${p.summary?.trim() ? "Editing summary" : "New summary"} · not saved yet</span><span class="spacer"></span>
+              <button type="button" class="btn sm ghost" id="cancel-summary">Cancel</button><button type="submit" class="btn sm primary" id="save-summary" disabled>Save summary</button></div>
+          </form>
+          <div class="banner warn summary-delete" id="summary-delete" hidden>
+            <p>Delete the shared summary? Everyone will see an empty summary.</p>
+            <div class="row end"><button type="button" class="btn sm ghost" id="keep-summary">Keep summary</button><button type="button" class="btn sm danger" id="confirm-delete-summary">Delete summary</button></div>
+          </div>
+          <p class="banner err" id="summary-error" role="alert" hidden></p>
         </section>
         ${collegePanel(d)}
         <section class="panel"><header class="panel-h"><h2>Staff evaluations</h2></header>${evalsHTML(d.staff)}</section>
@@ -1504,7 +1516,91 @@ function noteHTML(n, mine) {
   </div>`;
 }
 
+function summaryViewHTML(summary) {
+  return summary?.trim() ? `<div class="summary-body">${esc(summary)}</div>
+    <div class="summary-actions row"><span class="summary-status sm">✓ Saved</span><span class="spacer"></span>
+      <button type="button" class="btn sm" id="edit-summary">Edit</button><button type="button" class="btn sm ghost danger" id="delete-summary">Delete</button></div>`
+    : `<div class="summary-empty"><p class="muted">No summary yet.</p><button type="button" class="btn sm" id="edit-summary">Add summary</button></div>`;
+}
+
+function wireSummary(root, p) {
+  const panel = $("#summary-panel", root), form = $("#summary-form", panel), input = $("#summary", panel);
+  const view = $("#summary-view", panel), removal = $("#summary-delete", panel), error = $("#summary-error", panel);
+  const save = $("#save-summary", panel);
+  let busy = false;
+  const updateSave = () => { save.disabled = busy || !input.value.trim() || input.value.trim() === (p.summary || "").trim(); };
+  const closeEditor = () => {
+    input.value = input.dataset.orig = p.summary || "";
+    form.hidden = true;
+    removal.hidden = true;
+    error.hidden = true;
+    view.hidden = false;
+    updateSave();
+    $("#edit-summary", panel).focus();
+  };
+  const persist = async (summary) => {
+    if (busy) return;
+    busy = true;
+    error.hidden = true;
+    panel.setAttribute("aria-busy", "true");
+    $$("button", panel).forEach((b) => { b.disabled = true; });
+    input.readOnly = true;
+    const action = summary === null ? $("#confirm-delete-summary", panel) : save;
+    action.textContent = summary === null ? "Deleting…" : "Saving…";
+    try {
+      const result = await api("PATCH", `/api/players/${p.id}`, { summary });
+      p.summary = result.player.summary;
+      const cached = S.byId.get(p.id);
+      if (cached) cached.summary = p.summary;
+      view.innerHTML = summaryViewHTML(p.summary);
+      closeEditor();
+      toast(summary === null ? "Summary deleted" : "Summary saved");
+    } catch (err) {
+      error.textContent = `Couldn't ${summary === null ? "delete" : "save"} the summary. ${err.message}`;
+      error.hidden = false;
+      return;
+    } finally {
+      busy = false;
+      panel.removeAttribute("aria-busy");
+      input.readOnly = false;
+      $$("button", panel).forEach((b) => { b.disabled = false; });
+      save.textContent = "Save summary";
+      $("#confirm-delete-summary", panel).textContent = "Delete summary";
+      updateSave();
+    }
+    // Saving the shared summary must not throw away an unfinished staff note.
+    if (busyEditing()) { $("#upd").hidden = false; return; }
+    try { await afterMutation(); $("#edit-summary")?.focus({ preventScroll: true }); }
+    catch (err) { oops(err); }
+  };
+  input.addEventListener("input", updateSave);
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (!save.disabled) persist(input.value.trim());
+  });
+  panel.addEventListener("click", (e) => {
+    const id = e.target.closest("button")?.id;
+    if (busy) return;
+    if (id === "edit-summary") {
+      view.hidden = true;
+      form.hidden = false;
+      removal.hidden = error.hidden = true;
+      $("#summary-hint", panel).textContent = `${p.summary?.trim() ? "Editing summary" : "New summary"} · not saved yet`;
+      updateSave();
+      input.focus();
+    }
+    if (id === "cancel-summary" || id === "keep-summary") closeEditor();
+    if (id === "delete-summary") {
+      removal.hidden = false;
+      error.hidden = true;
+      $("#keep-summary", panel).focus();
+    }
+    if (id === "confirm-delete-summary") persist(null);
+  });
+}
+
 function wirePlayer(root, d) {
+  wireSummary(root, d.player);
   const p = d.player;
   root.addEventListener("click", async (e) => {
     const t = e.target.closest("button");
@@ -1549,7 +1645,6 @@ function wirePlayer(root, d) {
         location.hash = "#/players";
         return;
       }
-      if (t.id === "save-summary") { await api("PATCH", `/api/players/${p.id}`, { summary: $("#summary", root).value }); toast("Summary saved"); return await afterMutation(); }
       if (t.id === "add-role-btn") {
         const role = $("#add-role-sel", root).value;
         if (!role) return;
