@@ -10,8 +10,8 @@ import { mergePlayer } from '../src/lib/ncaa.js';
 import { boardLastReviews } from '../src/lib/review.js';
 import { addBoardRole, setBoardStar, removeBoardRole, moveBoardCard, validateBoardReason, recordBoardReason, boardHistory, registerBoardMoves, BOARD_EXIT_REASONS } from '../src/lib/board_reasons.js';
 
-const add = { source: 'Search: Video', on_behalf_of: 3, why: 'Fits the role in this synthetic example.' };
-const promote = { why: 'Prioritize this example.', on_behalf_of: 1 };
+const add = { source: 'Search: Video', why: 'Fits the role in this synthetic example.' };
+const promote = { why: 'Prioritize this example.' };
 const exit = { exit_reason: 'Role filled' };
 function setup(t) {
   const db = openDb(':memory:'); t.after(()=>db.raw.close());
@@ -19,7 +19,7 @@ function setup(t) {
   return db;
 }
 
-test('add, promote, drop back and take off are audited once with actor, role, attribution and persistent history', t=>{
+test('add, promote, drop back and take off are audited once with actor, role and persistent history', t=>{
   const db=setup(t);
   addBoardRole(db,1,'FWD1',add,2);
   const addId=db.get('SELECT reason_id FROM board_entries WHERE player_id=1').reason_id;
@@ -30,7 +30,7 @@ test('add, promote, drop back and take off are audited once with actor, role, at
   assert.equal(db.get('SELECT count(*) n FROM board_entries').n,0);
   const history=boardHistory(db,1);
   assert.deepEqual(history.map(r=>r.kind),['take_off','drop_back','promote','add']);
-  assert.equal(history.at(-1).user_id,2);assert.equal(history.at(-1).on_behalf_of,3);
+  assert.equal(history.at(-1).user_id,2);
   assert.equal(history.at(-1).role,'FWD1');assert.ok(history.at(-1).created_at);
   const acts=db.all('SELECT * FROM activity ORDER BY id');
   assert.deepEqual(acts.map(r=>r.action),['added_role','shortlisted','unshortlisted','removed_role']);
@@ -39,9 +39,9 @@ test('add, promote, drop back and take off are audited once with actor, role, at
   assert.equal(boardLastReviews(db).size,0); // player remains tracked, no board spot
 });
 
-test('validation rejects missing/blank text, source choices, unknown staff and incomplete exits before any write', t=>{
+test('validation rejects missing/blank text, source choices and incomplete exits before any write', t=>{
   const db=setup(t);
-  for (const reason of [undefined,{},[],{...add,why:'   '},{...add,source:null},{...add,source:'made up'},{...add,on_behalf_of:999},{...add,why:{}},{...add,why:'x'.repeat(4001)}]) {
+  for (const reason of [undefined,{},[],{...add,why:'   '},{...add,source:null},{...add,source:'made up'},{...add,why:{}},{...add,why:'x'.repeat(4001)}]) {
     assert.throws(()=>addBoardRole(db,1,'FWD1',reason,1));
     assert.equal(db.get('SELECT count(*) n FROM board_entries').n,0);
     assert.equal(db.get('SELECT count(*) n FROM board_reasons').n,0);
@@ -54,7 +54,7 @@ test('validation rejects missing/blank text, source choices, unknown staff and i
     assert.throws(()=>removeBoardRole(db,1,'FWD1',reason,1));
     assert.equal(db.get('SELECT shortlist FROM board_entries').shortlist,1);
   }
-  for(const choice of BOARD_EXIT_REASONS)assert.equal(validateBoardReason(db,'take_off',{exit_reason:choice,note:'Example'},1).exit_reason,choice);
+  for(const choice of BOARD_EXIT_REASONS)assert.equal(validateBoardReason('take_off',{exit_reason:choice,note:'Example'}).exit_reason,choice);
   assert.throws(()=>setBoardStar(db,1,'FWD1','false',exit,1));
 });
 
@@ -112,8 +112,8 @@ test('missing or forged starting roles cannot bypass reasons; multi-role creatio
 
 test('tracking reason is optional and merges retain recorded history', t=>{
   const db=setup(t);
-  assert.equal(validateBoardReason(db,'track'),null);assert.equal(validateBoardReason(db,'track',{}),null);
-  const reason=validateBoardReason(db,'track',{source:'Referral: Agent',why:'Track the example.'});
+  assert.equal(validateBoardReason('track'),null);assert.equal(validateBoardReason('track',{}),null);
+  const reason=validateBoardReason('track',{source:'Referral: Agent',why:'Track the example.'});
   recordBoardReason(db,2,null,'track',reason,2);
   addBoardRole(db,2,'FWD1',add,2);
   mergePlayer(db,2,1);
@@ -165,10 +165,9 @@ test('merging overlapping roles preserves the newer reason without inventing a m
   assert.equal(db.get('SELECT reason_id FROM board_entries WHERE player_id=1').reason_id,newer);
 });
 
-test('source menu values and staff IDs are validated without allowing inherited object keys as roles',t=>{
+test('source menu values are validated without allowing inherited object keys as roles',t=>{
   const db=setup(t);
-  for(const source of ['Search: Data screen','Search: Video','Search: NCAA database','Search: Live','Search: Other scouting','Referral: Staff','Referral: Agent','Referral: Contact'])assert.equal(validateBoardReason(db,'add',{...add,source}).source,source);
-  for(const on_behalf_of of [true,{},[],999])assert.throws(()=>validateBoardReason(db,'promote',{...promote,on_behalf_of}));
+  for(const source of ['Search: Data screen','Search: Video','Search: NCAA database','Search: Live','Search: Other scouting','Referral: Staff','Referral: Agent','Referral: Contact'])assert.equal(validateBoardReason('add',{...add,source}).source,source);
   for(const role of ['__proto__','constructor',{},['FWD1']]) {
     assert.throws(()=>addBoardRole(db,1,role,add,1));
     assert.throws(()=>moveBoardCard(db,1,{from_role:role,to_role:'FWD1',reason:add},1),e=>e.status===400);

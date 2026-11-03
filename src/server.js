@@ -168,7 +168,7 @@ function hydrate(p) {
 const PLAYER_SELECT = `
   SELECT p.*,
     (SELECT json_group_array(json_object('role', b.role, 'rank', b.rank, 'shortlist', b.shortlist,
-      'reason', json_object('id', r.id, 'kind', r.kind, 'source', r.source, 'why', r.why, 'on_behalf_of', r.on_behalf_of)))
+      'reason', json_object('id', r.id, 'kind', r.kind, 'source', r.source, 'why', r.why)))
       FROM board_entries b LEFT JOIN board_reasons r ON r.id = b.reason_id WHERE b.player_id = p.id) AS roles_json,
     (SELECT json_group_object(u.name, v.verdict) FROM verdicts v JOIN users u ON u.id = v.user_id WHERE v.player_id = p.id) AS verdicts_json,
     (SELECT count(*) FROM notes n WHERE n.player_id = p.id) AS note_count,
@@ -467,7 +467,7 @@ app.post("/api/players", async (c) => {
   const body = await c.req.json();
   if (!Array.isArray(body.roles ?? []) || (body.roles || []).some((r) => typeof r !== "string" || !Object.hasOwn(ROLES, r))) fail(400, "Choose valid board roles");
   const roles = [...new Set(body.roles || [])];
-  const boardReason = validateBoardReason(db, roles.length ? "add" : "track", body.reason);
+  const boardReason = validateBoardReason(roles.length ? "add" : "track", body.reason);
   let fields, source;
   if (body.tm_url) {
     const parsed = parseTmUrl(body.tm_url) || fail(400, "Invalid Transfermarkt link");
@@ -908,7 +908,7 @@ app.get("/api/impect/shortlists", async (c) => {
 app.post("/api/impect/shortlists/:id/import", async (c) => {
   const user = c.get("user");
   const { role = null, reason: reasonInput } = await c.req.json().catch(() => ({}));
-  const boardReason = role ? validateBoardReason(db, "add", reasonInput) : null;
+  const boardReason = role ? validateBoardReason("add", reasonInput) : null;
   if (role && !ROLES[role] && !SPLIT_ROLES[role]) fail(400, `Unknown role ${role}`);
   const sl = (await impectShortLists()).find((l) => l.id === c.req.param("id")) || fail(404, "Short list not found in Impect");
   let meta = new Map();

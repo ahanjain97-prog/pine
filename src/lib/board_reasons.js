@@ -16,32 +16,26 @@ const text = (value, name) => {
 };
 
 // The caller chooses the kind, actor and role from the actual transition, never from client claims.
-export function validateBoardReason(db, kind, input) {
+export function validateBoardReason(kind, input) {
   if (kind === 'track' && input == null) return null;
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail(400, 'A written board reason is required');
-  const reason = { source: text(input.source, 'Source'), on_behalf_of: null,
+  const reason = { source: text(input.source, 'Source'),
     why: text(input.why, 'Why'), exit_reason: text(input.exit_reason, 'Exit reason'), note: text(input.note, 'Note') };
   if (reason.source && !sources.includes(reason.source)) fail(400, 'Choose a valid source');
-  if (input.on_behalf_of != null && input.on_behalf_of !== '') {
-    if (!['number', 'string'].includes(typeof input.on_behalf_of)) fail(400, 'Choose a staff member for On behalf of');
-    const id = Number(input.on_behalf_of);
-    if (!Number.isSafeInteger(id) || id <= 0 || !db.get('SELECT 1 FROM users WHERE id = ?', id)) fail(400, 'Choose a staff member for On behalf of');
-    reason.on_behalf_of = id;
-  }
   if (kind === 'add' && !reason.source) fail(400, 'Source is required when adding a board role');
   if (['add', 'promote'].includes(kind) && !reason.why) fail(400, 'Why is required');
   if (['drop_back', 'take_off'].includes(kind)) {
     if (!BOARD_EXIT_REASONS.includes(reason.exit_reason)) fail(400, 'Choose an exit reason');
     if (reason.exit_reason === 'Other' && !reason.note) fail(400, 'A note is required for Other');
-    reason.source = null; reason.on_behalf_of = null; reason.why = null;
+    reason.source = null; reason.why = null;
   } else { reason.exit_reason = null; reason.note = null; }
-  return kind === 'track' && !reason.source && !reason.on_behalf_of && !reason.why ? null : reason;
+  return kind === 'track' && !reason.source && !reason.why ? null : reason;
 }
 
 export function recordBoardReason(db, playerId, role, kind, reason, userId) {
   if (!reason) return null;
-  const id = Number(db.run(`INSERT INTO board_reasons(player_id,role,kind,source,on_behalf_of,why,exit_reason,note,user_id)
-    VALUES (?,?,?,?,?,?,?,?,?)`, playerId, role, kind, reason.source, reason.on_behalf_of, reason.why, reason.exit_reason, reason.note, userId).lastInsertRowid);
+  const id = Number(db.run(`INSERT INTO board_reasons(player_id,role,kind,source,why,exit_reason,note,user_id)
+    VALUES (?,?,?,?,?,?,?,?)`, playerId, role, kind, reason.source, reason.why, reason.exit_reason, reason.note, userId).lastInsertRowid);
   if (kind === 'add' || kind === 'promote') db.run('UPDATE board_entries SET reason_id = ? WHERE player_id = ? AND role = ?', id, playerId, role);
   return id;
 }
@@ -53,7 +47,7 @@ export function addBoardRole(db, playerId, role, input, userId) {
   checkRole(role);
   return db.tx(() => {
     if (entry(db, playerId, role)) return false;
-    const reason = validateBoardReason(db, 'add', input);
+    const reason = validateBoardReason('add', input);
     addRole(db, playerId, role);
     recordBoardReason(db, playerId, role, 'add', reason, userId);
     logActivity(db, userId, playerId, 'added_role', { role, reason });
@@ -68,7 +62,7 @@ export function setBoardStar(db, playerId, role, on, input, userId) {
     const old = entry(db, playerId, role);
     if (!old) fail(400, 'Player is not on the Big Board in that role');
     if (Boolean(old.shortlist) === on) return false;
-    const kind = on ? 'promote' : 'drop_back', reason = validateBoardReason(db, kind, input);
+    const kind = on ? 'promote' : 'drop_back', reason = validateBoardReason(kind, input);
     db.run('UPDATE board_entries SET shortlist = ? WHERE player_id = ? AND role = ?', Number(on), playerId, role);
     recordBoardReason(db, playerId, role, kind, reason, userId);
     logActivity(db, userId, playerId, on ? 'shortlisted' : 'unshortlisted', { role, reason });
@@ -81,7 +75,7 @@ export function removeBoardRole(db, playerId, role, input, userId) {
   return db.tx(() => {
     const old = entry(db, playerId, role);
     if (!old) return false;
-    const reason = validateBoardReason(db, 'take_off', input);
+    const reason = validateBoardReason('take_off', input);
     db.run('DELETE FROM board_entries WHERE player_id = ? AND role = ?', playerId, role);
     compactRanks(db, role);
     recordBoardReason(db, playerId, role, 'take_off', reason, userId);
@@ -101,7 +95,7 @@ export function moveBoardCard(db, playerId, body, userId) {
     if (copy && (!from || from === to)) fail(400, 'Pick a different role to duplicate into');
     // A genuine role transfer is exempt; an absent/fabricated origin cannot bypass add validation.
     const kind = copy ? (!target ? 'add' : !target.shortlist ? 'promote' : null) : !origin && !target ? 'add' : null;
-    const reason = kind ? validateBoardReason(db, kind, body.reason) : null;
+    const reason = kind ? validateBoardReason(kind, body.reason) : null;
     const before = from ? spotIn(db, playerId, from) : null;
     const spot = copy ? copyToRole(db, playerId, to, index) : moveOnBoard(db, playerId, from, to, index);
     if (from && from !== to && !copy) compactRanks(db, from);
@@ -113,8 +107,8 @@ export function moveBoardCard(db, playerId, body, userId) {
 }
 
 export function boardHistory(db, playerId) {
-  return db.all(`SELECT r.*, u.name AS user, behalf.name AS on_behalf_of_name
-    FROM board_reasons r JOIN users u ON u.id = r.user_id LEFT JOIN users behalf ON behalf.id = r.on_behalf_of
+  return db.all(`SELECT r.id, r.player_id, r.role, r.kind, r.source, r.why, r.exit_reason, r.note, r.user_id, r.created_at, u.name AS user
+    FROM board_reasons r JOIN users u ON u.id = r.user_id
     WHERE r.player_id = ? ORDER BY r.created_at DESC, r.id DESC`, playerId);
 }
 

@@ -208,7 +208,6 @@ CREATE TABLE IF NOT EXISTS board_reasons(
   role TEXT,
   kind TEXT NOT NULL CHECK (kind IN ('add','promote','drop_back','take_off','track')),
   source TEXT,
-  on_behalf_of INTEGER REFERENCES users(id),
   why TEXT, exit_reason TEXT, note TEXT,
   user_id INTEGER NOT NULL REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))

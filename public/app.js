@@ -187,7 +187,6 @@ function askBoardReason(kind, player, roles = [], context = '') {
         <label class="lbl" for="br-note">Note <span id="br-note-required">(optional)</span></label><textarea id="br-note" name="note" rows="3" maxlength="4000"></textarea>`
         : `${kind === 'add' || optional ? `<label class="lbl" for="br-source">Source ${optional ? '(optional)' : '*'}</label>
           <select id="br-source" name="source" ${optional ? '' : 'required'}><option value="">Choose a source…</option>${Object.entries(S.config.board_reasons.sources).map(([g,opts])=>`<optgroup label="${esc(g)}">${opts.map(v=>`<option value="${esc(g+': '+v)}">${esc(v)}</option>`).join('')}</optgroup>`).join('')}</select>` : ''}
-        <label class="lbl" for="br-behalf">On behalf of (optional)</label><select id="br-behalf" name="on_behalf_of"><option value="">My own recommendation</option>${S.config.staff.map(u=>`<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select>
         <label class="lbl" for="br-why">Why ${optional ? '(optional)' : '*'}</label><textarea id="br-why" name="why" rows="4" maxlength="4000" ${optional ? '' : 'required'} placeholder="Explain the board decision…"></textarea>`}
       <div class="m-actions"><button type="button" class="btn ghost" data-br-cancel>Cancel</button>${optional ? '<button type="button" class="btn" data-br-skip>Add without a reason</button>' : ''}<button type="submit" class="btn primary">${titles[kind]}</button></div>
     </form></div>`;
@@ -236,8 +235,7 @@ function askBoardReason(kind, player, roles = [], context = '') {
 
 const boardMoveLabel = kind => ({ add: 'Added to Big Board', promote: 'Promoted to Short Board', drop_back: 'Dropped back from Short Board', take_off: 'Taken off Big Board', track: 'Added to PINE' })[kind] || kind;
 function boardReasonDetails(r) {
-  const behalf = r.on_behalf_of_name || S.config.staff.find(u=>u.id === Number(r.on_behalf_of))?.name;
-  return [r.source, r.exit_reason, behalf ? `On behalf of ${behalf}` : '', r.why ? `Why: ${r.why}` : '', r.note ? `Note: ${r.note}` : ''].filter(Boolean);
+  return [r.source, r.exit_reason, r.why ? `Why: ${r.why}` : '', r.note ? `Note: ${r.note}` : ''].filter(Boolean);
 }
 function boardReasonTooltip(p, role) {
   const r = p.roles.find(r=>r.role === role)?.reason;
