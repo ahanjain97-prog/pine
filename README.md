@@ -190,8 +190,8 @@ syncs leave the signing status alone.
 - **Short Board** (`#/short-board`): the same pitch, positions and roles as the big board, showing only the
   top targets. Each role shows its starred-player count as **N/5**, shaded red when the count exceeds five.
   Starring a player requires a written **Why**. Unstarring requires an **Exit
-  reason**: Not good enough on film, Too expensive, Re-signed, Signed elsewhere, Role filled, No longer a
-  need, or Other (with a required note). These in-page dialogs save the reason to Activity and the player's
+  reason**: Not good enough on film, Data review, Too expensive, Re-signed, Signed elsewhere, Role filled,
+  No longer a need, or Other (with a required note). These in-page dialogs save the reason to Activity and the player's
   **Board history**. Duplicating into a new role asks for the Big Board add reason. Reranks and role transfers
   keep their stars and need no written reason. Hover cards to read their latest add or promotion reason.
   Cards here carry no review flag: top targets are left out of it.
