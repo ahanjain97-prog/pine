@@ -202,6 +202,17 @@ CREATE TABLE IF NOT EXISTS activity(
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS activity_player_user ON activity(player_id, user_id);
+CREATE TABLE IF NOT EXISTS board_reasons(
+  id INTEGER PRIMARY KEY,
+  player_id INTEGER REFERENCES players(id) ON DELETE SET NULL,
+  role TEXT,
+  kind TEXT NOT NULL CHECK (kind IN ('add','promote','drop_back','take_off','track')),
+  source TEXT,
+  why TEXT, exit_reason TEXT, note TEXT,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS board_reasons_player ON board_reasons(player_id, created_at, id);
 `;
 
 const STAFF = [
@@ -236,6 +247,10 @@ export function openDb(file) {
   }
   if (!raw.prepare("PRAGMA table_info(board_entries)").all().some((c) => c.name === "shortlist")) {
     raw.exec("ALTER TABLE board_entries ADD COLUMN shortlist INTEGER NOT NULL DEFAULT 0");
+  }
+  // A link survives role rewrites; the history itself never depends on a board entry existing.
+  if (!raw.prepare("PRAGMA table_info(board_entries)").all().some((c) => c.name === "reason_id")) {
+    raw.exec("ALTER TABLE board_entries ADD COLUMN reason_id INTEGER REFERENCES board_reasons(id)");
   }
   if (!raw.prepare("PRAGMA table_info(cards)").all().some((c) => c.name === "progress")) {
     raw.exec("ALTER TABLE cards ADD COLUMN progress TEXT");
