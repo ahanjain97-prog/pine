@@ -1,7 +1,7 @@
 import { logActivity } from "../db.js";
 
+// Big Board players flag after this many days without a review; top targets (the Short Board) never flag.
 export const REVIEW_AFTER_DAYS = 28;
-export const SHORT_BOARD_REVIEW_AFTER_DAYS = 14;
 
 // Staff review only: syncs, imports, card requests and hidden history never reset the clock.
 const REVIEW_ACTIONS = [

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { Hono } from "hono";
 import { openDb } from "../src/db.js";
-import { boardLastReviews, registerReview, REVIEW_AFTER_DAYS, SHORT_BOARD_REVIEW_AFTER_DAYS } from "../src/lib/review.js";
+import { boardLastReviews, registerReview, REVIEW_AFTER_DAYS } from "../src/lib/review.js";
 
 function setup(t) {
   const db = openDb(":memory:");
@@ -70,7 +70,7 @@ test("Mark reviewed requires staff, records the canonical player and clears stal
 const source = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
 function cardHarness() {
   const context = vm.createContext({
-    S: { config: { review_after_days: REVIEW_AFTER_DAYS, short_board_review_after_days: SHORT_BOARD_REVIEW_AFTER_DAYS } },
+    S: { config: { review_after_days: REVIEW_AFTER_DAYS } },
     Date: class extends Date { static now() { return Date.parse("2026-11-03T12:00:00Z"); } },
     rankIn: () => 0, isNcaa: () => false, isTopTarget: (p) => p.starred,
     esc: (s) => String(s), photo: () => "", nameWithMark: (p) => p.name,
@@ -83,17 +83,20 @@ function cardHarness() {
   return context;
 }
 
-test("Big Board flags at exactly 28 days, including stars and all roles; roleless cards stay unchanged", () => {
+test("Big Board flags at exactly 28 days in every role; top targets and roleless cards stay unflagged", () => {
   const ctx = cardHarness();
-  const p = { id: 1, name: "Example", roles: [], starred: true, last_review_at: "2026-10-06 12:00:00" };
+  const p = { id: 1, name: "Example", roles: [{ role: "FWD1", shortlist: 0 }, { role: "FWD2", shortlist: 0 }], starred: false,
+    last_review_at: "2026-10-06 12:00:00" };
   for (const role of ["FWD1", "FWD2"]) {
     const card = ctx.boardCard(p, role);
     assert.match(card, /needs-review/);
     assert.match(card, /title="Last review 28 days ago">Review<\/span>/);
     assert.match(card, /class="review-heading">Example<span class="roster review"/); // separate from tagRow
     assert.match(card, /class="review-age">Last review 28 days ago<\/span>/);
-    assert.match(card, /class="star on"/);
   }
+  // Starred in any role = on the Short Board: no flag on any of their Big Board cards.
+  const target = { ...p, roles: [{ role: "FWD1", shortlist: 1 }, { role: "FWD2", shortlist: 0 }], starred: true };
+  for (const role of ["FWD1", "FWD2"]) assert.doesNotMatch(ctx.boardCard(target, role), /needs-review|>Review<|review-age/);
   assert.doesNotMatch(ctx.boardCard(p, null), /needs-review|>Review</);
   for (const last_review_at of ["2026-10-06 12:00:01", "2026-11-03T12:00:00Z", null, "bad-date"]) {
     assert.doesNotMatch(ctx.boardCard({ ...p, last_review_at }, "FWD1"), /needs-review|>Review</);
@@ -108,22 +111,12 @@ test("Big Board flags at exactly 28 days, including stars and all roles; roleles
   assert.doesNotMatch(crowded, /title="[^"]*Review/);
 });
 
-test("Short Board flags at exactly 14 days using the same review age; Big Board still waits 28 days", () => {
+test("Short Board cards never carry the review flag, however long since the last review", () => {
   const ctx = cardHarness();
-  const p = { id: 1, name: "Example", roles: [], starred: true, last_review_at: "2026-10-20 12:00:00" };
-  for (const role of ["FWD1", "FWD2"]) {
-    const card = ctx.boardCard(p, role, true, 0);
-    assert.match(card, /needs-review/);
-    assert.match(card, /title="Last review 14 days ago">Review<\/span>/);
-    assert.match(card, /class="review-age">Last review 14 days ago<\/span>/);
+  const p = { id: 1, name: "Example", roles: [{ role: "FWD1", shortlist: 1 }], starred: true };
+  for (const last_review_at of ["2026-10-20 12:00:00", "2026-10-06 12:00:00", "2025-01-01 12:00:00"]) {
+    const card = ctx.boardCard({ ...p, last_review_at }, "FWD1", true, 0);
+    assert.doesNotMatch(card, /needs-review|>Review<|review-age/);
     assert.match(card, /class="star on"/);
-    assert.doesNotMatch(ctx.boardCard(p, role), /needs-review|review-age/);
   }
-  for (const last_review_at of ["2026-10-20 12:00:01", "2026-11-03T12:00:00Z", null, "bad-date"]) {
-    assert.doesNotMatch(ctx.boardCard({ ...p, last_review_at }, "FWD1", true, 0), /needs-review|review-age/);
-  }
-  const older = { ...p, last_review_at: "2026-10-18 12:00:00" };
-  assert.match(ctx.boardCard(older, "FWD1", true, 0), /Last review 16 days ago/);
-  assert.doesNotMatch(ctx.boardCard(older, "FWD1"), /needs-review|review-age/);
-  assert.match(ctx.boardCard({ ...p, last_review_at: "2026-10-06 12:00:00" }, "FWD1", true, 0), /Last review 28 days ago/);
 });

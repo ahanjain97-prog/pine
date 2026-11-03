@@ -155,7 +155,8 @@ syncs leave the signing status alone.
 - **Big Board** (`#/board`): pitch layout of all 11 positions and 25 roles from the depth chart. Each role
   shows its player count as **N/20**, shaded red when the count exceeds 20. Cards
   get a solid red **REVIEW** pill and a red **Last review N days ago** line after 28 days without a review
-  (the card itself stays plain), including starred players on this view; hovering the pill shows the age too.
+  (the card itself stays plain); hovering the pill shows the age too. Players on the Short Board (starred in any
+  role) never get the flag, on either board.
   A review is a staff note added or edited, a verdict or club
   decision set, a board role added, a card moved on the Big Board, or **Mark reviewed** on the player page.
   The clock is per player across all roles, using visible staff activity; automated syncs, Impect refreshes
@@ -180,9 +181,7 @@ syncs leave the signing status alone.
   a tooltip), and the verdict dots only once someone has a verdict.
 - **Short Board** (`#/short-board`): the same pitch, positions and roles as the big board, showing only the
   top targets. Each role shows its starred-player count as **N/5**, shaded red when the count exceeds five.
-  Cards get the same red **REVIEW** flag and visible review age after **14 days** without a
-  review, using the same per-player activity history and creation-date fallback as the Big Board.
-  The Short Board limit is `SHORT_BOARD_REVIEW_AFTER_DAYS` in `src/lib/review.js`; the Big Board stays at 28 days.
+  Cards here carry no review flag: top targets are left out of it.
   A player becomes a top target by the ☆ on their board card (or the ☆ beside a role on their player
   page), per role, so the same player can be a target at one role and not another. Order follows the big
   board, and dragging a card here reorders it there too. Dropping a card into another role asks whether to

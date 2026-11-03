@@ -402,7 +402,7 @@ function renderShortBoard(main) {
         <div class="board-stats"><span><b>${targets.length}</b> top target${targets.length === 1 ? "" : "s"}</span>
           <span><b>${count("pass")}</b> pass</span><span><b>${count("hold")}</b> hold</span><span><b>${count("fail")}</b> fail</span></div></div>
       <div class="spacer"></div>
-      <div class="filters"><span class="muted sm">Star a player on the Big Board to add them here. Drag to reorder, or onto another role to move or duplicate them.</span>${legendHTML(false, S.config.short_board_review_after_days)}</div>
+      <div class="filters"><span class="muted sm">Star a player on the Big Board to add them here. Drag to reorder, or onto another role to move or duplicate them.</span>${legendHTML()}</div>
     </div>
     ${targets.length ? "" : `<p class="empty">No top targets yet. On the <a href="#/board">Big Board</a>, click the ☆ on a player's card to add them.</p>`}
     <div class="pitch-wrap"><div class="pitch">${S.config.positions.map((pos) => posBox(pos, true)).join("")}</div></div>
@@ -490,7 +490,7 @@ function legendHTML(ncaa = false, reviewAfterDays = null) {
   return `<details class="legend"><summary class="btn">Key</summary><div class="lg-pop">
     ${item(`<span class="lg-stripe"></span>`, "Left stripe: the club decision (green pass, amber hold, red fail)")}
     ${item(signedBadge({ is_signed: true }), "Officially signed to Hearts of Pine; magenta frame on the player card")}
-    ${reviewAfterDays != null ? item(`<span class="roster review">Review</span>`, `Review pill: no review in ${reviewAfterDays} days or more; the card shows days since last review in red`) : ""}
+    ${reviewAfterDays != null ? item(`<span class="roster review">Review</span>`, `Review pill: no review in ${reviewAfterDays} days or more (never for players on the Short Board); the card shows days since last review in red`) : ""}
     ${ncaa ? item(`<span class="bbtag">BB</span>`, "On the Big Board, the college players being pursued; hover anyone else for + BB")
       : item(`<span class="vdots"><i class="vdot v-pass"></i><i class="vdot v-hold"></i><i class="vdot"></i></span>`, "Staff verdicts, one dot per person (shown once anyone has one)")}
     ${item("★", "Top target: on the Short Board")}
@@ -515,8 +515,9 @@ function boardCard(p, role, targetsOnly = false, spot = null) {
   const place = targetsOnly && spot != null ? spot : rankIn(p, role);
   const reviewed = toDate(p.last_review_at);
   const days = reviewed ? Math.floor((Date.now() - reviewed) / 864e5) : null;
-  const reviewAfterDays = targetsOnly ? S.config.short_board_review_after_days : S.config.review_after_days;
-  const needsReview = Boolean(role && days != null && days >= reviewAfterDays);
+  // Top targets (anyone on the Short Board) never get the review flag, on either board.
+  const onShortBoard = (p.roles || []).some((r) => r.shortlist);
+  const needsReview = Boolean(role && !onShortBoard && days != null && days >= S.config.review_after_days);
   // Outside tagRow's three-tag limit: Review must always remain visible.
   const review = needsReview ? `<span class="roster review" title="Last review ${days} days ago">Review</span>` : "";
   const heading = needsReview ? `<span class="review-heading">${nameWithMark(p)}${review}</span>` : nameWithMark(p);
