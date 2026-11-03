@@ -162,7 +162,8 @@ syncs leave the signing status alone.
   and card requests do not count. With no qualifying activity it starts when the player was added to PINE,
   so existing stale players are flagged immediately. The limit is `REVIEW_AFTER_DAYS` in `src/lib/review.js`.
   The Short Board and NCAA views are unchanged. Drag cards
-  to rank within a role or move between roles; drag to "Not on the board" to take a player off. Card stripe
+  to rank within a role or move between roles; remove a role from the player's page to take them off.
+  Players without a Big Board role stay searchable and in the Database tab, without a list below the board. Card stripe
   = club decision, dots = the six staff verdicts, DOM / INTL = domestic (US citizen, from Transfermarkt citizenship)
   or international. Green cards aren't on Transfermarkt and its citizenship is sometimes wrong, so Edit details
   on the player page can set the roster status to Domestic or International by hand; syncs leave that alone.
@@ -173,7 +174,7 @@ syncs leave the signing status alone.
   or college profile's school; initials count, so LMU = Loyola Marymount).
   College players whose league names NCAA also carry a lavender tag beside DOM / INTL: their college grade
   ("B/B") when the college database grades them, otherwise "NCAA". Cards shorten college clubs to the team name.
-  College players on the NCAA board without a Big Board role stay in the NCAA board's tray, not this one. Pasting a college player's
+  College players without a Big Board role remain in the NCAA section. Pasting a college player's
   Transfermarkt link sets the league to NCAA (Transfermarkt has no league for college programs; the club name
   ends with the school in brackets, e.g. "Indiana Hoosiers (Indiana University)"). A league edited by hand wins.
   Each board has a **Key** explaining its marks. Cards show at most three tags (extra ones fold into "+N" with
