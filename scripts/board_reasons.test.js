@@ -151,7 +151,7 @@ test('all four board API routes enforce reasons and staff identity',async t=>{
   assert.equal((await request('POST','/api/board/shortlist',{player_id:1,role:'FWD1',on:true,reason:promote})).status,200);
   assert.equal((await request('POST','/api/board/shortlist',{player_id:1,role:'FWD1',on:false})).status,400);
   assert.equal((await request('DELETE','/api/players/1/roles/FWD1')).status,400);
-  assert.equal((await request('DELETE','/api/players/1/roles/FWD1',{reason:exit})).status,200);
+  assert.equal((await request('DELETE','/api/players/1/roles/FWD1',{reason:{exit_reason:'Unwilling to play in League One'}})).status,200);
   assert.equal(boardHistory(db,1).length,3);assert.equal(boardHistory(db,1).at(-1).user_id,2);
 });
 
