@@ -12,7 +12,7 @@ import { addBoardRole, setBoardStar, removeBoardRole, moveBoardCard, validateBoa
 
 const add = { source: 'Search: Video', why: 'Fits the role in this synthetic example.' };
 const promote = { why: 'Prioritize this example.' };
-const exit = { exit_reason: 'Role filled' };
+const exit = { exit_reason: 'Data review' };
 function setup(t) {
   const db = openDb(':memory:'); t.after(()=>db.raw.close());
   for (const id of [1,2,3]) db.run("INSERT INTO players(id,name,created_at) VALUES (?,?,'2026-01-01 00:00:00')",id,`Example ${id}`);
@@ -151,7 +151,7 @@ test('all four board API routes enforce reasons and staff identity',async t=>{
   assert.equal((await request('POST','/api/board/shortlist',{player_id:1,role:'FWD1',on:true,reason:promote})).status,200);
   assert.equal((await request('POST','/api/board/shortlist',{player_id:1,role:'FWD1',on:false})).status,400);
   assert.equal((await request('DELETE','/api/players/1/roles/FWD1')).status,400);
-  assert.equal((await request('DELETE','/api/players/1/roles/FWD1',{reason:exit})).status,200);
+  assert.equal((await request('DELETE','/api/players/1/roles/FWD1',{reason:{exit_reason:'Unwilling to play in League One'}})).status,200);
   assert.equal(boardHistory(db,1).length,3);assert.equal(boardHistory(db,1).at(-1).user_id,2);
 });
 
