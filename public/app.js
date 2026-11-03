@@ -421,6 +421,7 @@ function renderShortBoard(main) {
 // Board colour by line of the team: attack, midfield, defence, keeper. Kept clear of the pass/hold/fail
 // colours, which stay reserved for decisions.
 const POS_LINE = { FWD: "att", LW: "att", RW: "att", AM: "att", CM: "mid", CDM: "mid", LB: "def", RB: "def", LCB: "def", RCB: "def", GK: "gk" };
+const BIG_BOARD_ROLE_TARGET = 20;
 
 function posBox(pos, targetsOnly = false) {
   const inRole = targetsOnly ? targetsInRole : playersInRole;
@@ -431,8 +432,10 @@ function posBox(pos, targetsOnly = false) {
     <div class="lanes">${pos.roles.map(([code, label]) => {
       const list = inRole(code);
       const num = roleInfo(code).num;
+      const aboveTarget = !targetsOnly && list.length > BIG_BOARD_ROLE_TARGET;
+      const count = targetsOnly ? list.length : `${list.length}/${BIG_BOARD_ROLE_TARGET}`;
       return `<div class="lane">
-        <div class="lane-h"><span class="lane-t" title="${esc(pos.code)} #${num}: ${esc(label)}"><b>#${num}</b>${esc(label)}</span><span class="lane-n">${list.length}</span>
+        <div class="lane-h"><span class="lane-t" title="${esc(pos.code)} #${num}: ${esc(label)}"><b>#${num}</b>${esc(label)}</span><span class="lane-n${aboveTarget ? " over-target" : ""}">${count}</span>
           ${targetsOnly ? "" : `<button type="button" class="icon-btn" data-add-role="${code}" title="Add a player to ${esc(label)}" aria-label="Add a player to ${esc(pos.code)} ${esc(label)}">+</button>`}</div>
         <div class="lane-body" data-role="${code}" ${targetsOnly ? 'data-short="1"' : ""}>${list.map((p, i) => boardCard(p, code, targetsOnly, i)).join("")
           || `<div class="lane-empty">${targetsOnly ? "No top targets yet" : "Drop players here"}</div>`}</div>

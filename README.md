@@ -152,7 +152,8 @@ the status if needed. This is separate from Pass / Hold / Fail and does not move
 change their club details or alter board ranks. Changes are saved in Activity. Transfermarkt
 syncs leave the signing status alone.
 
-- **Big Board** (`#/board`): pitch layout of all 11 positions and 25 roles from the depth chart. Cards
+- **Big Board** (`#/board`): pitch layout of all 11 positions and 25 roles from the depth chart. Each role
+  shows its player count as **N/20**, shaded red when the count exceeds 20. Cards
   get a soft red background, red border and solid **REVIEW** pill after 28 days without a review, including
   starred players on this view. **Last review N days ago** appears on the card and on hover over the pill.
   A review is a staff note added or edited, a verdict or club
