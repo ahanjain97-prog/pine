@@ -388,7 +388,7 @@ function renderBoard(main) {
         <div class="seg" id="bf-dec">${decs.map(([k, l]) => `<button type="button" data-k="${k}" class="${k !== "all" && k !== "none" ? "v-" + k : ""} ${f.decision === k ? "on" : ""}">${l}</button>`).join("")}</div>
         <select id="bf-league" aria-label="League"><option value="">All leagues</option>${leaguesOf().map((l) => `<option value="${esc(l)}" ${f.league === l ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
         <input id="bf-q" type="search" placeholder="Filter the board…" value="${esc(f.q)}" aria-label="Filter the board">
-        ${legendHTML()}
+        ${legendHTML(false, true)}
       </div>
     </div>
     <div class="pitch-wrap"><div class="pitch">${S.config.positions.map((pos) => posBox(pos)).join("")}</div></div>
@@ -488,11 +488,12 @@ function tagRow(tags, max = 3) {
   return `${t.slice(0, max).join("")}<span class="roster more" title="${rest.join("&#10;")}">+${rest.length}</span>`;
 }
 // What the marks on a board mean, behind a "Key" button.
-function legendHTML(ncaa = false) {
+function legendHTML(ncaa = false, bigBoard = false) {
   const item = (mark, text) => `<div class="lg-row"><span class="lg-mark">${mark}</span><span>${text}</span></div>`;
   return `<details class="legend"><summary class="btn">Key</summary><div class="lg-pop">
     ${item(`<span class="lg-stripe"></span>`, "Left stripe: the club decision (green pass, amber hold, red fail)")}
     ${item(signedBadge({ is_signed: true }), "Officially signed to Hearts of Pine; magenta frame on the player card")}
+    ${bigBoard ? item(`<span class="roster review">Review</span>`, `Red border: no review in ${S.config.review_after_days} days or more (including starred players); hover for days since last review`) : ""}
     ${ncaa ? item(`<span class="bbtag">BB</span>`, "On the Big Board, the college players being pursued; hover anyone else for + BB")
       : item(`<span class="vdots"><i class="vdot v-pass"></i><i class="vdot v-hold"></i><i class="vdot"></i></span>`, "Staff verdicts, one dot per person (shown once anyone has one)")}
     ${item("★", "Top target: on the Short Board")}
@@ -515,6 +516,11 @@ const ncaaBadge = (p) => (isNcaa(p) ? `<span class="roster ncaa" title="College 
 // its place among the top targets (spot), so the targets read 1, 2, 3 rather than 1, 5, 6, 10.
 function boardCard(p, role, targetsOnly = false, spot = null) {
   const place = targetsOnly && spot != null ? spot : rankIn(p, role);
+  const reviewed = toDate(p.last_review_at);
+  const days = reviewed ? Math.floor((Date.now() - reviewed) / 864e5) : null;
+  const needsReview = Boolean(role && !targetsOnly && days != null && days >= S.config.review_after_days);
+  // Outside tagRow's three-tag limit: Review must always remain visible.
+  const review = needsReview ? `<span class="roster review" title="Last review ${days} days ago">Review</span>` : "";
   // College clubs carry the school in brackets ("Indiana Hoosiers (Indiana University)"); the team name is enough here.
   const club = p.club && isNcaa(p) ? p.club.replace(/\s*\([^)]*\)\s*$/, "") : p.club;
   const sub = [p.age, club].filter((x) => x != null && x !== "").join(" · ") || p.position || "";
@@ -523,9 +529,9 @@ function boardCard(p, role, targetsOnly = false, spot = null) {
   // intercepts it before the link fires.
   const star = role ? `<span class="star ${on ? "on" : ""}" data-star="${role}" role="button" tabindex="0"
     aria-pressed="${on}" title="${on ? "Remove from the Short Board" : "Add to the Short Board as a top target"}">${on ? "★" : "☆"}</span>` : "";
-  return `<a class="pcard ${p.is_signed ? "is-signed" : ""} ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
+  return `<a class="pcard ${needsReview ? "needs-review" : ""} ${p.is_signed ? "is-signed" : ""} ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
     ${role ? `<span class="rank ${place < 3 ? "podium" : ""}">${place + 1}</span>` : ""}${photo(p)}
-    <span class="ci">${nameWithMark(p)}<div class="nm-row"><span class="csub">${esc(sub)}</span>${tagRow([rosterBadge(p), ncaaBadge(p), l2Badge(p.l2)])}</div></span>${Object.keys(p.verdicts || {}).length ? verdictDots(p.verdicts) : ""}${star}</a>`;
+    <span class="ci">${nameWithMark(p)}<div class="nm-row"><span class="csub">${esc(sub)}</span>${tagRow([rosterBadge(p), ncaaBadge(p), l2Badge(p.l2)])}${review}</div></span>${Object.keys(p.verdicts || {}).length ? verdictDots(p.verdicts) : ""}${star}</a>`;
 }
 
 // Star clicks and Enter/Space on a star, on either board.
@@ -1113,6 +1119,7 @@ async function renderPlayer(main, idArg) {
             : `<form id="link-tm" class="row"><input type="url" required placeholder="Paste a Transfermarkt link to pull info" aria-label="Transfermarkt link"><button class="btn sm" type="submit">Link</button></form>`}
           <button type="button" class="btn sm ghost" id="share-p">Share</button>
           <button type="button" class="btn sm ghost" id="edit-p">Edit details</button>
+          <button type="button" class="btn sm ghost" id="mark-reviewed">Mark reviewed</button>
           ${S.me.is_admin ? `<button type="button" class="btn sm ghost danger" id="del-p">Delete</button>` : ""}
         </div>
       </div>
@@ -1506,6 +1513,14 @@ function wirePlayer(root, d) {
     if (!t || t.closest("#physical-panel, #impect-panel")) return;
     try {
       if (t.id === "back") { if (history.length > 1) history.back(); else location.hash = "#/board"; return; }
+      if (t.id === "mark-reviewed") {
+        t.disabled = true;
+        try {
+          await api("POST", `/api/players/${p.id}/review`);
+          toast("Player marked reviewed");
+          return await afterMutation();
+        } finally { t.disabled = false; }
+      }
       if (t.id === "toggle-signed") {
         t.disabled = true;
         try {
@@ -2962,6 +2977,7 @@ function describe(a, onPlayerPage = false) {
     case "set_verdict": return d.verdict ? `marked ${who} ${chip(d.verdict)}` : `cleared their verdict on ${who}`;
     case "added_note": return `added a note on ${who}`;
     case "edited_note": return `edited a note on ${who}`;
+    case "marked_reviewed": return `marked ${who} reviewed`;
     case "deleted_note": return `deleted a note on ${who}`;
     case "moved_on_board": {
       // Older entries only have the requested index; newer ones record the spot before and after (0-based).
