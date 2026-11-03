@@ -490,7 +490,7 @@ function legendHTML(ncaa = false, reviewAfterDays = null) {
   return `<details class="legend"><summary class="btn">Key</summary><div class="lg-pop">
     ${item(`<span class="lg-stripe"></span>`, "Left stripe: the club decision (green pass, amber hold, red fail)")}
     ${item(signedBadge({ is_signed: true }), "Officially signed to Hearts of Pine; magenta frame on the player card")}
-    ${reviewAfterDays != null ? item(`<span class="roster review">Review</span>`, `Red card and Review pill: no review in ${reviewAfterDays} days or more; the card shows days since last review`) : ""}
+    ${reviewAfterDays != null ? item(`<span class="roster review">Review</span>`, `Review pill: no review in ${reviewAfterDays} days or more; the card shows days since last review in red`) : ""}
     ${ncaa ? item(`<span class="bbtag">BB</span>`, "On the Big Board, the college players being pursued; hover anyone else for + BB")
       : item(`<span class="vdots"><i class="vdot v-pass"></i><i class="vdot v-hold"></i><i class="vdot"></i></span>`, "Staff verdicts, one dot per person (shown once anyone has one)")}
     ${item("★", "Top target: on the Short Board")}

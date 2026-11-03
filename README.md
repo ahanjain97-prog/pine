@@ -154,8 +154,8 @@ syncs leave the signing status alone.
 
 - **Big Board** (`#/board`): pitch layout of all 11 positions and 25 roles from the depth chart. Each role
   shows its player count as **N/20**, shaded red when the count exceeds 20. Cards
-  get a soft red background, red border and solid **REVIEW** pill after 28 days without a review, including
-  starred players on this view. **Last review N days ago** appears on the card and on hover over the pill.
+  get a solid red **REVIEW** pill and a red **Last review N days ago** line after 28 days without a review
+  (the card itself stays plain), including starred players on this view; hovering the pill shows the age too.
   A review is a staff note added or edited, a verdict or club
   decision set, a board role added, a card moved on the Big Board, or **Mark reviewed** on the player page.
   The clock is per player across all roles, using visible staff activity; automated syncs, Impect refreshes

@@ -855,9 +855,7 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
   background: var(--signed-bg); box-shadow: 0 0 0 1px var(--signed); }
 .pcard.is-signed:hover, .nrow.past.is-signed:hover { box-shadow: 0 0 0 2px var(--signed); }
 .pcard.is-signed .nm { color: var(--ink); }
-/* Board review flag keeps the decision stripe and takes priority over a signing frame. */
-.pcard.needs-review, .pcard.needs-review:hover { border-top-color: var(--fail); border-right-color: var(--fail); border-bottom-color: var(--fail);
-  background: color-mix(in srgb, var(--fail) 16%, var(--surface)); box-shadow: 0 0 0 1px var(--fail); }
+/* A card needing review is flagged by its Review pill and the red "Last review" line only; the card itself stays plain. */
 .pcard.is-signed .name-line, .nrow.is-signed .name-line { flex-wrap: wrap; gap: 2px 5px; }
 .nrow.is-signed { border-top: 1px solid var(--signed); border-right: 1px solid var(--signed); border-bottom: 1px solid var(--signed); box-shadow: inset 0 0 0 1px var(--signed); }
 .signing-toggle { align-self: flex-start; }
