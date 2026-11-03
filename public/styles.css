@@ -203,7 +203,7 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .lane-n { margin-left: auto; font-size: 11px; color: var(--muted); }
 .lane-n.over-target { color: var(--fail); background: var(--fail-bg); border-radius: 999px; padding: 2px 6px; font-weight: 700; }
 .lane-body { padding: 6px; display: flex; flex-direction: column; gap: 5px; min-height: 46px; max-height: 420px; overflow-y: auto; }
-.lane-body.over, .tray-body.over { outline: 2px dashed var(--accent); outline-offset: -3px; border-radius: 8px; }
+.lane-body.over { outline: 2px dashed var(--accent); outline-offset: -3px; border-radius: 8px; }
 .lane-empty { font-size: 11.5px; color: var(--muted); text-align: center; padding: 8px 0; }
 .drop-marker { height: 3px; background: var(--accent); border-radius: 2px; margin: -1px 0; }
 .pcard { display: flex; align-items: center; gap: 7px; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--none);
@@ -262,9 +262,6 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .lg-row { display: grid; grid-template-columns: 92px 1fr; gap: 10px; align-items: center; font-size: 12.5px; line-height: 1.35; }
 .lg-mark { display: inline-flex; gap: 4px; align-items: center; justify-content: flex-start; color: var(--hold); }
 .lg-stripe { width: 4px; height: 20px; border-radius: 2px; background: linear-gradient(var(--pass) 33%, var(--hold) 33% 66%, var(--fail) 66%); }
-.tray { margin-top: 16px; }
-.tray-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; min-height: 50px; padding: 4px; }
-.tray-body > .empty { grid-column: 1 / -1; }
 
 /* ---------- NCAA board + college scouting ---------- */
 /* College grades (current/future), coloured by the future grade. Fixed colours, readable in both themes. */

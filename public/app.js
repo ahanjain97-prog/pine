@@ -375,9 +375,6 @@ function renderBoard(main) {
   const f = S.board;
   const onBoard = S.players.filter((p) => p.roles.length);
   const count = (d) => onBoard.filter((p) => p.decision === d).length;
-  // College players on the NCAA board without a Big Board role live in its tray, not this one ("+ BB" there adds them).
-  const unassigned = S.players.filter((p) => !p.roles.length && !p.ncaa_board);
-  const onNcaaOnly = S.players.filter((p) => !p.roles.length && p.ncaa_board).length;
   const decs = [["all", "All"], ["pass", "Pass"], ["hold", "Hold"], ["fail", "Fail"], ["none", "Undecided"]];
   main.innerHTML = `<div class="page">
     <div class="page-h">
@@ -392,11 +389,6 @@ function renderBoard(main) {
       </div>
     </div>
     <div class="pitch-wrap"><div class="pitch">${S.config.positions.map((pos) => posBox(pos)).join("")}</div></div>
-    <section class="panel tray">
-      <header class="panel-h"><h2>Not on the board</h2><span class="muted sm">${unassigned.length} player${unassigned.length === 1 ? "" : "s"} · drag onto a role, or drag a card here to take it off${onNcaaOnly
-        ? ` · ${onNcaaOnly} more college player${onNcaaOnly === 1 ? "" : "s"} on the <a href="#/ncaa">NCAA board</a>` : ""}</span></header>
-      <div class="tray-body" data-tray="1">${unassigned.map((p) => boardCard(p, null)).join("") || `<p class="empty">Everyone in PINE has a role on the board.</p>`}</div>
-    </section>
   </div>`;
   wireBoard(main.firstElementChild);
 }
@@ -636,14 +628,11 @@ function wireBoard(root, { short = false } = {}) {
   });
   // On the Short Board a card can go to any role's lane; dropping it into a different role asks whether
   // to move the player or keep them in both (see chooseMoveOrCopy).
-  wireCardDrag(root, ".lane-body, [data-tray]", (zone, card, before) => {
+  wireCardDrag(root, ".lane-body", (zone, card, before) => {
     const pid = Number(card.dataset.pid), from = card.dataset.role || null;
-    if (zone.matches(".lane-body")) {
-      const index = dropIndexFor(zone.dataset.role, pid, before ? Number(before.dataset.pid) : null, Boolean(zone.dataset.short));
-      if (zone.dataset.short && from && from !== zone.dataset.role) { chooseMoveOrCopy(pid, from, zone.dataset.role, index); return null; }
-      return api("POST", "/api/board/move", { player_id: pid, from_role: from, to_role: zone.dataset.role, index });
-    }
-    return from ? api("DELETE", `/api/players/${pid}/roles/${from}`) : null;
+    const index = dropIndexFor(zone.dataset.role, pid, before ? Number(before.dataset.pid) : null, Boolean(zone.dataset.short));
+    if (zone.dataset.short && from && from !== zone.dataset.role) { chooseMoveOrCopy(pid, from, zone.dataset.role, index); return null; }
+    return api("POST", "/api/board/move", { player_id: pid, from_role: from, to_role: zone.dataset.role, index });
   });
 }
 
