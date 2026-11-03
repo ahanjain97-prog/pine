@@ -43,7 +43,7 @@ import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
 import { connectedDuplicate, connectionMergeProblem, mergeConnection, resolvePlayerId } from "./lib/player_connections.js";
 import { registerSigning } from "./lib/signing.js";
-import { boardLastReviews, registerReview, REVIEW_AFTER_DAYS } from "./lib/review.js";
+import { boardLastReviews, registerReview, REVIEW_AFTER_DAYS, SHORT_BOARD_REVIEW_AFTER_DAYS } from "./lib/review.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 if (existsSync(join(ROOT, ".env"))) process.loadEnvFile(join(ROOT, ".env"));
@@ -407,6 +407,7 @@ app.get("/api/config", (c) =>
     auth: AUTH_OFF ? "off" : "email",
     impect: impectConfigured(),
     review_after_days: REVIEW_AFTER_DAYS,
+    short_board_review_after_days: SHORT_BOARD_REVIEW_AFTER_DAYS,
   })
 );
 app.get("/api/changes", (c) => c.json({ version: db.get("SELECT coalesce(max(id), 0) AS v FROM activity").v }));

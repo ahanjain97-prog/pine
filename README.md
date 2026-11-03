@@ -161,8 +161,7 @@ syncs leave the signing status alone.
   The clock is per player across all roles, using visible staff activity; automated syncs, Impect refreshes
   and card requests do not count. With no qualifying activity it starts when the player was added to PINE,
   so existing stale players are flagged immediately. The limit is `REVIEW_AFTER_DAYS` in `src/lib/review.js`.
-  The Short Board and NCAA views are unchanged. Drag cards
-  to rank within a role or move between roles; remove a role from the player's page to take them off.
+  Drag cards to rank within a role or move between roles; remove a role from the player's page to take them off.
   Players without a Big Board role stay searchable and in the Database tab, without a list below the board. Card stripe
   = club decision, dots = the six staff verdicts, DOM / INTL = domestic (US citizen, from Transfermarkt citizenship)
   or international. Green cards aren't on Transfermarkt and its citizenship is sometimes wrong, so Edit details
@@ -180,7 +179,10 @@ syncs leave the signing status alone.
   Each board has a **Key** explaining its marks. Cards show at most three tags (extra ones fold into "+N" with
   a tooltip), and the verdict dots only once someone has a verdict.
 - **Short Board** (`#/short-board`): the same pitch, positions and roles as the big board, showing only the
-  top targets. A player becomes one by the ☆ on their board card (or the ☆ beside a role on their player
+  top targets. Cards get the same red **REVIEW** flag and visible review age after **14 days** without a
+  review, using the same per-player activity history and creation-date fallback as the Big Board.
+  The Short Board limit is `SHORT_BOARD_REVIEW_AFTER_DAYS` in `src/lib/review.js`; the Big Board stays at 28 days.
+  A player becomes a top target by the ☆ on their board card (or the ☆ beside a role on their player
   page), per role, so the same player can be a target at one role and not another. Order follows the big
   board, and dragging a card here reorders it there too. Dropping a card into another role asks whether to
   move the player there or duplicate them (a top target in both roles). Stored as `board_entries.shortlist`, which `src/lib/board.js` carries across reorders; not to be confused with the Impect Scouting short lists on
