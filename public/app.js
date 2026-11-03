@@ -414,9 +414,11 @@ function renderShortBoard(main) {
 // colours, which stay reserved for decisions.
 const POS_LINE = { FWD: "att", LW: "att", RW: "att", AM: "att", CM: "mid", CDM: "mid", LB: "def", RB: "def", LCB: "def", RCB: "def", GK: "gk" };
 const BIG_BOARD_ROLE_TARGET = 20;
+const SHORT_BOARD_ROLE_TARGET = 5;
 
 function posBox(pos, targetsOnly = false) {
   const inRole = targetsOnly ? targetsInRole : playersInRole;
+  const roleTarget = targetsOnly ? SHORT_BOARD_ROLE_TARGET : BIG_BOARD_ROLE_TARGET;
   const total = new Set(pos.roles.flatMap(([c]) => inRole(c).map((p) => p.id))).size;
   const line = POS_LINE[pos.code] || "def";
   return `<section class="pos" style="grid-area:${pos.area};--pc:var(--pc-${line});--pc-ink:var(--pc-${line}-ink)">
@@ -424,8 +426,8 @@ function posBox(pos, targetsOnly = false) {
     <div class="lanes">${pos.roles.map(([code, label]) => {
       const list = inRole(code);
       const num = roleInfo(code).num;
-      const aboveTarget = !targetsOnly && list.length > BIG_BOARD_ROLE_TARGET;
-      const count = targetsOnly ? list.length : `${list.length}/${BIG_BOARD_ROLE_TARGET}`;
+      const aboveTarget = list.length > roleTarget;
+      const count = `${list.length}/${roleTarget}`;
       return `<div class="lane">
         <div class="lane-h"><span class="lane-t" title="${esc(pos.code)} #${num}: ${esc(label)}"><b>#${num}</b>${esc(label)}</span><span class="lane-n${aboveTarget ? " over-target" : ""}">${count}</span>
           ${targetsOnly ? "" : `<button type="button" class="icon-btn" data-add-role="${code}" title="Add a player to ${esc(label)}" aria-label="Add a player to ${esc(pos.code)} ${esc(label)}">+</button>`}</div>
