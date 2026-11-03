@@ -179,7 +179,8 @@ syncs leave the signing status alone.
   Each board has a **Key** explaining its marks. Cards show at most three tags (extra ones fold into "+N" with
   a tooltip), and the verdict dots only once someone has a verdict.
 - **Short Board** (`#/short-board`): the same pitch, positions and roles as the big board, showing only the
-  top targets. Cards get the same red **REVIEW** flag and visible review age after **14 days** without a
+  top targets. Each role shows its starred-player count as **N/5**, shaded red when the count exceeds five.
+  Cards get the same red **REVIEW** flag and visible review age after **14 days** without a
   review, using the same per-player activity history and creation-date fallback as the Big Board.
   The Short Board limit is `SHORT_BOARD_REVIEW_AFTER_DAYS` in `src/lib/review.js`; the Big Board stays at 28 days.
   A player becomes a top target by the ☆ on their board card (or the ☆ beside a role on their player
