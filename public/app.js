@@ -493,7 +493,7 @@ function legendHTML(ncaa = false, bigBoard = false) {
   return `<details class="legend"><summary class="btn">Key</summary><div class="lg-pop">
     ${item(`<span class="lg-stripe"></span>`, "Left stripe: the club decision (green pass, amber hold, red fail)")}
     ${item(signedBadge({ is_signed: true }), "Officially signed to Hearts of Pine; magenta frame on the player card")}
-    ${bigBoard ? item(`<span class="roster review">Review</span>`, `Red border: no review in ${S.config.review_after_days} days or more (including starred players); hover for days since last review`) : ""}
+    ${bigBoard ? item(`<span class="roster review">Review</span>`, `Red card and Review pill: no review in ${S.config.review_after_days} days or more (including starred players); the card shows days since last review`) : ""}
     ${ncaa ? item(`<span class="bbtag">BB</span>`, "On the Big Board, the college players being pursued; hover anyone else for + BB")
       : item(`<span class="vdots"><i class="vdot v-pass"></i><i class="vdot v-hold"></i><i class="vdot"></i></span>`, "Staff verdicts, one dot per person (shown once anyone has one)")}
     ${item("★", "Top target: on the Short Board")}
@@ -521,6 +521,8 @@ function boardCard(p, role, targetsOnly = false, spot = null) {
   const needsReview = Boolean(role && !targetsOnly && days != null && days >= S.config.review_after_days);
   // Outside tagRow's three-tag limit: Review must always remain visible.
   const review = needsReview ? `<span class="roster review" title="Last review ${days} days ago">Review</span>` : "";
+  const heading = needsReview ? `<span class="review-heading">${nameWithMark(p)}${review}</span>` : nameWithMark(p);
+  const reviewAge = needsReview ? `<span class="review-age">Last review ${days} days ago</span>` : "";
   // College clubs carry the school in brackets ("Indiana Hoosiers (Indiana University)"); the team name is enough here.
   const club = p.club && isNcaa(p) ? p.club.replace(/\s*\([^)]*\)\s*$/, "") : p.club;
   const sub = [p.age, club].filter((x) => x != null && x !== "").join(" · ") || p.position || "";
@@ -531,7 +533,7 @@ function boardCard(p, role, targetsOnly = false, spot = null) {
     aria-pressed="${on}" title="${on ? "Remove from the Short Board" : "Add to the Short Board as a top target"}">${on ? "★" : "☆"}</span>` : "";
   return `<a class="pcard ${needsReview ? "needs-review" : ""} ${p.is_signed ? "is-signed" : ""} ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
     ${role ? `<span class="rank ${place < 3 ? "podium" : ""}">${place + 1}</span>` : ""}${photo(p)}
-    <span class="ci">${nameWithMark(p)}<div class="nm-row"><span class="csub">${esc(sub)}</span>${tagRow([rosterBadge(p), ncaaBadge(p), l2Badge(p.l2)])}${review}</div></span>${Object.keys(p.verdicts || {}).length ? verdictDots(p.verdicts) : ""}${star}</a>`;
+    <span class="ci">${heading}${reviewAge}<div class="nm-row"><span class="csub">${esc(sub)}</span>${tagRow([rosterBadge(p), ncaaBadge(p), l2Badge(p.l2)])}</div></span>${Object.keys(p.verdicts || {}).length ? verdictDots(p.verdicts) : ""}${star}</a>`;
 }
 
 // Star clicks and Enter/Space on a star, on either board.

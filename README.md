@@ -153,8 +153,9 @@ change their club details or alter board ranks. Changes are saved in Activity. T
 syncs leave the signing status alone.
 
 - **Big Board** (`#/board`): pitch layout of all 11 positions and 25 roles from the depth chart. Cards
-  get a red border and **Review** tag after 28 days without a review, including starred players on this view.
-  Hover the tag for **Last review N days ago**. A review is a staff note added or edited, a verdict or club
+  get a soft red background, red border and solid **REVIEW** pill after 28 days without a review, including
+  starred players on this view. **Last review N days ago** appears on the card and on hover over the pill.
+  A review is a staff note added or edited, a verdict or club
   decision set, a board role added, a card moved on the Big Board, or **Mark reviewed** on the player page.
   The clock is per player across all roles, using visible staff activity; automated syncs, Impect refreshes
   and card requests do not count. With no qualifying activity it starts when the player was added to PINE,

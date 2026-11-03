@@ -90,7 +90,8 @@ test("Big Board flags at exactly 28 days, including stars and all roles; Short B
     const card = ctx.boardCard(p, role);
     assert.match(card, /needs-review/);
     assert.match(card, /title="Last review 28 days ago">Review<\/span>/);
-    assert.match(card, /L2<\/span><span class="roster review"/); // separate from tagRow
+    assert.match(card, /class="review-heading">Example<span class="roster review"/); // separate from tagRow
+    assert.match(card, /class="review-age">Last review 28 days ago<\/span>/);
     assert.match(card, /class="star on"/);
   }
   assert.doesNotMatch(ctx.boardCard(p, "FWD1", true, 0), /needs-review|>Review</);
@@ -103,6 +104,7 @@ test("Big Board flags at exactly 28 days, including stars and all roles; Short B
   const originalTags = ctx.tagRow;
   ctx.tagRow = (tags) => originalTags([...tags, "<span>Extra</span>"]);
   const crowded = ctx.boardCard(p, "FWD1");
-  assert.match(crowded, /\+1<\/span><span class="roster review"/);
+  assert.match(crowded, /\+1<\/span>/);
+  assert.match(crowded, /class="review-heading">Example<span class="roster review"/);
   assert.doesNotMatch(crowded, /title="[^"]*Review/);
 });
