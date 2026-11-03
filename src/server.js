@@ -30,7 +30,6 @@ import {
   MAX_MAPS_BYTES, DAILY_MAPS_LIMIT, OPEN_MAPS_PER_USER, MapsError, claimMap, mapErrorCode, mapProgress, normalizeMaps,
   removeMapsFiles, saveMapsFile,
 } from "./lib/maps.js";
-import { addRole as addRoleTo, compactRanks as compactRanksIn, copyToRole as copyToRoleIn, moveOnBoard as moveOnBoardTo, spotIn as spotInRole } from "./lib/board.js";
 import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.js";
 import { registerScoutingContext } from "./lib/scouting_context.js";
 import { gatesEligible, moveDate as gatesMoveDate, registerGates } from "./lib/mlsnp_gates.js";
@@ -43,6 +42,7 @@ import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
 import { connectedDuplicate, connectionMergeProblem, mergeConnection, resolvePlayerId } from "./lib/player_connections.js";
 import { registerSigning } from "./lib/signing.js";
+import { addBoardRole, boardHistory, BOARD_SOURCES, BOARD_EXIT_REASONS, recordBoardReason, registerBoardMoves, validateBoardReason } from "./lib/board_reasons.js";
 import { boardLastReviews, registerReview, REVIEW_AFTER_DAYS } from "./lib/review.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -167,7 +167,9 @@ function hydrate(p) {
 
 const PLAYER_SELECT = `
   SELECT p.*,
-    (SELECT json_group_array(json_object('role', b.role, 'rank', b.rank, 'shortlist', b.shortlist)) FROM board_entries b WHERE b.player_id = p.id) AS roles_json,
+    (SELECT json_group_array(json_object('role', b.role, 'rank', b.rank, 'shortlist', b.shortlist,
+      'reason', json_object('id', r.id, 'kind', r.kind, 'source', r.source, 'why', r.why, 'on_behalf_of', r.on_behalf_of)))
+      FROM board_entries b LEFT JOIN board_reasons r ON r.id = b.reason_id WHERE b.player_id = p.id) AS roles_json,
     (SELECT json_group_object(u.name, v.verdict) FROM verdicts v JOIN users u ON u.id = v.user_id WHERE v.player_id = p.id) AS verdicts_json,
     (SELECT count(*) FROM notes n WHERE n.player_id = p.id) AS note_count,
     (SELECT max(n.created_at) FROM notes n WHERE n.player_id = p.id) AS last_note_at,
@@ -294,12 +296,6 @@ const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => obj[k] !== und
 // minted behind a proxy still point at the real host.
 const siteOrigin = (c) => String(process.env.APP_URL || new URL(c.req.url).origin).replace(/\/+$/, "");
 
-const addRole = (playerId, role) => addRoleTo(db, playerId, role);
-const spotIn = (playerId, role) => spotInRole(db, playerId, role);
-const compactRanks = (role) => compactRanksIn(db, role);
-const moveOnBoard = (playerId, fromRole, toRole, index) => moveOnBoardTo(db, playerId, fromRole, toRole, index);
-const copyToRole = (playerId, toRole, index) => copyToRoleIn(db, playerId, toRole, index);
-
 const app = new Hono();
 
 app.onError((err, c) => {
@@ -407,6 +403,7 @@ app.get("/api/config", (c) =>
     auth: AUTH_OFF ? "off" : "email",
     impect: impectConfigured(),
     review_after_days: REVIEW_AFTER_DAYS,
+    board_reasons: { sources: BOARD_SOURCES, exit_reasons: BOARD_EXIT_REASONS },
   })
 );
 app.get("/api/changes", (c) => c.json({ version: db.get("SELECT coalesce(max(id), 0) AS v FROM activity").v }));
@@ -445,7 +442,7 @@ app.get("/api/players/:id", (c) => {
   const lists = db.all("SELECT l.id, l.name, l.source FROM list_members m JOIN lists l ON l.id = m.list_id WHERE m.player_id = ?", player.id);
   const decision_by = player.decision_by ? db.get("SELECT name FROM users WHERE id = ?", player.decision_by)?.name : null;
   return c.json({
-    player: { ...player, decision_by_name: decision_by }, staff, activity, lists,
+    player: { ...player, decision_by_name: decision_by }, staff, activity, lists, board_history: boardHistory(db, player.id),
     college: prospectDetail(db, { playerId: player.id }), ncaa: ncaaPlace(player), agent: getAgent(db, player.id),
   });
 });
@@ -468,7 +465,9 @@ app.post("/api/tm/preview", async (c) => {
 app.post("/api/players", async (c) => {
   const user = c.get("user");
   const body = await c.req.json();
-  const roles = (body.roles || []).filter((r) => ROLES[r]);
+  if (!Array.isArray(body.roles ?? []) || (body.roles || []).some((r) => typeof r !== "string" || !Object.hasOwn(ROLES, r))) fail(400, "Choose valid board roles");
+  const roles = [...new Set(body.roles || [])];
+  const boardReason = validateBoardReason(db, roles.length ? "add" : "track", body.reason);
   let fields, source;
   if (body.tm_url) {
     const parsed = parseTmUrl(body.tm_url) || fail(400, "Invalid Transfermarkt link");
@@ -499,8 +498,9 @@ app.post("/api/players", async (c) => {
   if (body.decision && DECISIONS.includes(body.decision)) Object.assign(fields, { decision: body.decision, decision_by: user.id, decision_at: new Date().toISOString() });
   const id = db.tx(() => {
     const pid = insertPlayer(fields, user.id, source);
-    roles.forEach((r) => addRole(pid, r));
-    logActivity(db, user.id, pid, "added_player", { name: fields.name, source, roles });
+    logActivity(db, user.id, pid, "added_player", { name: fields.name, source, roles, ...(!roles.length && boardReason ? { reason: boardReason } : {}) });
+    roles.forEach((r) => addBoardRole(db, pid, r, boardReason, user.id));
+    if (!roles.length && boardReason) recordBoardReason(db, pid, null, "track", boardReason, user.id);
     return pid;
   });
   const linked = await autoLink(id);
@@ -810,57 +810,7 @@ db.once("gabe-out-of-evals-2026-10-28", () => db.run("UPDATE users SET in_evals 
 db.run("UPDATE activity SET hidden = 1 WHERE id IN (2626, 2627, 2628) AND action = 'deleted_player' AND user_id = 2");
 
 /* ---------- board ---------- */
-app.post("/api/board/move", async (c) => {
-  const user = c.get("user");
-  const { player_id, from_role, to_role, index, copy = false } = await c.req.json();
-  if (!ROLES[to_role]) fail(400, `Unknown role ${to_role}`);
-  const p = getPlayer(player_id);
-  // Duplicate (Short Board): a top target in the new role too, still in the old one.
-  if (copy) {
-    if (!from_role || from_role === to_role) fail(400, "Pick a different role to duplicate into");
-    const spot = copyToRole(p.id, to_role, index);
-    logActivity(db, user.id, p.id, "copied_on_board", { from: from_role, to: to_role, spot });
-    return c.json({ ok: true });
-  }
-  const fromSpot = from_role ? spotIn(p.id, from_role) : null;
-  const spot = moveOnBoard(p.id, from_role || null, to_role, index);
-  if (from_role && from_role !== to_role) compactRanks(from_role);
-  // Dropping a card back where it was changes nothing, so it isn't logged.
-  if (from_role !== to_role || fromSpot !== spot) {
-    logActivity(db, user.id, p.id, "moved_on_board", { from: from_role || null, to: to_role, spot, from_spot: fromSpot });
-  }
-  return c.json({ ok: true });
-});
-// Top targets: the Short Board is the big board filtered to the entries flagged here.
-app.post("/api/board/shortlist", async (c) => {
-  const user = c.get("user");
-  const { player_id, role, on } = await c.req.json();
-  const p = getPlayer(player_id);
-  if (!ROLES[role]) fail(400, `Unknown role ${role}`);
-  const entry = db.get("SELECT 1 FROM board_entries WHERE player_id = ? AND role = ?", p.id, role)
-    || fail(400, `${p.name} isn't on the big board at ${role}`);
-  db.run("UPDATE board_entries SET shortlist = ? WHERE player_id = ? AND role = ?", on ? 1 : 0, p.id, role);
-  logActivity(db, user.id, p.id, on ? "shortlisted" : "unshortlisted", { role });
-  return c.json({ player: getPlayer(p.id) });
-});
-app.post("/api/players/:id/roles", async (c) => {
-  const user = c.get("user");
-  const p = getPlayer(c.req.param("id"));
-  const { role } = await c.req.json();
-  if (!ROLES[role]) fail(400, `Unknown role ${role}`);
-  addRole(p.id, role);
-  logActivity(db, user.id, p.id, "added_role", { role });
-  return c.json({ player: getPlayer(p.id) });
-});
-app.delete("/api/players/:id/roles/:role", (c) => {
-  const user = c.get("user");
-  const p = getPlayer(c.req.param("id"));
-  const role = c.req.param("role");
-  db.run("DELETE FROM board_entries WHERE player_id = ? AND role = ?", p.id, role);
-  compactRanks(role);
-  logActivity(db, user.id, p.id, "removed_role", { role });
-  return c.json({ player: getPlayer(p.id) });
-});
+registerBoardMoves(app, { db, getPlayer });
 
 /* ---------- physical data ---------- */
 app.get("/api/players/:id/physical", async (c) => {
@@ -957,7 +907,8 @@ app.get("/api/impect/shortlists", async (c) => {
 // players on the board only the first time they join the list, so later manual board moves stick.
 app.post("/api/impect/shortlists/:id/import", async (c) => {
   const user = c.get("user");
-  const { role = null } = await c.req.json().catch(() => ({}));
+  const { role = null, reason: reasonInput } = await c.req.json().catch(() => ({}));
+  const boardReason = role ? validateBoardReason(db, "add", reasonInput) : null;
   if (role && !ROLES[role] && !SPLIT_ROLES[role]) fail(400, `Unknown role ${role}`);
   const sl = (await impectShortLists()).find((l) => l.id === c.req.param("id")) || fail(404, "Short list not found in Impect");
   let meta = new Map();
@@ -988,7 +939,7 @@ app.post("/api/impect/shortlists/:id/import", async (c) => {
     const joined = Number(db.run("INSERT OR IGNORE INTO list_members(list_id, player_id) VALUES (?,?)", listId, row.id).changes) > 0;
     const target = joined ? resolveRole(role, row.foot) : null;
     if (target && !db.get("SELECT 1 FROM board_entries WHERE player_id = ? AND role = ?", row.id, target)) {
-      addRole(row.id, target);
+      addBoardRole(db, row.id, target, boardReason, user.id);
       out.placed++;
     }
   }

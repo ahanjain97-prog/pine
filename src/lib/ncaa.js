@@ -280,7 +280,11 @@ export function mergePlayer(db, fromId, intoId) {
     for (const table of ["board_entries", "verdicts", "list_members", "agent_info", "ncaa_board_removed"]) {
       db.run(`UPDATE OR IGNORE ${table} SET player_id = ? WHERE player_id = ?`, intoId, fromId);
     }
-    for (const table of ["notes", "cards", "maps", "activity", "ncaa_prospects"]) db.run(`UPDATE ${table} SET player_id = ? WHERE player_id = ?`, intoId, fromId);
+    for (const table of ["notes", "cards", "maps", "activity", "ncaa_prospects", "board_reasons"]) db.run(`UPDATE ${table} SET player_id = ? WHERE player_id = ?`, intoId, fromId);
+    // A duplicate role may have been ignored above; retain its newer explanation on the surviving card.
+    db.run(`UPDATE board_entries SET reason_id = nullif(max(coalesce(reason_id, 0), coalesce(
+      (SELECT max(r.id) FROM board_reasons r WHERE r.player_id = ? AND r.role = board_entries.role AND r.kind IN ('add','promote')), 0)), 0)
+      WHERE player_id = ?`, intoId, intoId);
     db.run(`UPDATE players SET birthdate = coalesce(birthdate, (SELECT birthdate FROM players WHERE id = ?)),
       foot = coalesce(foot, (SELECT foot FROM players WHERE id = ?)) WHERE id = ?`, fromId, fromId, intoId);
     // Preserve an explicit signing when an imported college duplicate is folded into the profile.

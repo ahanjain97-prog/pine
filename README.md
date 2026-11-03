@@ -158,12 +158,20 @@ syncs leave the signing status alone.
   (the card itself stays plain); hovering the pill shows the age too. Players on the Short Board (starred in any
   role) never get the flag, on either board.
   A review is a staff note added or edited, a verdict or club
-  decision set, a board role added, a card moved on the Big Board, or **Mark reviewed** on the player page.
+  decision set, a board role added or removed, a star set or cleared, a card moved on the Big Board,
+  or **Mark reviewed** on the player page.
   The clock is per player across all roles, using visible staff activity; automated syncs, Impect refreshes
   and card requests do not count. With no qualifying activity it starts when the player was added to PINE,
   so existing stale players are flagged immediately. The limit is `REVIEW_AFTER_DAYS` in `src/lib/review.js`.
   Drag cards to rank within a role or move between roles; remove a role from the player's page to take them off.
-  Players without a Big Board role stay searchable and in the Database tab, without a list below the board. Card stripe
+  Players without a Big Board role stay searchable and in the Database tab, without a list below the board.
+  New role spots require **Source** (Search: Data screen, Video, NCAA database, Live, Other scouting; or
+  Referral: Staff, Agent, Contact), optional **On behalf of**, and a written **Why**. This applies to the
+  player page, role + picker, Add player with roles, NCAA + BB, duplicates and staff Impect list imports.
+  Taking a player off a role requires an **Exit reason**; a note is optional except for **Other**, which
+  requires one. Dialogs can be cancelled before anything changes. Reordering, role transfers and automated
+  imports/merges/workers do not require reasons. Hover a card for that role's latest add or promotion reason;
+  older entries say **Added before reasons were required**, with no backfill. Card stripe
   = club decision, dots = the six staff verdicts, DOM / INTL = domestic (US citizen, from Transfermarkt citizenship)
   or international. Green cards aren't on Transfermarkt and its citizenship is sometimes wrong, so Edit details
   on the player page can set the roster status to Domestic or International by hand; syncs leave that alone.
@@ -181,6 +189,11 @@ syncs leave the signing status alone.
   a tooltip), and the verdict dots only once someone has a verdict.
 - **Short Board** (`#/short-board`): the same pitch, positions and roles as the big board, showing only the
   top targets. Each role shows its starred-player count as **N/5**, shaded red when the count exceeds five.
+  Starring a player requires a written **Why** and offers **On behalf of**. Unstarring requires an **Exit
+  reason**: Not good enough on film, Too expensive, Re-signed, Signed elsewhere, Role filled, No longer a
+  need, or Other (with a required note). These in-page dialogs save the reason to Activity and the player's
+  **Board history**. Duplicating into a new role asks for the Big Board add reason. Reranks and role transfers
+  keep their stars and need no written reason. Hover cards to read their latest add or promotion reason.
   Cards here carry no review flag: top targets are left out of it.
   A player becomes a top target by the ☆ on their board card (or the ☆ beside a role on their player
   page), per role, so the same player can be a target at one role and not another. Order follows the big
@@ -239,7 +252,11 @@ syncs leave the signing status alone.
   agent and agency names, email, phone, last contact and notes. It is PINE's own record; Transfermarkt's
   agent line is shown beneath it for reference and never overwrites it.
 - **Database** (`#/players`): sortable and filterable table of everyone, with CSV export.
-- **Player page**: the header holds Transfermarkt facts, the club decision and the staff verdict tally. Staff evaluations
+- **Player page**: **Board history** lists recorded adds, promotions, drop-backs, removals and optional
+  tracking reasons, newest first: date, staff member, role, source or exit reason, attribution and written
+  explanation. History survives removing a board entry. Adding a player to PINE without a board role offers
+  optional Source, On behalf of and Why fields, or **Add without a reason**. Board moves and their reasons
+  also appear in Activity. The header holds Transfermarkt facts, the club decision and the staff verdict tally. Staff evaluations
   show everyone's box (yours first, then anyone who has weighed in); "Hide empty" folds the rest into one line,
   remembered per browser. Below it,
   the shared summary, college scouting reports (players in the college database) and one evaluation section per staff member (only you can

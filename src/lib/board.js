@@ -2,7 +2,8 @@
 // (the Short Board is this board filtered to those). Ranks are 0-based within a role.
 //
 // Reordering rewrites a role's rows, so every one of these carries `shortlist` across. Losing it
-// would quietly empty the Short Board whenever somebody dragged a card.
+// would quietly empty the Short Board whenever somebody dragged a card. `reason_id` must survive
+// the same rewrites, so a rerank never drops the explanation shown on the card.
 
 export function addRole(db, playerId, role) {
   const max = db.get("SELECT coalesce(max(rank), -1) AS m FROM board_entries WHERE role = ?", role).m;
@@ -22,9 +23,9 @@ export function compactRanks(db, role) {
     .forEach((r, i) => db.run("UPDATE board_entries SET rank = ? WHERE player_id = ? AND role = ?", i, r.player_id, role));
 }
 
-// The top-target flags in a role, by player.
-const flagsIn = (db, role) => new Map(db.all("SELECT player_id, shortlist FROM board_entries WHERE role = ?", role)
-  .map((r) => [r.player_id, r.shortlist]));
+// The top-target flags and current explanation links in a role, by player.
+const flagsIn = (db, role) => new Map(db.all("SELECT player_id, shortlist, reason_id FROM board_entries WHERE role = ?", role)
+  .map((r) => [r.player_id, r]));
 
 // Rewrites a role with `playerId` placed at `index` among the others, keeping everyone's flag.
 function placeInRole(db, playerId, role, index, flags) {
@@ -33,7 +34,8 @@ function placeInRole(db, playerId, role, index, flags) {
   ids.splice(Math.max(0, Math.min(Number(index) || 0, ids.length)), 0, playerId);
   db.run("DELETE FROM board_entries WHERE role = ?", role);
   ids.forEach((pid, i) =>
-    db.run("INSERT INTO board_entries(player_id, role, rank, shortlist) VALUES (?,?,?,?)", pid, role, i, flags.get(pid) ?? 0));
+    db.run("INSERT INTO board_entries(player_id, role, rank, shortlist, reason_id) VALUES (?,?,?,?,?)",
+      pid, role, i, flags.get(pid)?.shortlist ?? 0, flags.get(pid)?.reason_id ?? null));
 }
 
 // Puts a player at `index` within `toRole`, moving them off `fromRole` when that differs. A player
@@ -42,8 +44,11 @@ export function moveOnBoard(db, playerId, fromRole, toRole, index) {
   db.tx(() => {
     const flags = flagsIn(db, toRole);
     if (fromRole && fromRole !== toRole) {
-      const old = db.get("SELECT shortlist FROM board_entries WHERE player_id = ? AND role = ?", playerId, fromRole);
-      if (old) flags.set(playerId, old.shortlist);
+      const old = db.get("SELECT shortlist, reason_id FROM board_entries WHERE player_id = ? AND role = ?", playerId, fromRole);
+      if (old) {
+        const target = flags.get(playerId);
+        flags.set(playerId, { shortlist: Math.max(old.shortlist, target?.shortlist ?? 0), reason_id: Math.max(old.reason_id ?? 0, target?.reason_id ?? 0) || null });
+      }
       db.run("DELETE FROM board_entries WHERE player_id = ? AND role = ?", playerId, fromRole);
     }
     placeInRole(db, playerId, toRole, index, flags);
@@ -56,7 +61,7 @@ export function moveOnBoard(db, playerId, fromRole, toRole, index) {
 export function copyToRole(db, playerId, toRole, index) {
   db.tx(() => {
     const flags = flagsIn(db, toRole);
-    flags.set(playerId, 1);
+    flags.set(playerId, { ...flags.get(playerId), shortlist: 1 });
     placeInRole(db, playerId, toRole, index, flags);
   });
   return spotIn(db, playerId, toRole);

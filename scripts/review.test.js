@@ -26,12 +26,12 @@ test("each qualifying staff action resets review; hidden, automated and unrelate
   const db = setup(t);
   const insert = (action, date, user = 1, hidden = 0) => db.run(
     "INSERT INTO activity(player_id, user_id, action, created_at, hidden) VALUES (1, ?, ?, ?, ?)", user, action, date, hidden);
-  for (const action of ["added_note", "edited_note", "set_verdict", "set_decision", "added_role", "moved_on_board", "copied_on_board", "marked_reviewed"]) {
+  for (const action of ["added_note", "edited_note", "set_verdict", "set_decision", "added_role", "moved_on_board", "copied_on_board", "marked_reviewed", "shortlisted", "unshortlisted", "removed_role"]) {
     db.run("DELETE FROM activity");
     insert(action, "2026-09-01T12:00:00Z");
     assert.equal(boardLastReviews(db).get(1), "2026-09-01 12:00:00", action);
   }
-  for (const action of ["synced_tm", "linked_impect", "refreshed_impect", "requested_card", "edited_player", "deleted_note", "shortlisted", "removed_role", "moved_on_ncaa_board", "added_player"]) {
+  for (const action of ["synced_tm", "linked_impect", "refreshed_impect", "requested_card", "edited_player", "deleted_note", "moved_on_ncaa_board", "added_player"]) {
     insert(action, "2026-11-01 12:00:00");
   }
   insert("added_note", "2026-11-02 12:00:00", 1, 1);
@@ -72,7 +72,7 @@ function cardHarness() {
   const context = vm.createContext({
     S: { config: { review_after_days: REVIEW_AFTER_DAYS } },
     Date: class extends Date { static now() { return Date.parse("2026-11-03T12:00:00Z"); } },
-    rankIn: () => 0, isNcaa: () => false, isTopTarget: (p) => p.starred,
+    boardReasonTooltip: () => "", rankIn: () => 0, isNcaa: () => false, isTopTarget: (p) => p.starred,
     esc: (s) => String(s), photo: () => "", nameWithMark: (p) => p.name,
     rosterBadge: () => "<span>DOM</span>", ncaaBadge: () => "<span>NCAA</span>",
     l2Badge: () => "<span>L2</span>", verdictDots: () => "",

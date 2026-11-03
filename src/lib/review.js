@@ -7,6 +7,7 @@ export const REVIEW_AFTER_DAYS = 28;
 const REVIEW_ACTIONS = [
   "added_note", "edited_note", "set_verdict", "set_decision",
   "added_role", "moved_on_board", "copied_on_board", "marked_reviewed",
+  "shortlisted", "unshortlisted", "removed_role",
 ];
 
 // One grouped query for every board player, shared across all of their roles. No backfill.

@@ -166,7 +166,89 @@ function modal(html, { wide = false } = {}) {
   bg.addEventListener("click", (e) => { if (e.target.closest("[data-close]")) closeModal(); });
   return bg.firstElementChild;
 }
-const closeModal = () => $("#modal")?.remove();
+const closeModal = () => { cancelBoardReason?.(); $("#modal")?.remove(); };
+
+// Reasons are collected before the API write. A separate overlay preserves an Add player/picker form on cancel.
+let cancelBoardReason = null;
+function askBoardReason(kind, player, roles = [], context = '') {
+  if (cancelBoardReason) return Promise.resolve(null);
+  const exit = kind === 'drop_back' || kind === 'take_off';
+  const titles = { add: 'Add to Big Board', promote: 'Promote to Short Board', drop_back: 'Drop back to Big Board', take_off: 'Remove from Big Board', track: 'Add to PINE' };
+  const optional = kind === 'track';
+  const previous = document.activeElement, parent = $('#modal');
+  if (parent) parent.inert = true;
+  const bg = document.createElement('div');
+  bg.id = 'board-reason-modal'; bg.className = 'modal-bg board-reason-bg';
+  bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="br-title" tabindex="-1">
+    <header class="m-h"><h2 id="br-title">${titles[kind]}</h2><button type="button" class="icon-btn" data-br-cancel aria-label="Close">×</button></header>
+    <p class="hint">${esc(player)}${roles.length ? ` · ${esc(roles.map(roleLabel).join(', '))}` : ''}${context ? `<br>${esc(context)}` : ''}</p>
+    <form id="board-reason-form">
+      ${exit ? `<label class="lbl" for="br-exit">Exit reason *</label><select id="br-exit" name="exit_reason" required><option value="">Choose an exit reason…</option>${S.config.board_reasons.exit_reasons.map(v=>`<option>${esc(v)}</option>`).join('')}</select>
+        <label class="lbl" for="br-note">Note <span id="br-note-required">(optional)</span></label><textarea id="br-note" name="note" rows="3" maxlength="4000"></textarea>`
+        : `${kind === 'add' || optional ? `<label class="lbl" for="br-source">Source ${optional ? '(optional)' : '*'}</label>
+          <select id="br-source" name="source" ${optional ? '' : 'required'}><option value="">Choose a source…</option>${Object.entries(S.config.board_reasons.sources).map(([g,opts])=>`<optgroup label="${esc(g)}">${opts.map(v=>`<option value="${esc(g+': '+v)}">${esc(v)}</option>`).join('')}</optgroup>`).join('')}</select>` : ''}
+        <label class="lbl" for="br-behalf">On behalf of (optional)</label><select id="br-behalf" name="on_behalf_of"><option value="">My own recommendation</option>${S.config.staff.map(u=>`<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select>
+        <label class="lbl" for="br-why">Why ${optional ? '(optional)' : '*'}</label><textarea id="br-why" name="why" rows="4" maxlength="4000" ${optional ? '' : 'required'} placeholder="Explain the board decision…"></textarea>`}
+      <div class="m-actions"><button type="button" class="btn ghost" data-br-cancel>Cancel</button>${optional ? '<button type="button" class="btn" data-br-skip>Add without a reason</button>' : ''}<button type="submit" class="btn primary">${titles[kind]}</button></div>
+    </form></div>`;
+  document.body.appendChild(bg);
+  return new Promise(resolve => {
+    const done = value => {
+      document.removeEventListener('keydown', keys, true);
+      bg.remove(); if (parent) parent.inert = false;
+      cancelBoardReason = null; if (previous?.isConnected) previous.focus();
+      resolve(value);
+    };
+    const keys = e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); done(null); }
+      if (e.key === 'Tab') {
+        const items = $$('button,input,select,textarea', bg).filter(el=>!el.disabled && el.getClientRects().length);
+        const first = items[0], last = items.at(-1);
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    cancelBoardReason = () => done(null);
+    document.addEventListener('keydown', keys, true);
+    bg.addEventListener('click', e => {
+      if (e.target === bg || e.target.closest('[data-br-cancel]')) done(null);
+      else if (e.target.closest('[data-br-skip]')) done({});
+    });
+    $('#br-exit', bg)?.addEventListener('change', e => {
+      const other = e.target.value === 'Other';
+      $('#br-note', bg).required = other; $('#br-note-required', bg).textContent = other ? '*' : '(optional)';
+    });
+    $('#board-reason-form', bg).addEventListener('submit', e => {
+      e.preventDefault();
+      // HTML required also rejects empty values, but trimmed whitespace must not count as a written reason.
+      const fields = Object.fromEntries([...new FormData(e.target)].map(([k,v])=>[k,String(v).trim()]));
+      const why = $('#br-why', bg), note = $('#br-note', bg);
+      for (const el of [why,note].filter(Boolean)) {
+        el.setCustomValidity(el.required && !el.value.trim() ? 'Please write a reason.' : '');
+        if (!el.reportValidity()) return;
+      }
+      done(fields);
+    });
+    for (const el of $$('textarea', bg)) el.addEventListener('input',()=>el.setCustomValidity(''));
+    $('select,textarea', bg)?.focus();
+  });
+}
+
+const boardMoveLabel = kind => ({ add: 'Added to Big Board', promote: 'Promoted to Short Board', drop_back: 'Dropped back from Short Board', take_off: 'Taken off Big Board', track: 'Added to PINE' })[kind] || kind;
+function boardReasonDetails(r) {
+  const behalf = r.on_behalf_of_name || S.config.staff.find(u=>u.id === Number(r.on_behalf_of))?.name;
+  return [r.source, r.exit_reason, behalf ? `On behalf of ${behalf}` : '', r.why ? `Why: ${r.why}` : '', r.note ? `Note: ${r.note}` : ''].filter(Boolean);
+}
+function boardReasonTooltip(p, role) {
+  const r = p.roles.find(r=>r.role === role)?.reason;
+  return r?.id ? boardReasonDetails(r).join('\n') : 'Added before reasons were required';
+}
+function boardHistoryHTML(rows) {
+  if (!rows?.length) return '<p class="empty">No board reasons recorded yet. Earlier entries were added before reasons were required.</p>';
+  return `<ol class="board-history">${rows.map(r=>`<li><div class="row"><b>${esc(r.user)}</b><time class="muted sm" datetime="${esc(r.created_at)}">${esc(fmtDateTime(r.created_at))}</time></div>
+    <div>${esc(boardMoveLabel(r.kind))}${r.role ? ` · ${esc(roleLabel(r.role))}` : ''}</div>
+    ${boardReasonDetails(r).map(line=>`<div class="board-history-detail">${esc(line)}</div>`).join('')}</li>`).join('')}</ol>`;
+}
 
 /* ---------- data sync ---------- */
 async function reloadPlayers() {
@@ -195,7 +277,7 @@ async function poll() {
   try { v = (await api("GET", "/api/changes")).version; } catch { return; }
   if (v === S.version) return;
   S.version = v;
-  if (S.dragging || busyEditing() || $("#modal")) { $("#upd").hidden = false; return; }
+  if (S.dragging || busyEditing() || $("#modal") || $("#board-reason-modal")) { $("#upd").hidden = false; return; }
   await refresh();
 }
 
@@ -530,7 +612,7 @@ function boardCard(p, role, targetsOnly = false, spot = null) {
   // intercepts it before the link fires.
   const star = role ? `<span class="star ${on ? "on" : ""}" data-star="${role}" role="button" tabindex="0"
     aria-pressed="${on}" title="${on ? "Remove from the Short Board" : "Add to the Short Board as a top target"}">${on ? "★" : "☆"}</span>` : "";
-  return `<a class="pcard ${needsReview ? "needs-review" : ""} ${p.is_signed ? "is-signed" : ""} ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${role ? `data-role="${role}"` : ""}>
+  return `<a class="pcard ${needsReview ? "needs-review" : ""} ${p.is_signed ? "is-signed" : ""} ${p.decision ? "v-" + p.decision : ""}" href="#/player/${p.id}" draggable="true" data-pid="${p.id}" ${role ? `data-role="${role}" title="${esc(boardReasonTooltip(p, role))}"` : ""}>
     ${role ? `<span class="rank ${place < 3 ? "podium" : ""}">${place + 1}</span>` : ""}${photo(p)}
     <span class="ci">${heading}${reviewAge}<div class="nm-row"><span class="csub">${esc(sub)}</span>${tagRow([rosterBadge(p), ncaaBadge(p), l2Badge(p.l2)])}</div></span>${Object.keys(p.verdicts || {}).length ? verdictDots(p.verdicts) : ""}${star}</a>`;
 }
@@ -541,9 +623,12 @@ function wireStars(root) {
     const role = el.dataset.star, pid = Number(el.closest(".pcard").dataset.pid);
     el.classList.add("busy");
     try {
-      await api("POST", "/api/board/shortlist", { player_id: pid, role, on: !isTopTarget(S.byId.get(pid), role) });
+      const p = S.byId.get(pid), on = !isTopTarget(p, role);
+      const reason = await askBoardReason(on ? 'promote' : 'drop_back', p.name, [role]);
+      if (!reason) return;
+      await api("POST", "/api/board/shortlist", { player_id: pid, role, on, reason });
       await afterMutation();
-    } catch (err) { oops(err); el.classList.remove("busy"); }
+    } catch (err) { oops(err); } finally { el.classList.remove("busy"); }
   };
   root.addEventListener("click", (e) => {
     const el = e.target.closest("[data-star]");
@@ -598,9 +683,14 @@ function chooseMoveOrCopy(pid, from, to, index) {
   m.addEventListener("click", async (e) => {
     const act = e.target.closest("[data-act]:not([disabled])")?.dataset.act;
     if (!act) return;
-    closeModal();
     try {
-      await api("POST", "/api/board/move", { player_id: pid, from_role: from, to_role: to, index, copy: act === "copy" });
+      let reason;
+      if (act === "copy") {
+        reason = await askBoardReason(p.roles.some(r=>r.role === to) ? 'promote' : 'add', p.name, [to], 'Duplicate as a top target, keeping the original role.');
+        if (!reason) return;
+      }
+      await api("POST", "/api/board/move", { player_id: pid, from_role: from, to_role: to, index, copy: act === "copy", reason });
+      closeModal();
       await afterMutation();
       toast(act === "copy" ? `${p.name} is a top target at ${roleShort(to)} too` : `Moved ${p.name} to ${roleShort(to)}`);
     } catch (err) { oops(err); }
@@ -680,6 +770,7 @@ function wireCardDrag(root, zones, onDrop) {
     const before = zone.matches("[data-tray]") ? null : cardAfter(zone, e.clientY);
     clear();
     S.dragging = null;
+    card.classList.remove("dragging");
     const req = onDrop(zone, card, before);
     if (!req) return;
     try { await req; await afterMutation(); } catch (err) { oops(err); }
@@ -705,7 +796,10 @@ function openRolePicker(role) {
     if (e.target.closest("#rp-new")) return openAddPlayer({ role });
     const b = e.target.closest("[data-pick]");
     if (!b) return;
-    try { await api("POST", `/api/players/${b.dataset.pick}/roles`, { role }); closeModal(); toast("Added to the board"); await afterMutation(); } catch (err) { oops(err); }
+    try {
+      const reason = await askBoardReason('add', S.byId.get(Number(b.dataset.pick)).name, [role]);
+      if (!reason) return;
+      await api("POST", `/api/players/${b.dataset.pick}/roles`, { role, reason }); closeModal(); toast("Added to the board"); await afterMutation(); } catch (err) { oops(err); }
   });
 }
 
@@ -835,7 +929,10 @@ function openAddPlayer({ role = null, url = "", college = false } = {}) {
     e.preventDefault();
     const fields = Object.fromEntries([...e.target.querySelectorAll(".form-grid [name]")].map((el) => [el.name, el.value]));
     try {
-      const r = await api("POST", "/api/players", { ...fields, roles: [...manRoles.selected], decision: manDec.value });
+      const roles = [...manRoles.selected];
+      const reason = await askBoardReason(roles.length ? 'add' : 'track', fields.name, roles);
+      if (!reason) return;
+      const r = await api("POST", "/api/players", { ...fields, roles, decision: manDec.value, reason });
       if (!manCollege.hidden) await saveCollegeExtras(r.player, manCollege).catch(oops);
       await created(r.player);
     } catch (err) { oops(err); }
@@ -863,7 +960,10 @@ function openAddPlayer({ role = null, url = "", college = false } = {}) {
         btn.disabled = true;
         btn.textContent = "Adding…";
         try {
-          const r = await api("POST", "/api/players", { tm_url: u, roles: [...rp.selected], decision: dp.value });
+          const roles = [...rp.selected];
+          const reason = await askBoardReason(roles.length ? 'add' : 'track', d.profile.name, roles);
+          if (!reason) { btn.disabled = false; btn.textContent = "Add to PINE"; return; }
+          const r = await api("POST", "/api/players", { tm_url: u, roles, decision: dp.value, reason });
           await saveCollegeExtras(r.player, collegeHost).catch(oops);
           await created(r.player);
         } catch (err) { btn.disabled = false; btn.textContent = "Add to PINE"; oops(err); }
@@ -1158,6 +1258,7 @@ async function renderPlayer(main, idArg) {
       <div>
         ${p.tm_url ? "" : `<section class="panel" id="tm-panel"><header class="panel-h"><h2>Transfermarkt</h2></header><div class="loading sm">Searching Transfermarkt…</div></section>`}
         <section class="panel"><header class="panel-h"><h2>Big board</h2></header>${rolesPanel(p)}</section>
+        <section class="panel" id="board-history"><header class="panel-h"><h2>Board history</h2></header>${boardHistoryHTML(d.board_history)}</section>
         ${ncaaBoardPanel(p, d)}
         ${agentPanel(p, d.agent)}
         ${d.lists.length ? `<section class="panel"><header class="panel-h"><h2>Lists</h2></header><div class="row">${d.lists.map((l) => `<span class="chip">${esc(l.name)}</span>`).join("")}</div></section>` : ""}
@@ -1648,15 +1749,25 @@ function wirePlayer(root, d) {
       if (t.id === "add-role-btn") {
         const role = $("#add-role-sel", root).value;
         if (!role) return;
-        await api("POST", `/api/players/${p.id}/roles`, { role });
+        const reason = await askBoardReason('add', p.name, [role]);
+        if (!reason) return;
+        await api("POST", `/api/players/${p.id}/roles`, { role, reason });
         return await afterMutation();
       }
       if (t.dataset.roleStar) {
         const role = t.dataset.roleStar;
-        await api("POST", "/api/board/shortlist", { player_id: p.id, role, on: !p.roles.find((r) => r.role === role)?.shortlist });
+        const on = !p.roles.find((r) => r.role === role)?.shortlist;
+        const reason = await askBoardReason(on ? 'promote' : 'drop_back', p.name, [role]);
+        if (!reason) return;
+        await api("POST", "/api/board/shortlist", { player_id: p.id, role, on, reason });
         return await afterMutation();
       }
-      if (t.dataset.roleRm) { await api("DELETE", `/api/players/${p.id}/roles/${t.dataset.roleRm}`); return await afterMutation(); }
+      if (t.dataset.roleRm) {
+        const reason = await askBoardReason('take_off', p.name, [t.dataset.roleRm]);
+        if (!reason) return;
+        await api("DELETE", `/api/players/${p.id}/roles/${t.dataset.roleRm}`, { reason });
+        return await afterMutation();
+      }
       if (t.dataset.roleMove) {
         const [role, dir] = t.dataset.roleMove.split(":");
         await api("POST", "/api/board/move", { player_id: p.id, from_role: role, to_role: role, index: rankIn(p, role) + Number(dir) });
@@ -2569,7 +2680,12 @@ async function loadShortLists(root) {
     const b = $("[data-sl-import]", tr);
     b.disabled = true;
     b.textContent = "Importing…";
-    try { return await api("POST", `/api/impect/shortlists/${encodeURIComponent(tr.dataset.sl)}/import`, { role: $("[data-sl-role]", tr).value || null }); }
+    try {
+      const role = $("[data-sl-role]", tr).value || null;
+      const reason = role ? await askBoardReason('add', `Players in ${$("b", tr).textContent}`, S.config.roles[role] ? [role] : [], 'This reason applies to each new board spot from this import.') : null;
+      if (role && !reason) return null;
+      return await api("POST", `/api/impect/shortlists/${encodeURIComponent(tr.dataset.sl)}/import`, { role, reason });
+    }
     finally { b.disabled = false; b.textContent = "Sync"; }
   };
   el.addEventListener("click", async (e) => {
@@ -2583,6 +2699,7 @@ async function loadShortLists(root) {
       for (const [i, tr] of rows.entries()) {
         if (all) all.textContent = `Importing ${i + 1} of ${rows.length}…`;
         const r = await importOne(tr);
+        if (!r) { if (all) { all.disabled = false; all.textContent = "Import all lists"; } return; }
         for (const k of Object.keys(sum)) sum[k] += r[k] || 0;
       }
       const label = rows.length === 1 ? `${$("b", rows[0]).textContent}: ` : "";
@@ -2817,10 +2934,12 @@ async function renderNcaa(main, arg) {
       const p = S.byId.get(Number(el.closest(".nrow").dataset.pid)), role = el.dataset.addBb;
       el.classList.add("busy");
       try {
-        await api("POST", `/api/players/${p.id}/roles`, { role });
+        const reason = await askBoardReason('add', p.name, [role]);
+        if (!reason) return;
+        await api("POST", `/api/players/${p.id}/roles`, { role, reason });
         toast(`${p.name} is on the Big Board at ${roleLabel(role)}`);
         await afterMutation();
-      } catch (err) { oops(err); el.classList.remove("busy"); }
+      } catch (err) { oops(err); } finally { el.classList.remove("busy"); }
     };
     body.addEventListener("click", (e) => { const el = e.target.closest("[data-add-bb]"); if (el) { e.preventDefault(); addBB(el); } });
     body.addEventListener("keydown", (e) => {
@@ -3045,6 +3164,12 @@ const actor = (a) => a.user || (a.action === "downloaded_backup" && /backup scri
   : ["imported_college", "linked_big_board", "unlinked_big_board", "merged_player", "linked_tm"].includes(a.action) ? "PINE" : "Someone");
 
 function describe(a, onPlayerPage = false) {
+  const move = describeMove(a, onPlayerPage);
+  let reason;
+  try { reason = JSON.parse(a.detail || '{}').reason; } catch {}
+  return move + (reason ? `<span class="board-reason-detail">${boardReasonDetails(reason).map(esc).join(' · ')}</span>` : '');
+}
+function describeMove(a, onPlayerPage = false) {
   let d = {};
   try { d = a.detail ? JSON.parse(a.detail) : {}; } catch {}
   const who = onPlayerPage ? "this player" : a.player_id ? `<a href="#/player/${a.player_id}">${esc(a.player || "a player")}</a>` : esc(d.name || "a player");
@@ -3348,11 +3473,11 @@ window.addEventListener("hashchange", onNavigate);
 window.addEventListener("popstate", onNavigate);
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && $("#modal")) closeModal();
-  if (e.key === "/" && S.me && !e.target.matches("input, textarea, select") && !$("#modal")) { e.preventDefault(); $("#gs")?.focus(); }
+  if (e.key === "/" && S.me && !e.target.matches("input, textarea, select") && !$("#modal") && !$("#board-reason-modal")) { e.preventDefault(); $("#gs")?.focus(); }
 });
 // Pasting a Transfermarkt link anywhere on the page opens "Add player".
 document.addEventListener("paste", (e) => {
-  if (!S.me || e.target.matches?.("input, textarea") || $("#modal")) return;
+  if (!S.me || e.target.matches?.("input, textarea") || $("#modal") || $("#board-reason-modal")) return;
   const t = (e.clipboardData?.getData("text") || "").trim();
   if (/transfermarkt\.[a-z.]+\/.+\/spieler\/\d+/i.test(t)) openAddPlayer({ url: t });
 });
