@@ -43,6 +43,7 @@ import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
 import { connectedDuplicate, connectionMergeProblem, mergeConnection, resolvePlayerId } from "./lib/player_connections.js";
 import { registerSigning } from "./lib/signing.js";
+import { boardLastReviews, registerReview, REVIEW_AFTER_DAYS } from "./lib/review.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 if (existsSync(join(ROOT, ".env"))) process.loadEnvFile(join(ROOT, ".env"));
@@ -405,12 +406,17 @@ app.get("/api/config", (c) =>
     me: c.get("user"),
     auth: AUTH_OFF ? "off" : "email",
     impect: impectConfigured(),
+    review_after_days: REVIEW_AFTER_DAYS,
   })
 );
 app.get("/api/changes", (c) => c.json({ version: db.get("SELECT coalesce(max(id), 0) AS v FROM activity").v }));
 
 /* ---------- players ---------- */
-app.get("/api/players", (c) => c.json({ players: db.all(`${PLAYER_SELECT} ORDER BY p.name COLLATE NOCASE`).map(hydrate) }));
+app.get("/api/players", (c) => {
+  const reviews = boardLastReviews(db);
+  return c.json({ players: db.all(`${PLAYER_SELECT} ORDER BY p.name COLLATE NOCASE`)
+    .map((p) => hydrate({ ...p, last_review_at: reviews.get(p.id) ?? null })) });
+});
 
 // The player's NCAA board spot and how many share the position, or the position they'd be added at.
 function ncaaPlace(player) {
@@ -568,6 +574,7 @@ app.get("/api/players/:id/tm-candidates", async (c) => {
 
 /* ---------- decisions, verdicts, notes ---------- */
 registerSigning(app, { db, getPlayer });
+registerReview(app, { db, getPlayer });
 app.put("/api/players/:id/decision", async (c) => {
   const user = c.get("user");
   const p = getPlayer(c.req.param("id"));

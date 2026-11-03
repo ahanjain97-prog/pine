@@ -246,6 +246,12 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 /* Unknown roster status: a dashed prompt, not a status. */
 .roster.unk { color: var(--muted); background: transparent; border: 1px dashed var(--line-2); padding: 2px 5px; }
 .roster.more { color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--line-2); cursor: help; }
+.roster.review { color: #fff; background: #b72d34; border: 0; border-radius: 999px; padding: 3px 8px;
+  font-size: 9px; letter-spacing: .06em; text-transform: uppercase; cursor: help; }
+.review-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 3px 8px; }
+.review-heading > .name-line { flex: 1 1 100px; }
+.review-age { display: block; margin: 2px 0 3px; color: color-mix(in srgb, var(--fail) 80%, var(--ink));
+  font-size: 11px; font-weight: 600; line-height: 1.35; }
 /* Board key: a small popover of what each mark means. */
 .legend { position: relative; }
 .legend > summary { list-style: none; }
@@ -851,6 +857,9 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
   background: var(--signed-bg); box-shadow: 0 0 0 1px var(--signed); }
 .pcard.is-signed:hover, .nrow.past.is-signed:hover { box-shadow: 0 0 0 2px var(--signed); }
 .pcard.is-signed .nm { color: var(--ink); }
+/* Big Board review flag keeps the decision stripe and takes priority over a signing frame. */
+.pcard.needs-review, .pcard.needs-review:hover { border-top-color: var(--fail); border-right-color: var(--fail); border-bottom-color: var(--fail);
+  background: color-mix(in srgb, var(--fail) 16%, var(--surface)); box-shadow: 0 0 0 1px var(--fail); }
 .pcard.is-signed .name-line, .nrow.is-signed .name-line { flex-wrap: wrap; gap: 2px 5px; }
 .nrow.is-signed { border-top: 1px solid var(--signed); border-right: 1px solid var(--signed); border-bottom: 1px solid var(--signed); box-shadow: inset 0 0 0 1px var(--signed); }
 .signing-toggle { align-self: flex-start; }
