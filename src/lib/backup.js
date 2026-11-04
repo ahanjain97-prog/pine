@@ -8,7 +8,12 @@ export function writeSnapshot(db, dir, label = new Date().toISOString().slice(0,
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `pine-${label}.sqlite`);
   try { unlinkSync(file); } catch {}
-  db.raw.exec(`VACUUM INTO '${sqlPath(file)}'`);
+  try {
+    db.raw.exec(`VACUUM INTO '${sqlPath(file)}'`);
+  } catch (e) {
+    try { unlinkSync(file); } catch {} // a half-written snapshot is no backup, and takes up space
+    throw e;
+  }
   return file;
 }
 
@@ -35,8 +40,9 @@ export function prune(dir, keep = 14) {
 export function startDailyBackups(db, dir, { keep = 14, everyMs = 24 * 60 * 60 * 1000 } = {}) {
   const run = () => {
     try {
+      // Make room first, so a nearly full volume still gets today's snapshot; the count kept is the same.
+      const removed = prune(dir, keep - 1);
       const file = writeSnapshot(db, dir);
-      const removed = prune(dir, keep);
       console.log(`backup: ${file}${removed ? ` (pruned ${removed})` : ""}`);
     } catch (e) {
       console.warn("backup failed:", e.message);
@@ -52,8 +58,10 @@ export function startDailyBackups(db, dir, { keep = 14, everyMs = 24 * 60 * 60 *
 export function snapshotBuffer(db, dir) {
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `download-${Date.now()}.tmp.sqlite`);
-  db.raw.exec(`VACUUM INTO '${sqlPath(file)}'`);
-  const buf = readFileSync(file);
-  try { unlinkSync(file); } catch {}
-  return buf;
+  try {
+    db.raw.exec(`VACUUM INTO '${sqlPath(file)}'`);
+    return readFileSync(file);
+  } finally {
+    try { unlinkSync(file); } catch {}
+  }
 }

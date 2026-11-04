@@ -1,7 +1,7 @@
 // Player card jobs. Staff queue a card in PINE; the card worker (a separate machine) claims it over
 // HTTP, renders it and uploads a PNG of it (shown on the player page) and then the PDF, which finishes
 // the job. Every version is kept: files are never overwritten or deleted.
-import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const MAX_CARD_BYTES = 10 * 1024 * 1024; // per file, PDF or PNG
@@ -50,7 +50,17 @@ export function saveCardFile(root, card, buf, when, ext = "pdf") {
   mkdirSync(dir, { recursive: true });
   if (existsSync(join(dir, name))) throw new Error(`card file ${name} already exists`);
   const tmp = join(dir, `.${name}.part`);
-  writeFileSync(tmp, buf);
-  renameSync(tmp, join(dir, name));
+  writeAtomically(tmp, join(dir, name), buf);
   return `${card.player_id}/${name}`;
+}
+
+// Write to a temp name, then rename; a failed write (a full disk, say) removes the half-written temp file.
+export function writeAtomically(tmp, file, buf) {
+  try {
+    writeFileSync(tmp, buf);
+    renameSync(tmp, file);
+  } catch (e) {
+    try { unlinkSync(tmp); } catch {}
+    throw e;
+  }
 }

@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ALL_METRICS } from '../src/lib/impect_categories.js';
 import { configureDiskCache } from '../src/lib/disk_cache.js';
+import { gunzipSync, gzipSync } from 'node:zlib';
 
 // One league season with one squad of three players, counting how often Impect is asked for rows.
 const metrics = [...new Set(ALL_METRICS)].map((m, i) => ({ id: i, name: m.split('__')[1], inverted: false, details: { label: m } }));
@@ -31,7 +32,8 @@ process.env.IMPECT_PASSWORD = 'fixture';
 const dir = mkdtempSync(join(tmpdir(), 'pine-cache-'));
 configureDiskCache(dir);
 test.after(() => rmSync(dir, { recursive: true, force: true }));
-const file = join(dir, 'cohort-7.json');
+const file = join(dir, 'cohort-7.json.gz');
+const readGz = (f) => JSON.parse(gunzipSync(readFileSync(f)).toString('utf8'));
 
 test('a league season is downloaded once, kept on disk, and survives a restart', async () => {
   const kpi = await import('../src/lib/impect_kpi.js');
@@ -50,13 +52,27 @@ test('a league season is downloaded once, kept on disk, and survives a restart',
 });
 
 test('a stale copy is served at once and replaced in the background', async () => {
-  const saved = JSON.parse(readFileSync(file, 'utf8'));
-  writeFileSync(file, JSON.stringify({ ...saved, at: 0 }));
+  const saved = readGz(file);
+  writeFileSync(file, gzipSync(JSON.stringify({ ...saved, at: 0 })));
   const kpi = await import('../src/lib/impect_kpi.js?stale');
   const before = downloads;
   const co = await kpi.cohort(7);
   assert.equal(co.at, 0, 'the old copy comes back without waiting');
   await new Promise((r) => setTimeout(r, 50));
   assert.equal(downloads, before + 1, 'and a fresh one was fetched behind it');
-  assert.ok(JSON.parse(readFileSync(file, 'utf8')).at > 0, 'which replaced the copy on disk');
+  assert.ok(readGz(file).at > 0, 'which replaced the copy on disk');
+});
+
+test('the disk cache clears temp files and plain JSON left by older versions', async () => {
+  const other = mkdtempSync(join(tmpdir(), 'pine-cache-old-'));
+  try {
+    writeFileSync(join(other, 'cohort-1.json'), '{}');
+    writeFileSync(join(other, 'cohort-2.json.gz.tmp'), 'half');
+    writeFileSync(join(other, 'cohort-3.json.gz'), gzipSync('{"keep":true}'));
+    configureDiskCache(other);
+    assert.deepEqual(readdirSync(other).sort(), ['cohort-3.json.gz']);
+  } finally {
+    configureDiskCache(dir);
+    rmSync(other, { recursive: true, force: true });
+  }
 });

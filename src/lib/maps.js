@@ -3,11 +3,11 @@
 // and uploads it as JSON. PINE checks and trims the export, keeps it gzipped next to the database and
 // hands it to the browser, which draws the two maps and filters the metrics without another request.
 // A view keeps only its latest build: a rebuild replaces it, since the events behind it only grow.
-import { existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { CARD_POSITIONS } from "./card_options.js";
-import { cardErrorCode, cardFileName, cardProgress } from "./cards.js";
+import { cardErrorCode, cardFileName, cardProgress, writeAtomically } from "./cards.js";
 
 export const MAPS_SCHEMA = 1; // the export shape this PINE can draw; the worker's MAP_SCHEMA must match
 export const MAX_MAPS_BYTES = 5 * 1024 * 1024;
@@ -154,8 +154,7 @@ export function saveMapsFile(root, map, data, when) {
   if (existsSync(join(dir, name))) throw new Error(`maps file ${name} already exists`);
   const buf = gzipSync(JSON.stringify(data));
   const tmp = join(dir, `.${name}.part`);
-  writeFileSync(tmp, buf);
-  renameSync(tmp, join(dir, name));
+  writeAtomically(tmp, join(dir, name), buf);
   return { file: `${map.player_id}/${name}`, bytes: buf.length };
 }
 
