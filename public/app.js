@@ -1258,7 +1258,6 @@ async function renderPlayer(main, idArg) {
         <section class="panel"><header class="panel-h"><h2>Big board</h2></header>${rolesPanel(p)}</section>
         <section class="panel" id="board-history"><header class="panel-h"><h2>Board history</h2></header>${boardHistoryHTML(d.board_history)}</section>
         ${ncaaBoardPanel(p, d)}
-        ${agentPanel(p, d.agent)}
         ${d.lists.length ? `<section class="panel"><header class="panel-h"><h2>Lists</h2></header><div class="row">${d.lists.map((l) => `<span class="chip">${esc(l.name)}</span>`).join("")}</div></section>` : ""}
         <section class="panel" id="impect-panel"><header class="panel-h"><h2>Impect</h2></header><div class="loading sm">Loading…</div></section>
         <section class="panel"><header class="panel-h"><h2>History</h2></header>${historyHTML(d.activity)}</section>
@@ -1808,14 +1807,6 @@ function wirePlayer(root, d) {
         await api("DELETE", `/api/ncaa/prospects/${encodeURIComponent(d.college.key)}/link`);
         return await afterMutation();
       }
-      if (t.id === "agent-edit" || t.id === "agent-cancel") {
-        const editing = t.id === "agent-edit";
-        $("#agent-form", root).hidden = !editing;
-        $("#agent-view", root).hidden = editing;
-        $("#agent-edit", root).hidden = editing;
-        if (editing) $("#agent-form select", root).focus(); else $("#agent-form", root).reset();
-        return;
-      }
       if (t.dataset.noteEdit) return editNote(root, d, Number(t.dataset.noteEdit));
       if (t.dataset.noteDel) {
         if (!confirm("Delete this note?")) return;
@@ -1851,16 +1842,6 @@ function wirePlayer(root, d) {
       if (f.id === "college-form") await api("POST", `/api/players/${p.id}/college/reports`, collegeFormData(f));
       else await api("PUT", `/api/college/reports/${f.dataset.id}`, collegeFormData(f));
       toast("Report saved");
-      await afterMutation();
-    } catch (err) { oops(err); btn.disabled = false; }
-  });
-  $("#agent-form", root).addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const btn = $("button[type=submit]", e.target);
-    btn.disabled = true;
-    try {
-      await api("PUT", `/api/players/${p.id}/agent`, Object.fromEntries(new FormData(e.target)));
-      toast("Agent details saved");
       await afterMutation();
     } catch (err) { oops(err); btn.disabled = false; }
   });
@@ -3124,35 +3105,6 @@ function ncaaBoardPanel(p, d) {
     <div class="add-role"><select id="ncaa-pos-sel" aria-label="NCAA board position">${S.config.positions.map((pos) =>
       `<option value="${pos.code}" ${pos.code === at ? "selected" : ""}>${pos.code} · ${esc(pos.label)}</option>`).join("")}</select>
       <button type="button" class="btn sm" id="ncaa-add-btn">${s?.position ? "Move to position" : "Add to NCAA board"}</button></div>
-  </section>`;
-}
-// ... and, for every player, who represents them.
-function agentPanel(p, a) {
-  const tm = p.agent ? `<p class="muted sm">Transfermarkt lists: ${esc(p.agent)}</p>` : "";
-  const view = a ? `<dl class="facts">
-      ${fact("Representation", repLabel(a.representation))}
-      ${fact("Agent", a.agent)}
-      ${fact("Agency", a.agency)}
-      ${fact("Email", a.email ? `<a href="mailto:${esc(a.email)}">${esc(a.email)}</a>` : null, true)}
-      ${fact("Phone", a.phone ? `<a href="tel:${esc(a.phone.replace(/[^\d+]/g, ""))}">${esc(a.phone)}</a>` : null, true)}
-      ${fact("Last contact", fmtDate(a.last_contact))}
-    </dl>${a.notes ? `<div class="agent-notes">${esc(a.notes)}</div>` : ""}
-    <p class="muted sm" style="margin-top:8px">Updated by ${esc(a.updated_by_name || "someone")} · ${esc(relTime(a.updated_at))}</p>`
-    : `<p class="empty">No agent details yet.</p>`;
-  const v = (k) => esc(a?.[k] || "");
-  return `<section class="panel" id="agent-panel">
-    <header class="panel-h"><h2>Agent</h2><button type="button" class="btn sm ghost" id="agent-edit">${a ? "Edit" : "Add details"}</button></header>
-    <div id="agent-view">${view}${tm}</div>
-    <form id="agent-form" class="agent-form" hidden>
-      <label>Representation<select name="representation">${REPRESENTATION.map(([k, l]) => `<option value="${k}" ${(a?.representation || "unknown") === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
-      <label>Agent<input name="agent" value="${v("agent")}" placeholder="${esc(p.agent || "Name")}"></label>
-      <label>Agency<input name="agency" value="${v("agency")}"></label>
-      <label>Email<input name="email" type="email" value="${v("email")}"></label>
-      <label>Phone<input name="phone" type="tel" value="${v("phone")}"></label>
-      <label>Last contact<input name="last_contact" type="date" value="${v("last_contact")}"></label>
-      <label class="wide">Notes<textarea name="notes" rows="3" data-draft data-orig="${v("notes")}" placeholder="Fee expectations, who to call, timing…">${v("notes")}</textarea></label>
-      <div class="row end wide"><button type="button" class="btn sm ghost" id="agent-cancel">Cancel</button><button type="submit" class="btn sm primary">Save</button></div>
-    </form>
   </section>`;
 }
 

@@ -248,9 +248,9 @@ syncs leave the signing status alone.
   ceiling, exactly as the college database works it out, so PINE and imported reports count the same. Only a
   report's author or an admin can edit or delete it; imported reports are read-only, and a re-import replaces
   only its own (`ncaa_reports.origin`).
-- **Agent**: a panel on every player page for who represents them (unknown, no agent, advisor, agent),
-  agent and agency names, email, phone, last contact and notes. It is PINE's own record; Transfermarkt's
-  agent line is shown beneath it for reference and never overwrites it.
+- **Agent**: the player page header shows Transfermarkt's agent line. The editable Agent panel was removed
+  from the player page sidebar (2026-11); records already saved stay in `agent_info` and the
+  `PUT /api/players/:id/agent` route remains.
 - **Database** (`#/players`): sortable and filterable table of everyone, with CSV export.
 - **Player page**: **Board history** lists recorded adds, promotions, drop-backs, removals and optional
   tracking reasons, newest first: date, staff member, role, source or exit reason and written
@@ -260,7 +260,8 @@ syncs leave the signing status alone.
   show everyone's box (yours first, then anyone who has weighed in); "Hide empty" folds the rest into one line,
   remembered per browser. Below it,
   the shared summary, college scouting reports (players in the college database) and one evaluation section per staff member (only you can
-  write in yours), with big board roles, the NCAA board spot (college players), agent details, lists, the Impect link and history alongside. Underneath are tabs for
+  write in yours), with big board roles, the NCAA board spot (college players), lists, the Impect link and history alongside. The KPI profile and
+  playing time follow the evaluations in the left column (below everything on narrow screens). The analytics tabs cover
   the KPI profile, physical data, pitch maps and player card; one season and position picker drives the three
   Impect tabs (physical data has its own seasons). A tab loads the first time it is opened.
 - **Player card**: a PDF made outside PINE, shown on the player page as a picture that opens the PDF.
