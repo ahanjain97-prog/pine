@@ -1232,7 +1232,7 @@ async function renderPlayer(main, idArg) {
     </section>
 
     <div class="p-grid">
-      <div>
+      <div class="p-main">
         <section class="panel" id="summary-panel" aria-labelledby="summary-heading">
           <header class="panel-h"><h2 id="summary-heading">Summary</h2><span class="muted sm">Shared club summary</span></header>
           <div id="summary-view">
@@ -1253,7 +1253,7 @@ async function renderPlayer(main, idArg) {
         ${collegePanel(d)}
         <section class="panel"><header class="panel-h"><h2>Staff evaluations</h2></header>${evalsHTML(d.staff)}</section>
       </div>
-      <div>
+      <div class="p-side">
         ${p.tm_url ? "" : `<section class="panel" id="tm-panel"><header class="panel-h"><h2>Transfermarkt</h2></header><div class="loading sm">Searching Transfermarkt…</div></section>`}
         <section class="panel"><header class="panel-h"><h2>Big board</h2></header>${rolesPanel(p)}</section>
         <section class="panel" id="board-history"><header class="panel-h"><h2>Board history</h2></header>${boardHistoryHTML(d.board_history)}</section>
@@ -1263,7 +1263,6 @@ async function renderPlayer(main, idArg) {
         <section class="panel" id="impect-panel"><header class="panel-h"><h2>Impect</h2></header><div class="loading sm">Loading…</div></section>
         <section class="panel"><header class="panel-h"><h2>History</h2></header>${historyHTML(d.activity)}</section>
       </div>
-    </div>
     <section class="panel analytics" id="analytics">
       <header class="an-head">
         <div class="an-tabs" role="tablist">${anTabs(p).map(([k, label], i) =>
@@ -1273,6 +1272,7 @@ async function renderPlayer(main, idArg) {
       ${anTabs(p).map(([k], i) => `<div class="an-body" role="tabpanel" aria-labelledby="an-${k}-tab" id="${k}-panel" ${i ? "hidden" : ""}><div class="loading sm">Loading…</div></div>`).join("")}
     </section>
     <section class="panel playing-time" id="playing-time-panel"><header class="panel-h"><h2>Playing time</h2></header><div class="loading sm">Loading…</div></section>
+    </div>
   </div>`;
   const root = main.firstElementChild;
   wirePlayer(root, d);
