@@ -12,7 +12,8 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const cap = (s) => (s ? String(s)[0].toUpperCase() + String(s).slice(1) : "");
 
 const LOGO = `<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3l7 9h-3.5l6.2 8h-4.9l6.4 7.5H4.8l6.4-7.5H6.3l6.2-8H9z" fill="currentColor"/><rect x="14.5" y="27" width="3" height="3.5" fill="currentColor"/></svg>`;
-const GRP_NAME = { CB: "centre backs", FB: "full backs", MID: "midfielders", FWD: "forwards", GK: "goalkeepers" };
+// Physical-data position groups (player-physical-data): defensive and central mids are one pool, as in the KPI benchmarks.
+const GRP_NAME = { CB: "centre backs", FB: "full backs", MID: "defensive & central mids", AM: "attacking mids", FWD: "forwards", GK: "goalkeepers" };
 
 const S = {
   me: null, config: null, players: [], byId: new Map(), version: 0, pollTimer: null, dragging: null,
