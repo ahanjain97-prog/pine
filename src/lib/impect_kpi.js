@@ -201,7 +201,7 @@ async function buildCohort(iterationId) {
   return { at: Date.now(), iterationId, byGroup, shares };
 }
 
-const COHORT_FORMAT = 2; // bump when the cohort's shape changes, so old disk copies are rebuilt
+const COHORT_FORMAT = 3; // bump when the cohort's shape changes, so old disk copies are rebuilt (3: DM + CM pooled as MID)
 const toDisk = (co) => ({ format: COHORT_FORMAT, at: co.at, iterationId: co.iterationId, byGroup: [...co.byGroup], shares: [...co.shares] });
 const fromDisk = (d) => (d?.format === COHORT_FORMAT
   ? { at: d.at, iterationId: d.iterationId, byGroup: new Map(d.byGroup), shares: new Map(d.shares) } : null);

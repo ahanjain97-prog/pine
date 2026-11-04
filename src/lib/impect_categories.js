@@ -4,13 +4,14 @@
 
 export const POSITION_MAP = {
   GOALKEEPER: "GK", CENTRAL_DEFENDER: "CB", LEFT_WINGBACK_DEFENDER: "FB", RIGHT_WINGBACK_DEFENDER: "FB",
-  DEFENSE_MIDFIELD: "DM", CENTRAL_MIDFIELD: "CM", ATTACKING_MIDFIELD: "AM",
+  // Defensive and central midfielders are one benchmark group (MID, below), pooled per player.
+  DEFENSE_MIDFIELD: "MID", CENTRAL_MIDFIELD: "MID", ATTACKING_MIDFIELD: "AM",
   LEFT_WINGER: "W", RIGHT_WINGER: "W", CENTER_FORWARD: "ST",
 };
 
 export const POSITION_LABEL = {
-  GK: "Goalkeeper", CB: "Centre-Back", FB: "Full-Back", DM: "Defensive Mid",
-  CM: "Central Mid", AM: "Attacking Mid", W: "Winger", ST: "Striker",
+  GK: "Goalkeeper", CB: "Centre-Back", FB: "Full-Back", MID: "Defensive / Central Mid",
+  AM: "Attacking Mid", W: "Winger", ST: "Striker",
 };
 
 // Match-share floor for the peer cohort (player_percentiles.py uses 5.0).
@@ -599,5 +600,11 @@ export const CATEGORIES = {
     ],
   },
 };
+
+// The combined midfield group (DEFENSE_MIDFIELD + CENTRAL_MIDFIELD), composed from the study's two sets rather
+// than hand-written: the DM categories, which split out pressing, recoveries and defensive duels, plus the CM
+// set's shooting threat, so a box-to-box player's shooting still counts. No metric sits in two categories.
+CATEGORIES.MID = Object.fromEntries(Object.entries(CATEGORIES.DM).flatMap(([name, metrics]) =>
+  name === "Chance creation" ? [[name, metrics], ["Shooting threat", CATEGORIES.CM["Shooting threat"]]] : [[name, metrics]]));
 
 export const ALL_METRICS = [...new Set(Object.values(CATEGORIES).flatMap((c) => Object.values(c).flat()))];

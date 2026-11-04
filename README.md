@@ -33,6 +33,9 @@ USL Championship, MLS Next Pro and USL League One. The display shows only pooled
 sorted highest to lowest with unavailable scores last. League percentiles remain in the API response.
 Both metric normalization and ranking use a fixed minimum of five match shares at that position.
 Players below that floor are still scored against the qualified reference, with a small-sample warning. The KPI card can switch between every position group the player logged that season.
+Defensive and central midfielders are one group (**Defensive / Central Mid**): a player's DM and CM minutes are
+pooled into one row and ranked against everyone else's, on the DM categories plus Shooting threat
+(`CATEGORIES.MID` in `src/lib/impect_categories.js`). The player card and pitch maps keep DM and CM separate.
 Requests can raise the floor, but cannot lower it below five.
 
 Categories retain the existing equal-weight, direction-adjusted, 1%-winsorized z-score definitions.

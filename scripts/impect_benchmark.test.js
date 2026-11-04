@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { benchmark, fixedFloor, median, percentile, qualifiedReference } from '../src/lib/impect_benchmark.js';
-import { CATEGORIES } from '../src/lib/impect_categories.js';
+import { CATEGORIES, POSITION_LABEL, POSITION_MAP } from '../src/lib/impect_categories.js';
 
 test('each position assigns every component to only one non-empty category', () => {
   for (const [position, categories] of Object.entries(CATEGORIES)) {
@@ -9,6 +9,20 @@ test('each position assigns every component to only one non-empty category', () 
     const metrics = Object.values(categories).flat();
     assert.ok(Object.values(categories).every((components) => components.length > 0), `${position} has an empty category`);
     assert.equal(new Set(metrics).size, metrics.length, `${position} repeats a component across categories`);
+  }
+});
+
+test('defensive and central midfielders are benchmarked as one group', () => {
+  assert.equal(POSITION_MAP.DEFENSE_MIDFIELD, 'MID');
+  assert.equal(POSITION_MAP.CENTRAL_MIDFIELD, 'MID');
+  assert.ok(POSITION_LABEL.MID);
+  const mid = Object.values(CATEGORIES.MID).flat();
+  for (const m of Object.values(CATEGORIES.DM).flat()) assert.ok(mid.includes(m), `MID is missing DM metric ${m}`);
+  assert.deepEqual(CATEGORIES.MID['Shooting threat'], CATEGORIES.CM['Shooting threat']);
+  // Every group a position maps to has categories and a label.
+  for (const g of new Set(Object.values(POSITION_MAP))) {
+    assert.ok(CATEGORIES[g] || g === 'GK', `${g} has no categories`);
+    assert.ok(POSITION_LABEL[g], `${g} has no label`);
   }
 });
 

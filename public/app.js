@@ -1399,8 +1399,9 @@ const anTabs = (p) => [...(p.impect_id ? AN_TABS : AN_TABS.filter(([k]) => k ===
   ...(p.mlsnp_gates_eligible ? [["gates", 'MLS NEXT Pro gates <span class="gates-badge" aria-label="Gates loading">…</span>']] : [])];
 // Physical data has its own seasons and teams, so the Impect season/position picker hides on that tab.
 const AN_USES_PICKER = new Set(["kpi", "maps", "card"]);
-// Card position -> KPI benchmark group. The KPI reference pools both flanks, so LW and RW are one group.
-const KPI_GROUP = { CB: "CB", LB: "FB", RB: "FB", DM: "DM", CM: "CM", AM: "AM", LW: "W", RW: "W", CF: "ST" };
+// Card position -> KPI benchmark group. The KPI reference pools both flanks, so LW and RW are one group,
+// and defensive and central midfielders are one group (MID).
+const KPI_GROUP = { CB: "CB", LB: "FB", RB: "FB", DM: "MID", CM: "MID", AM: "AM", LW: "W", RW: "W", CF: "ST" };
 // sel is null when Impect can't offer any season and position (a goalkeeper, say): each panel then
 // falls back to driving itself.
 const an = { sel: null, seasons: [], handlers: {}, loaded: new Set(), kpiShown: null };
