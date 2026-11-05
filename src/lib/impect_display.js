@@ -8,7 +8,7 @@ export const PHASES = [
   { id: "gk", name: "Goalkeeping", desc: "Stopping shots, claiming high balls and sweeping behind the line" },
   { id: "build", name: "On-Ball", desc: "Keeping, moving and progressing the ball" },
   { id: "attack", name: "Final third", desc: "Creating chances, shooting and finishing" },
-  { id: "defend", name: "Off-Ball", desc: "Getting open to receive, pressing, winning the ball back, and duels at both ends" },
+  { id: "defend", name: "Off-Ball", desc: "Getting open to receive, winning the ball back, and duels at both ends" },
   // Centre-backs, full-backs and midfielders (Defending v2, defending.js): quality, then style.
   { id: "defending", name: "Defending", desc: "Linked to his team conceding less, checked on players who changed clubs" },
   { id: "defstyle", name: "Defending style", desc: "How much and how he defends: role and workload, not a quality ranking" },
@@ -50,6 +50,7 @@ const CATEGORY_DISPLAY = {
   "Receiving and box movement": ["Receiving & box movement", "defend", "Getting on the ball between the lines, in behind and in the box."],
   "Pressing activity": ["Pressing", "defend", "How often the player presses: in the opponent's build-up, between the lines and after losing the ball."],
   "Pressing and ball winning": ["Pressing & ball winning", "defend", "Presses, plus ball wins and interceptions."],
+  "Ball winning": ["Ball winning", "defend", "Ball wins and interceptions per match."],
   "Interceptions and recoveries": ["Interceptions & recoveries", "defend", "Ball wins, interceptions, loose and second balls, and blocks."],
   "Ground defending": ["Ground defending", "defend", "Defensive ground duels: how many, and how many won and lost."],
   "Ground duels": ["Ground duels", "defend", "Ground duels with and without the ball: how many, and how many won and lost."],
@@ -66,7 +67,6 @@ const CATEGORY_DISPLAY = {
   "Pressing (possession-adjusted)": ["Pressing", "defending", "How often he presses, scaled for his team's possession."],
   // Defending v2: described, not ranked as quality.
   "Duel profile": ["Duels", "defstyle", "Defensive duel win rates (pulled toward the league average when he has contested few) and how many he contests, possession-adjusted. Not linked to his team conceding less."],
-  "Pressing profile": ["Pressing profile", "defstyle", "Where he presses: in the opponent's build-up, between the lines and after losing the ball."],
   "Defensive workload": ["Defensive workload", "defstyle", "How much defending he does per match. Mostly reflects how much his team defends."],
   "Regain value": ["Regain value", "defstyle", "Impect's packing view of his ball wins: teammates put back goal-side per win and the Interventions Score."],
 };

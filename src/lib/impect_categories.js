@@ -608,16 +608,18 @@ export const CATEGORIES = {
 // interception volumes went with conceding MORE. Each position now has two sets:
 //   - Defending (ranked as quality): metrics that held up for players who changed clubs AND whose new clubs
 //     conceded less, in 2022-25 and again in the 2026 holdout (mover r >= 0.2; incoming r > 0.1 in both);
-//   - Defending style (described, not a quality ranking): duels, pressing split, workload and Impect's packing
-//     regain value, which describe the role but didn't pass.
+//   - Defending style (described, not a quality ranking): duels, workload and Impect's packing regain value,
+//     which describe the role but didn't pass.
+// Pressing is shown only where it went with conceding less: possession-adjusted press volume for full-backs and
+// midfielders (evaluate_back6_defending.py). For centre-backs it went with conceding more, for wingers and
+// strikers it was negative or untestable, and where a player presses (build-up, between the lines, counter-press)
+// mattered nowhere, so those positions and splits show no pressing.
 const DEFENDING_V2 = {
   CB: {
     "Ball winning (possession-adjusted)": ["derived__PADJ_BALL_WINS", "derived__PADJ_LOOSE_BALL_REGAINS"],
     "Aerial dominance": ["derived__AERIAL_WIN_SHRUNK", "derived__PADJ_AERIAL_DUELS", "score__DEFENSIVE_HEADER_SCORE"],
     "Where he wins the ball": ["score__RATIO_REMOVED_OPPONENTS"],
     "Duel profile": ["derived__GROUND_WIN_SHRUNK", "derived__PADJ_GROUND_DUELS"],
-    "Pressing profile": ["derived__PADJ_PRESSES", "kpi__NUMBER_OF_PRESSES_BUILD_UP", "kpi__NUMBER_OF_PRESSES_BETWEEN_THE_LINES",
-      "kpi__NUMBER_OF_PRESSES_COUNTER_PRESS"],
     "Defensive workload": ["kpi__BALL_WIN_NUMBER", "score__INTERCEPTION_SCORE", "kpi__SECOND_BALL_WIN", "score__CLEARANCE_SCORE",
       "score__BLOCK_SCORE"],
     "Regain value": ["score__RATIO_ADDED_TEAMMATES", "score__INTERVENTIONS_SCORE_PACKING"],
@@ -626,7 +628,6 @@ const DEFENDING_V2 = {
     "Where he wins the ball": ["score__RATIO_REMOVED_OPPONENTS"],
     "Pressing (possession-adjusted)": ["derived__PADJ_PRESSES"],
     "Duel profile": ["derived__GROUND_WIN_SHRUNK", "derived__AERIAL_WIN_SHRUNK", "derived__PADJ_GROUND_DUELS", "derived__PADJ_AERIAL_DUELS"],
-    "Pressing profile": ["kpi__NUMBER_OF_PRESSES_BUILD_UP", "kpi__NUMBER_OF_PRESSES_BETWEEN_THE_LINES", "kpi__NUMBER_OF_PRESSES_COUNTER_PRESS"],
     "Defensive workload": ["kpi__BALL_WIN_NUMBER", "score__INTERCEPTION_SCORE", "score__LOOSE_BALL_REGAIN_SCORE", "kpi__SECOND_BALL_WIN",
       "score__CLEARANCE_SCORE", "score__BLOCK_SCORE", "score__DEFENSIVE_HEADER_SCORE"],
     "Regain value": ["score__RATIO_ADDED_TEAMMATES", "score__INTERVENTIONS_SCORE_PACKING"],
@@ -635,7 +636,6 @@ const DEFENDING_V2 = {
     "Ball winning (possession-adjusted)": ["derived__PADJ_BALL_WINS", "derived__PADJ_INTERCEPTIONS"],
     "Pressing (possession-adjusted)": ["derived__PADJ_PRESSES"],
     "Duel profile": ["derived__GROUND_WIN_SHRUNK", "derived__AERIAL_WIN_SHRUNK", "derived__PADJ_GROUND_DUELS", "derived__PADJ_AERIAL_DUELS"],
-    "Pressing profile": ["kpi__NUMBER_OF_PRESSES_BUILD_UP", "kpi__NUMBER_OF_PRESSES_BETWEEN_THE_LINES", "kpi__NUMBER_OF_PRESSES_COUNTER_PRESS"],
     "Defensive workload": ["kpi__BALL_WIN_NUMBER", "score__LOOSE_BALL_REGAIN_SCORE", "kpi__SECOND_BALL_WIN", "score__CLEARANCE_SCORE",
       "score__BLOCK_SCORE", "score__DEFENSIVE_HEADER_SCORE"],
     "Regain value": ["score__RATIO_ADDED_TEAMMATES", "score__INTERVENTIONS_SCORE_PACKING", "score__RATIO_REMOVED_OPPONENTS"],
@@ -648,6 +648,11 @@ CATEGORIES.FB = { ...pick(CATEGORIES.FB, ["Build-up circulation", "Ball security
   "Wide receiving and overlaps", "Carrying and attacking 1v1", "Crossing and chance creation"]), ...DEFENDING_V2.FB };
 // The combined midfield group (DEFENSE_MIDFIELD + CENTRAL_MIDFIELD): the study's DM categories on the ball, the CM
 // set's shooting threat (so a box-to-box player's shooting still counts), and Defending v2.
+// Attackers keep the ball-winning half of the study's "Pressing and ball winning".
+for (const g of ["AM", "W", "ST"]) {
+  CATEGORIES[g] = Object.fromEntries(Object.entries(CATEGORIES[g]).map(([name, metrics]) => (name === "Pressing and ball winning"
+    ? ["Ball winning", metrics.filter((m) => !m.startsWith("kpi__NUMBER_OF_PRESSES"))] : [name, metrics])));
+}
 CATEGORIES.MID = { ...pick(CATEGORIES.DM, ["Circulation and tempo", "Ball security", "Line-breaking progression",
   "Receiving and positioning", "Chance creation"]), "Shooting threat": CATEGORIES.CM["Shooting threat"],
   ...pick(CATEGORIES.DM, ["Carrying and pressure escape"]), ...DEFENDING_V2.MID };

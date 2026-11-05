@@ -49,7 +49,12 @@ with their team conceding *more*. Each of these positions now has two defending 
   - Full-backs: where he wins the ball; possession-adjusted pressing.
   - Midfielders: possession-adjusted ball winning (ball wins, interceptions); possession-adjusted pressing.
 - **Defending style** (described, not a quality ranking): duels (sample-adjusted win rates and contested
-  volume), pressing profile, defensive workload (raw counts), and Impect's packing regain value.
+  volume), defensive workload (raw counts), and Impect's packing regain value.
+- **Pressing** appears only for full-backs and midfielders, as one possession-adjusted volume. For centre-backs
+  it went with conceding more. For wingers and strikers it was negative or untestable (few movers). Where a
+  player presses (build-up, between the lines, counter-press) mattered at no position. Centre-backs, attacking
+  mids, wingers and strikers show no pressing; attackers keep the ball-wins-and-interceptions half of their
+  old "Pressing & ball winning" category.
 
 The derived metrics are worked out when a league season is downloaded:
 
