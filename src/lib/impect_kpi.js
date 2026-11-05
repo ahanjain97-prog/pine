@@ -9,6 +9,7 @@ import { CATEGORIES, POSITION_MAP, POSITION_LABEL, MIN_MATCH_SHARE, ALL_METRICS 
 import { benchmark, fixedFloor } from "./impect_benchmark.js";
 import { diskSavedAt, readDisk, writeDisk } from "./disk_cache.js";
 import { categoryDisplay, phasesFor, metricKind, METRIC_KINDS, shortLeague } from "./impect_display.js";
+import { addDefending, DERIVED_META } from "./defending.js";
 
 export const BENCHMARK_LEAGUES = ["USL Championship", "MLS Next Pro", "USL League One"];
 
@@ -55,6 +56,9 @@ export const DISPLAY_OVERRIDES = {
   score__RATIO_GOALS_POSTSHOT_XG: "Goals \u00f7 post-shot xG",
   score__RATIO_SHOTS_PER_GOAL: "Shots per goal",
   score__RATIO_REVERSE_PLAY_ADDED_OPPONENTS: "Backpasses \u00f7 possible backpasses",
+  score__RATIO_REMOVED_OPPONENTS: "Opponents taken out per ball win",
+  score__RATIO_ADDED_TEAMMATES: "Teammates put back goal-side per ball win",
+  score__INTERVENTIONS_SCORE_PACKING: "Interventions Score (packing)",
 
   // Distances are metres gained towards the opponent's goal, not distance run.
   kpi__DISTANCE_TO_GOAL_COVERED_DRIBBLE: "Distance carried towards goal (m)",
@@ -89,6 +93,10 @@ async function definitions() {
   };
   for (const d of kpis) add(`kpi__${d.name}`, d, kpiById, d.id);
   for (const d of scores) add(`score__${d.name}`, d, scoreById, d.id);
+  // PINE's own metrics (defending.js) sit beside Impect's; higher is better for all of them.
+  for (const [metric, d] of Object.entries(DERIVED_META)) {
+    if (METRICS.has(metric)) meta.set(metric, { label: d.label, definition: d.definition, meaning: null, inverted: false });
+  }
   defsCache = { at: Date.now(), meta, kpiById, scoreById };
   return defsCache;
 }
@@ -144,10 +152,35 @@ async function fetchSquad(iterationId, squad, defs) {
   return { rows, shares };
 }
 
+// Each squad's share of the ball (0-1), by name, for possession-adjusting defensive counts. Empty, with a
+// warning, if Impect won't give it: the counts are then left unscaled rather than the league season failing.
+async function squadPossession(iterationId, squads) {
+  try {
+    const [rows, defs] = await Promise.all([
+      impectGet(`/v5/customerapi/iterations/${iterationId}/squad-scores`),
+      impectGet("/v5/customerapi/squad-scores"),
+    ]);
+    const id = defs.find((d) => d.name === "RATIO_BALL_POSSESSION")?.id;
+    const name = new Map(squads.map((s) => [s.id, s.name]));
+    const out = new Map();
+    for (const r of rows) {
+      const v = (r.squadScores || []).find((x) => x.squadScoreId === id)?.value;
+      if (name.has(r.squadId) && Number.isFinite(Number(v))) out.set(name.get(r.squadId), Number(v));
+    }
+    return out;
+  } catch (e) {
+    console.warn(`[impect] no possession for ${iterationId}, defensive counts unscaled: ${e.message}`);
+    return new Map();
+  }
+}
+
 async function buildCohort(iterationId) {
   const defs = await definitions();
   const squads = await impectGet(`/v5/customerapi/iterations/${iterationId}/squads`);
-  const perSquad = await mapLimit(squads, 4, (s) => fetchSquad(iterationId, s, defs));
+  const [perSquad, possession] = await Promise.all([
+    mapLimit(squads, 4, (s) => fetchSquad(iterationId, s, defs)),
+    squadPossession(iterationId, squads),
+  ]);
 
   // Every player's match share at every Impect position, goalkeepers included (card options read it).
   const shares = new Map();
@@ -183,13 +216,17 @@ async function buildCohort(iterationId) {
     }
   }
 
-  const byGroup = new Map();
   for (const p of byKey.values()) {
     p.values = {};
     for (const [m, sum] of p.sums) {
       const w = p.weights.get(m);
       p.values[m] = w > 0 ? sum / w : null;
     }
+  }
+  addDefending([...byKey.values()], possession);
+
+  const byGroup = new Map();
+  for (const p of byKey.values()) {
     p.squad = [...p.squadShares.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
     delete p.sums;
     delete p.weights;
@@ -201,7 +238,7 @@ async function buildCohort(iterationId) {
   return { at: Date.now(), iterationId, byGroup, shares };
 }
 
-const COHORT_FORMAT = 3; // bump when the cohort's shape changes, so old disk copies are rebuilt (3: DM + CM pooled as MID)
+const COHORT_FORMAT = 4; // bump when the cohort's shape changes, so old disk copies are rebuilt (4: Defending v2 metrics)
 const toDisk = (co) => ({ format: COHORT_FORMAT, at: co.at, iterationId: co.iterationId, byGroup: [...co.byGroup], shares: [...co.shares] });
 const fromDisk = (d) => (d?.format === COHORT_FORMAT
   ? { at: d.at, iterationId: d.iterationId, byGroup: new Map(d.byGroup), shares: new Map(d.shares) } : null);

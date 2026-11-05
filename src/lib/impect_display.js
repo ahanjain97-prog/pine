@@ -9,6 +9,9 @@ export const PHASES = [
   { id: "build", name: "On-Ball", desc: "Keeping, moving and progressing the ball" },
   { id: "attack", name: "Final third", desc: "Creating chances, shooting and finishing" },
   { id: "defend", name: "Off-Ball", desc: "Getting open to receive, pressing, winning the ball back, and duels at both ends" },
+  // Centre-backs, full-backs and midfielders (Defending v2, defending.js): quality, then style.
+  { id: "defending", name: "Defending", desc: "Linked to his team conceding less, checked on players who changed clubs" },
+  { id: "defstyle", name: "Defending style", desc: "How much and how he defends: role and workload, not a quality ranking" },
 ];
 const OTHER = { id: "other", name: "Other", desc: "" };
 
@@ -55,6 +58,17 @@ const CATEGORY_DISPLAY = {
   "Aerial and physical duels": ["Aerial & ground duels", "defend", "Aerial and ground duels: how many, and how many won."],
   "Hold-up play and ground duels": ["Hold-up play & ground duels", "defend", "Holding the ball up, and attacking ground duels."],
   "Aerial target play": ["Aerial target play", "defend", "Attacking aerial duels, headers and headed shots."],
+
+  // Defending v2: ranked as quality.
+  "Ball winning (possession-adjusted)": ["Ball winning", "defending", "Ball wins with interceptions (midfielders) or loose-ball regains (centre-backs), scaled for his team's possession."],
+  "Aerial dominance": ["Aerial defending", "defending", "Defensive aerial win rate (adjusted for how many he has contested), how many he contests (possession-adjusted), and defensive headers."],
+  "Where he wins the ball": ["Where he wins the ball", "defending", "How many opponents each ball win takes out of the game: winning it early and high, before the opponent gets through."],
+  "Pressing (possession-adjusted)": ["Pressing", "defending", "How often he presses, scaled for his team's possession."],
+  // Defending v2: described, not ranked as quality.
+  "Duel profile": ["Duels", "defstyle", "Defensive duel win rates (pulled toward the league average when he has contested few) and how many he contests, possession-adjusted. Not linked to his team conceding less."],
+  "Pressing profile": ["Pressing profile", "defstyle", "Where he presses: in the opponent's build-up, between the lines and after losing the ball."],
+  "Defensive workload": ["Defensive workload", "defstyle", "How much defending he does per match. Mostly reflects how much his team defends."],
+  "Regain value": ["Regain value", "defstyle", "Impect's packing view of his ball wins: teammates put back goal-side per win and the Interventions Score."],
 };
 // The one study name that covers two different metric sets: at centre mid it is plain ball security.
 const POSITION_OVERRIDES = {
@@ -69,7 +83,9 @@ export function categoryDisplay(group, name) {
 // The phases a card uses, in reading order.
 export function phasesFor(ids) {
   const used = new Set(ids);
-  return [...PHASES, OTHER].filter((p) => used.has(p.id));
+  // Where defending has its own phases, Off-Ball is only about getting on the ball.
+  const offBall = used.has("defending") ? { desc: "Getting open to receive, and the threat added on receipt" } : {};
+  return [...PHASES, OTHER].filter((p) => used.has(p.id)).map((p) => (p.id === "defend" ? { ...p, ...offBall } : p));
 }
 
 // What kind of number each metric is, so the drill-down can say how to read its percentile.
@@ -83,8 +99,8 @@ export const METRIC_KINDS = [
 export function metricKind(metric) {
   const name = String(metric).split("__").pop();
   if (/LOSS|LOST|UNSUCCESSFUL|_FAIL/.test(name)) return "mistake";
-  if (/_SCORE$/.test(name)) return "score";
-  if (/RATIO|PERCENT|OVER_EXPECTED|PREVENTED_GOALS/.test(name)) return "rate";
+  if (/_SCORE(_PACKING)?$/.test(name)) return "score";
+  if (/RATIO|PERCENT|OVER_EXPECTED|PREVENTED_GOALS|_SHRUNK$/.test(name)) return "rate";
   return "volume";
 }
 

@@ -16,9 +16,10 @@ test('defensive and central midfielders are benchmarked as one group', () => {
   assert.equal(POSITION_MAP.DEFENSE_MIDFIELD, 'MID');
   assert.equal(POSITION_MAP.CENTRAL_MIDFIELD, 'MID');
   assert.ok(POSITION_LABEL.MID);
-  const mid = Object.values(CATEGORIES.MID).flat();
-  for (const m of Object.values(CATEGORIES.DM).flat()) assert.ok(mid.includes(m), `MID is missing DM metric ${m}`);
+  for (const c of ['Circulation and tempo', 'Line-breaking progression', 'Chance creation', 'Carrying and pressure escape'])
+    assert.deepEqual(CATEGORIES.MID[c], CATEGORIES.DM[c], `MID keeps the DM set's ${c}`);
   assert.deepEqual(CATEGORIES.MID['Shooting threat'], CATEGORIES.CM['Shooting threat']);
+  assert.ok(CATEGORIES.MID['Ball winning (possession-adjusted)'], 'MID uses Defending v2');
   // Every group a position maps to has categories and a label.
   for (const g of new Set(Object.values(POSITION_MAP))) {
     assert.ok(CATEGORIES[g] || g === 'GK', `${g} has no categories`);

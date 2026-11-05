@@ -2,6 +2,8 @@
 // Equal-weight, direction-consistent z-score categories; every metric belongs to one category per position.
 // Regenerate rather than hand-edit if the study changes.
 
+import { DEFENDING_INPUTS } from "./defending.js";
+
 export const POSITION_MAP = {
   GOALKEEPER: "GK", CENTRAL_DEFENDER: "CB", LEFT_WINGBACK_DEFENDER: "FB", RIGHT_WINGBACK_DEFENDER: "FB",
   // Defensive and central midfielders are one benchmark group (MID, below), pooled per player.
@@ -601,10 +603,54 @@ export const CATEGORIES = {
   },
 };
 
-// The combined midfield group (DEFENSE_MIDFIELD + CENTRAL_MIDFIELD), composed from the study's two sets rather
-// than hand-written: the DM categories, which split out pressing, recoveries and defensive duels, plus the CM
-// set's shooting threat, so a box-to-box player's shooting still counts. No metric sits in two categories.
-CATEGORIES.MID = Object.fromEntries(Object.entries(CATEGORIES.DM).flatMap(([name, metrics]) =>
-  name === "Chance creation" ? [[name, metrics], ["Shooting threat", CATEGORIES.CM["Shooting threat"]]] : [[name, metrics]]));
+// Defending v2 (impect_metric_stability/evaluate_defending_v2.py; derived metrics in defending.js). The study's
+// defending categories counted actions, which measure how much a team defends: for centre-backs, pressing and
+// interception volumes went with conceding MORE. Each position now has two sets:
+//   - Defending (ranked as quality): metrics that held up for players who changed clubs AND whose new clubs
+//     conceded less, in 2022-25 and again in the 2026 holdout (mover r >= 0.2; incoming r > 0.1 in both);
+//   - Defending style (described, not a quality ranking): duels, pressing split, workload and Impect's packing
+//     regain value, which describe the role but didn't pass.
+const DEFENDING_V2 = {
+  CB: {
+    "Ball winning (possession-adjusted)": ["derived__PADJ_BALL_WINS", "derived__PADJ_LOOSE_BALL_REGAINS"],
+    "Aerial dominance": ["derived__AERIAL_WIN_SHRUNK", "derived__PADJ_AERIAL_DUELS", "score__DEFENSIVE_HEADER_SCORE"],
+    "Where he wins the ball": ["score__RATIO_REMOVED_OPPONENTS"],
+    "Duel profile": ["derived__GROUND_WIN_SHRUNK", "derived__PADJ_GROUND_DUELS"],
+    "Pressing profile": ["derived__PADJ_PRESSES", "kpi__NUMBER_OF_PRESSES_BUILD_UP", "kpi__NUMBER_OF_PRESSES_BETWEEN_THE_LINES",
+      "kpi__NUMBER_OF_PRESSES_COUNTER_PRESS"],
+    "Defensive workload": ["kpi__BALL_WIN_NUMBER", "score__INTERCEPTION_SCORE", "kpi__SECOND_BALL_WIN", "score__CLEARANCE_SCORE",
+      "score__BLOCK_SCORE"],
+    "Regain value": ["score__RATIO_ADDED_TEAMMATES", "score__INTERVENTIONS_SCORE_PACKING"],
+  },
+  FB: {
+    "Where he wins the ball": ["score__RATIO_REMOVED_OPPONENTS"],
+    "Pressing (possession-adjusted)": ["derived__PADJ_PRESSES"],
+    "Duel profile": ["derived__GROUND_WIN_SHRUNK", "derived__AERIAL_WIN_SHRUNK", "derived__PADJ_GROUND_DUELS", "derived__PADJ_AERIAL_DUELS"],
+    "Pressing profile": ["kpi__NUMBER_OF_PRESSES_BUILD_UP", "kpi__NUMBER_OF_PRESSES_BETWEEN_THE_LINES", "kpi__NUMBER_OF_PRESSES_COUNTER_PRESS"],
+    "Defensive workload": ["kpi__BALL_WIN_NUMBER", "score__INTERCEPTION_SCORE", "score__LOOSE_BALL_REGAIN_SCORE", "kpi__SECOND_BALL_WIN",
+      "score__CLEARANCE_SCORE", "score__BLOCK_SCORE", "score__DEFENSIVE_HEADER_SCORE"],
+    "Regain value": ["score__RATIO_ADDED_TEAMMATES", "score__INTERVENTIONS_SCORE_PACKING"],
+  },
+  MID: {
+    "Ball winning (possession-adjusted)": ["derived__PADJ_BALL_WINS", "derived__PADJ_INTERCEPTIONS"],
+    "Pressing (possession-adjusted)": ["derived__PADJ_PRESSES"],
+    "Duel profile": ["derived__GROUND_WIN_SHRUNK", "derived__AERIAL_WIN_SHRUNK", "derived__PADJ_GROUND_DUELS", "derived__PADJ_AERIAL_DUELS"],
+    "Pressing profile": ["kpi__NUMBER_OF_PRESSES_BUILD_UP", "kpi__NUMBER_OF_PRESSES_BETWEEN_THE_LINES", "kpi__NUMBER_OF_PRESSES_COUNTER_PRESS"],
+    "Defensive workload": ["kpi__BALL_WIN_NUMBER", "score__LOOSE_BALL_REGAIN_SCORE", "kpi__SECOND_BALL_WIN", "score__CLEARANCE_SCORE",
+      "score__BLOCK_SCORE", "score__DEFENSIVE_HEADER_SCORE"],
+    "Regain value": ["score__RATIO_ADDED_TEAMMATES", "score__INTERVENTIONS_SCORE_PACKING", "score__RATIO_REMOVED_OPPONENTS"],
+  },
+};
+const pick = (set, names) => Object.fromEntries(names.map((name) => [name, set[name]]));
+CATEGORIES.CB = { ...pick(CATEGORIES.CB, ["Build-up circulation", "Ball security", "Line-breaking distribution",
+  "Carrying out of pressure", "Set-piece and box threat"]), ...DEFENDING_V2.CB };
+CATEGORIES.FB = { ...pick(CATEGORIES.FB, ["Build-up circulation", "Ball security", "Line-breaking progression",
+  "Wide receiving and overlaps", "Carrying and attacking 1v1", "Crossing and chance creation"]), ...DEFENDING_V2.FB };
+// The combined midfield group (DEFENSE_MIDFIELD + CENTRAL_MIDFIELD): the study's DM categories on the ball, the CM
+// set's shooting threat (so a box-to-box player's shooting still counts), and Defending v2.
+CATEGORIES.MID = { ...pick(CATEGORIES.DM, ["Circulation and tempo", "Ball security", "Line-breaking progression",
+  "Receiving and positioning", "Chance creation"]), "Shooting threat": CATEGORIES.CM["Shooting threat"],
+  ...pick(CATEGORIES.DM, ["Carrying and pressure escape"]), ...DEFENDING_V2.MID };
 
-export const ALL_METRICS = [...new Set(Object.values(CATEGORIES).flatMap((c) => Object.values(c).flat()))];
+// Every metric a category shows, plus the Impect inputs PINE derives others from (derived__ names aren't Impect's).
+export const ALL_METRICS = [...new Set([...Object.values(CATEGORIES).flatMap((c) => Object.values(c).flat()), ...DEFENDING_INPUTS])];

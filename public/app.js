@@ -1345,31 +1345,33 @@ const tier = (v) => (v < 20 ? "Bottom 20%" : v < 40 ? "Below average" : v < 60 ?
 const byPercentile = (a, b) => (b.percentile ?? -1) - (a.percentile ?? -1);
 const wholePct = (v) => (v == null ? null : Math.round(v));
 // Percentile bar; the tick at its midpoint (CSS) marks the median peer.
-const kpiBar = (pct) => `<span class="kpi-bar">${pct == null ? "" : `<span style="width:${Math.max(2, pct)}%;background:${band(pct)}"></span>`}</span>`;
+// Style categories describe a role rather than rank quality, so their bars are neutral rather than red-to-green.
+const kpiBar = (pct, neutral = false) => `<span class="kpi-bar">${pct == null ? "" : `<span style="width:${Math.max(2, pct)}%;background:${neutral ? "var(--muted)" : band(pct)}"></span>`}</span>`;
 
-function kpiMetric(m) {
+function kpiMetric(m, neutral = false) {
   const pct = wholePct(m.percentile);
   const label = `${m.label}${m.inverted ? " ↓" : ""}`;
   return `<div class="kpi-m">
     <span class="kpi-m-l" title="${esc([label, m.meaning || m.definition].filter(Boolean).join(" — "))}">${esc(label)}</span>
     <span class="kpi-m-v">${m.value == null ? `<span class="muted">no data</span>` : `<b>${fmtKpiNum(m.value)}</b>`}${m.league_median == null ? "" : ` <span class="muted">median ${fmtKpiNum(m.league_median)}</span>`}</span>
-    ${kpiBar(pct)}<b class="kpi-m-p">${pct ?? "–"}</b><span class="kpi-m-lg">${wholePct(m.league_percentile) ?? "–"}</span>
+    ${kpiBar(pct, neutral)}<b class="kpi-m-p">${pct ?? "–"}</b><span class="kpi-m-lg">${wholePct(m.league_percentile) ?? "–"}</span>
   </div>`;
 }
 
 function kpiCategory(c, d) {
   const pct = wholePct(c.percentile);
+  const neutral = c.phase === "defstyle";
   const peers = `${d.position_label.toLowerCase()}s`;
   const league = d.iteration.short;
   const kinds = d.metric_kinds.map((k) => ({ ...k, rows: c.components.filter((m) => m.kind === k.id).sort(byPercentile) }))
     .filter((k) => k.rows.length);
   return `<li><details>
-    <summary><span class="kpi-name" title="${esc(`Study category: ${c.name}`)}">${esc(c.label)}</span>${kpiBar(pct)}<b>${pct ?? "–"}</b><span class="kpi-chev" aria-hidden="true"></span></summary>
+    <summary><span class="kpi-name" title="${esc(`Study category: ${c.name}`)}">${esc(c.label)}</span>${kpiBar(pct, neutral)}<b>${pct ?? "–"}</b><span class="kpi-chev" aria-hidden="true"></span></summary>
     <div class="kpi-detail">
-      <p class="kpi-about">${pct == null ? "" : `<span class="kpi-tier" style="--c:${band(pct)}">${tier(pct)}</span>`}${c.description ? `<span>${esc(c.description)}</span>` : ""}</p>
+      <p class="kpi-about">${pct == null || neutral ? "" : `<span class="kpi-tier" style="--c:${band(pct)}">${tier(pct)}</span>`}${c.description ? `<span>${esc(c.description)}</span>` : ""}</p>
       <div class="kpi-m kpi-mh"><span>Metric</span><span>Value · ${esc(league)} median</span><span>vs ${d.peer_count} ${esc(peers)}</span><span>Pct</span>
         <span title="${esc(`Percentile against ${d.iteration.competition} ${peers} only`)}">${esc(league)}</span></div>
-      ${kinds.map((k) => `<h4 class="kpi-kind">${esc(k.name)} <span>${esc(k.note)}</span></h4>${k.rows.map(kpiMetric).join("")}`).join("")}
+      ${kinds.map((k) => `<h4 class="kpi-kind">${esc(k.name)} <span>${esc(k.note)}</span></h4>${k.rows.map((m) => kpiMetric(m, neutral)).join("")}`).join("")}
       <p class="kpi-foot">The category score averages its ${c.components.length} metrics, flipped where lower is better, and ranks against ${c.peer_count} ${esc(peers)}.
         Against ${esc(d.iteration.competition)} ${esc(peers)} alone (${c.league_peer_count}) it ranks ${wholePct(c.league_percentile) ?? "–"}.</p>
     </div>
@@ -1502,6 +1504,8 @@ function loadKpiPanel(root, p) {
             Each metric is standardised within its own league before the leagues are pooled, so league-wide differences in output don't tilt the ranks.</p>
           <p>A category's score is the equal-weight average of its metrics' z-scores, fitted only on qualified peers and flipped where lower is better (marked ↓); each metric belongs to one category.
             Values are Impect rates per match share; ratios and scores are shown as supplied. Medians and the ${esc(d.iteration.short)} column use ${esc(d.iteration.competition)} ${esc(peers)} only.</p>
+          ${d.phases.some((ph) => ph.id === "defending") ? `<p><b>Defending</b> categories passed a check on players who changed clubs: they follow the player, and the clubs that signed players who rated well on them conceded less (2022–25, confirmed on 2026). Counts are scaled for his team's possession, and duel win rates are pulled toward the league average when he has contested few.
+            <b>Defending style</b> describes how much and how he defends; those measures didn't pass, so read them as role and workload, not quality.</p>` : ""}
           <p>Transfers count once in the reference, using their largest qualified league sample. Oldest reference fetch: ${esc(new Date(d.cohort_built_at).toLocaleString())}. Cached for up to 12 hours.</p>
         </div>
         ${(d.positions || []).length < 2 ? "" : `<div class="kpi-positions" role="group" aria-label="Position benchmarked"><span class="muted sm">Benchmark as</span>${d.positions.map((o) =>
