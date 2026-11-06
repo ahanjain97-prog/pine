@@ -18,3 +18,4 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
+      - run: python3 -m unittest discover -s scripts -p '*_test.py' -v

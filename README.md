@@ -4,6 +4,8 @@ Recruitment database and big board for Portland Hearts of Pine. One place for ev
 Transfermarkt profile, Impect link, physical data, a comment section for each staff member
 (Ray, Ahan, Ford, Bobby, Alex, Yuta), pass / hold / fail verdicts, and a ranked big board by position and role.
 
+Long-throw capability flags: [behavior, nightly refresh, rollout and visual examples](docs/long-throws.md).
+
 ## Run it locally
 
 Needs Node 22.13+ (uses the built-in `node:sqlite`).

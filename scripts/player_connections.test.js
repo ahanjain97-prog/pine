@@ -72,7 +72,9 @@ test("scouting records and manual edits on the duplicate block an automatic merg
   db.run("DELETE FROM notes WHERE player_id=20");
   db.run("UPDATE players SET summary='Keep this too' WHERE id=20");
   assert.throws(() => mergeConnection(db,20,10,1),/staff edits/);
-  db.run("UPDATE players SET summary=NULL, phys_confirmed=1 WHERE id=20");
+  db.run("UPDATE players SET summary=NULL, long_throw_override=0 WHERE id=20");
+  assert.throws(() => mergeConnection(db,20,10,1),/staff edits/);
+  db.run("UPDATE players SET long_throw_override=NULL, phys_confirmed=1 WHERE id=20");
   assert.throws(() => mergeConnection(db,20,10,1),/staff edits/);
   db.run("UPDATE players SET phys_confirmed=0, is_signed=1 WHERE id=20");
   assert.throws(() => mergeConnection(db,20,10,1),/staff edits/);

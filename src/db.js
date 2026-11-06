@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS players(
   tm_id TEXT UNIQUE, tm_url TEXT, tm_synced_at TEXT,
   tm_overrides TEXT NOT NULL DEFAULT '[]',
   roster_status TEXT CHECK (roster_status IN ('domestic','international')),
+  long_throw_override INTEGER CHECK (long_throw_override IN (0,1)),
   impect_id INTEGER UNIQUE, impect_squad TEXT, impect_competition TEXT,
   phys_keys TEXT NOT NULL DEFAULT '[]',
   phys_confirmed INTEGER NOT NULL DEFAULT 0,
@@ -46,6 +47,15 @@ CREATE TABLE IF NOT EXISTS players(
   created_by INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS long_throw_players(
+  impect_id INTEGER PRIMARY KEY CHECK (impect_id > 0)
+);
+CREATE TABLE IF NOT EXISTS long_throw_sync(
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  generated_at TEXT NOT NULL,
+  matches INTEGER NOT NULL,
+  pending_matches INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS board_entries(
   player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
@@ -261,6 +271,9 @@ export function openDb(file) {
   }
   if (!raw.prepare("PRAGMA table_info(players)").all().some((c) => c.name === "roster_status")) {
     raw.exec("ALTER TABLE players ADD COLUMN roster_status TEXT CHECK (roster_status IN ('domestic','international'))");
+  }
+  if (!raw.prepare("PRAGMA table_info(players)").all().some((c) => c.name === "long_throw_override")) {
+    raw.exec("ALTER TABLE players ADD COLUMN long_throw_override INTEGER CHECK (long_throw_override IN (0,1))");
   }
   if (!raw.prepare("PRAGMA table_info(players)").all().some((c) => c.name === "is_signed")) {
     raw.exec("ALTER TABLE players ADD COLUMN is_signed INTEGER NOT NULL DEFAULT 0 CHECK (is_signed IN (0,1))");

@@ -1,7 +1,10 @@
 .env
 node_modules/
+__pycache__/
 *.db
 *.db-*
+*.sqlite
+*.sqlite-*
 .wrangler/
 .DS_Store
 bin/
