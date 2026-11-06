@@ -550,7 +550,7 @@ function newReportMark(p) {
   const who = mine ? "you" : S.config.staff.find((u) => u.id === r.by)?.name || "someone";
   return `<span class="newrpt ${mine ? "mine" : ""}" title="New report by ${esc(who)} · ${esc(relTime(r.at))}" aria-label="New report by ${esc(who)}">✎</span>`;
 }
-const longThrowBadge = (p) => p.has_long_throw ? `<span class="long-throw" role="img" aria-label="Long throw" title="Long throw"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7" cy="10" r="2"/><circle cx="8" cy="3" r="1.7"/><path d="M7 12v5l-3 4m3-4 4 4M7 13 3 7l3-2m1 8 5-6-2-2m4-2c5 0 8 3 8 8m-3-2 3 2 1-3"/></svg></span>` : "";
+const longThrowBadge = (p) => p.has_long_throw ? `<span class="long-throw" role="img" aria-label="Long throw" title="Long throw · Rory Delap"><img src="/rory-delap-long-throw.png?v=1" alt="" width="56" height="56" aria-hidden="true"></span>` : "";
 const nameWithMark = (p, cls = "nm") => `<span class="name-line"><span class="${cls}">${esc(p.name)}</span>${longThrowBadge(p)}${signedBadge(p)}${newReportMark(p)}</span>`;
 // Picked for a USL League Two Top Prospects report: "L2 '26", or "L2 '25 '26" for both years.
 const L2_TIER = { First: "Best XI", Second: "Second XI", Third: "Third XI", Fourth: "Fourth XI", Fifth: "Fifth XI" };

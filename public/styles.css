@@ -533,11 +533,9 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
 /* The new-report mark after a player's name (last 7 days). */
 .name-line { display: flex; align-items: center; gap: 5px; min-width: 0; }
 .name-line > .nm, .name-line > .nname { min-width: 0; }
-.long-throw { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 22px; height: 22px;
-  color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line)); border-radius: 6px; }
-.long-throw svg { width: 18px; height: 18px; }
-.p-name-row > .long-throw { width: 30px; height: 30px; border-radius: 8px; }
-.p-name-row > .long-throw svg { width: 23px; height: 23px; }
+.long-throw { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; }
+.long-throw img { width: 100%; height: 100%; object-fit: contain; }
+.p-name-row > .long-throw { width: 40px; height: 40px; }
 .newrpt { flex: none; display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; font-size: 10px; line-height: 1; font-weight: 700;
   color: #fff; background: var(--accent); cursor: help; }
 .newrpt.mine { background: var(--pine); }

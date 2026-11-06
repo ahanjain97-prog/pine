@@ -1,6 +1,6 @@
 # Long-throw flag
 
-PINE shows one icon for a player known to be capable of a long throw. There are no throw counts, distances, rankings or xG on player pages. The icon sits beside the name, outside the board's collapsing tag row. It has a “Long throw” tooltip and accessible name.
+PINE shows a small cartoon Rory Delap for a player known to be capable of a long throw. There are no throw counts, distances, rankings or xG on player pages. The picture sits beside the name, outside the board's collapsing tag row. Its accessible name is “Long throw”; its tooltip also names Rory Delap. [Artwork and generation prompt](long-throw-artwork.md).
 
 Edit details → **Long throw** offers **Auto / Yes / No**, beside roster status. Yes and No always override detection, including for players without Impect coverage. Auto follows the local lookup; Auto: No means no qualifying delivery has been observed. Staff changes are recorded in History and survive syncs, Transfermarkt refreshes, database restarts and supported duplicate merges.
 
