@@ -33,6 +33,7 @@ import {
 import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.js";
 import { registerScoutingContext } from "./lib/scouting_context.js";
 import { gatesEligible, moveDate as gatesMoveDate, registerGates } from "./lib/mlsnp_gates.js";
+import { hasLongThrow, longThrowOverride, longThrowSyncStatus, registerLongThrows } from "./lib/long_throw.js";
 import {
   addCollegeReport, CLASSES, deleteCollegeReport, dismissDeletedCollegePlayers, fetchCollegeData, GRADE_SCALE, REPORT_SOURCES, updateCollegeReport, fillCitizenshipFromCollege, getAgent, importCollege, mergeCollegeDuplicates, moveOnNcaaBoard, ncaaBoardView, ncaaProspects,
   ncaaSpot, ncaaSummary, ncaaYearBoard, pickCollegeTmMatch, prospectDetail, removeFromNcaaBoard, saveAgent, undoBigBoardAutoLink, unlinkProspect,
@@ -130,7 +131,7 @@ const fail = (status, message, extra) => { throw new HttpError(status, message, 
 
 const EDITABLE = [
   "name", "birthdate", "birthplace", "height_cm", "foot", "position", "club", "league", "joined", "contract_expires",
-  "loan_from", "agent", "market_value_display", "national_team", "photo_url", "summary", "roster_status",
+  "loan_from", "agent", "market_value_display", "national_team", "photo_url", "summary", "roster_status", "long_throw_override",
 ];
 // Domestic/international is worked out from citizenship in the browser; roster_status pins it by hand
 // (green cards, or Transfermarkt getting citizenship wrong). Syncs never touch it.
@@ -156,6 +157,8 @@ function hydrate(p) {
   }
   p.age = ageFrom(p.birthdate);
   p.is_signed = Boolean(p.is_signed);
+  p.long_throw_detected = Boolean(p.long_throw_detected);
+  p.has_long_throw = hasLongThrow(p);
   p.mlsnp_gates_eligible = gatesEligible(p);
   if ("roles_json" in p) { p.roles = JSON.parse(p.roles_json || "[]").sort((a, b) => a.role.localeCompare(b.role)); delete p.roles_json; }
   if ("verdicts_json" in p) { p.verdicts = JSON.parse(p.verdicts_json || "{}"); delete p.verdicts_json; }
@@ -168,6 +171,7 @@ function hydrate(p) {
 
 const PLAYER_SELECT = `
   SELECT p.*,
+    EXISTS(SELECT 1 FROM long_throw_players lt WHERE lt.impect_id = p.impect_id) AS long_throw_detected,
     (SELECT json_group_array(json_object('role', b.role, 'rank', b.rank, 'shortlist', b.shortlist,
       'reason', json_object('id', r.id, 'kind', r.kind, 'source', r.source, 'why', r.why)))
       FROM board_entries b LEFT JOIN board_reasons r ON r.id = b.reason_id WHERE b.player_id = p.id) AS roles_json,
@@ -357,6 +361,7 @@ app.use("/api/*", async (c, next) => {
 
 registerScoutingContext(app, { db, token: WORKER_TOKEN });
 registerGates(app, { db, token: WORKER_TOKEN, getPlayer });
+registerLongThrows(app, { db, token: WORKER_TOKEN, iterations: cachedLeagues });
 
 /* ---------- auth ---------- */
 app.post("/api/auth/login", async (c) => {
@@ -518,10 +523,14 @@ app.patch("/api/players/:id", async (c) => {
   if (fields.height_cm != null) fields.height_cm = Number(fields.height_cm) || null;
   if ("name" in fields && !String(fields.name || "").trim()) fail(400, "Name is required");
   if (fields.roster_status != null && !ROSTER_STATUSES.includes(fields.roster_status)) fail(400, "Roster status must be domestic or international");
+  if ("long_throw_override" in fields) fields.long_throw_override = longThrowOverride(fields.long_throw_override);
   const edited = Object.keys(fields);
   fields.tm_overrides = manualTmOverrides(p, fields);
-  updatePlayer(p.id, fields);
-  logActivity(db, user.id, p.id, "edited_player", { fields: edited });
+  db.tx(() => {
+    updatePlayer(p.id, fields);
+    logActivity(db, user.id, p.id, "edited_player", { fields: edited,
+      ...("long_throw_override" in fields ? { long_throw: { previous: p.long_throw_override, value: fields.long_throw_override } } : {}) });
+  });
   return c.json({ player: getPlayer(p.id) });
 });
 
@@ -1309,6 +1318,7 @@ app.get("/api/impect/cache", async (c) => {
     pool: poolStatus(),
     not_kept: its.filter((i) => !kept.some((k) => k.id === i.id)).map((i) => `${i.competition} ${i.season}`),
     refresh: impectRefresh,
+    long_throws: longThrowSyncStatus(db),
   });
 });
 app.post("/api/impect/cache/refresh", (c) => {
@@ -1361,5 +1371,5 @@ app.get("/p/:id", (c) => {
 });
 app.use("/*", serveStatic({ root: relative(process.cwd(), PUBLIC_DIR) || "." }));
 
-const port = Number(process.env.PORT) || 8787;
-serve({ fetch: app.fetch, port }, () => console.log(`PINE running on http://localhost:${port}`));
+const port = Number(process.env.PORT || 8787);
+serve({ fetch: app.fetch, port }, (info) => console.log(`PINE running on http://localhost:${info.port}`));

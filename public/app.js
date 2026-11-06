@@ -550,7 +550,8 @@ function newReportMark(p) {
   const who = mine ? "you" : S.config.staff.find((u) => u.id === r.by)?.name || "someone";
   return `<span class="newrpt ${mine ? "mine" : ""}" title="New report by ${esc(who)} · ${esc(relTime(r.at))}" aria-label="New report by ${esc(who)}">✎</span>`;
 }
-const nameWithMark = (p, cls = "nm") => `<span class="name-line"><span class="${cls}">${esc(p.name)}</span>${signedBadge(p)}${newReportMark(p)}</span>`;
+const longThrowBadge = (p) => p.has_long_throw ? `<span class="long-throw" role="img" aria-label="Long throw" title="Long throw · Rory Delap"><img src="/rory-delap-long-throw.png?v=1" alt="" width="56" height="56" aria-hidden="true"></span>` : "";
+const nameWithMark = (p, cls = "nm") => `<span class="name-line"><span class="${cls}">${esc(p.name)}</span>${longThrowBadge(p)}${signedBadge(p)}${newReportMark(p)}</span>`;
 // Picked for a USL League Two Top Prospects report: "L2 '26", or "L2 '25 '26" for both years.
 const L2_TIER = { First: "Best XI", Second: "Second XI", Third: "Third XI", Fourth: "Fourth XI", Fifth: "Fifth XI" };
 const l2Line = (e) => [e.year, L2_TIER[e.tier] || e.tier, e.position, e.club].filter(Boolean).join(" · ");
@@ -576,6 +577,7 @@ function legendHTML(ncaa = false, reviewAfterDays = null) {
     ${ncaa ? item(`<span class="bbtag">BB</span>`, "On the Big Board, the college players being pursued; hover anyone else for + BB")
       : item(`<span class="vdots"><i class="vdot v-pass"></i><i class="vdot v-hold"></i><i class="vdot"></i></span>`, "Staff verdicts, one dot per person (shown once anyone has one)")}
     ${item("★", "Top target: on the Short Board")}
+    ${item(longThrowBadge({ has_long_throw: true }), "Long throw")}
     ${item(`<span class="roster dom">DOM</span><span class="roster intl">INTL</span>`, "Domestic or international (US citizenship, or set by hand)")}
     ${item(`<span class="roster unk">?</span>`, "Roster status not known yet: set it in Edit details")}
     ${ncaa ? item(`<span class="grade g-a">B/A</span>`, "College grade, now / ceiling, coloured by the ceiling (A green, B blue, C amber, D red)")
@@ -992,12 +994,19 @@ function openEditPlayer(p) {
       <div><label class="lbl" for="ep-roster_status">Roster status</label><select id="ep-roster_status" name="roster_status">
         <option value="">${auto ? `Auto: ${cap(auto)}` : "Auto (no citizenship)"}</option>
         ${ROSTER_STATUSES.map((s) => `<option value="${s}" ${p.roster_status === s ? "selected" : ""}>${cap(s)}</option>`).join("")}
-      </select></div></div>
+      </select></div>
+      <div><label class="lbl" for="ep-long_throw_override">Long throw</label><select id="ep-long_throw_override" name="long_throw_override">
+        <option value="" ${p.long_throw_override == null ? "selected" : ""}>Auto: ${p.long_throw_detected ? "Yes" : "No"}</option>
+        <option value="1" ${p.long_throw_override === 1 ? "selected" : ""}>Yes</option>
+        <option value="0" ${p.long_throw_override === 0 ? "selected" : ""}>No</option>
+      </select><p class="hint">Yes or No overrides automatic detection. Auto: No means no qualifying throw has been observed.</p></div></div>
     <p class="hint" style="margin-top:10px">Roster status follows citizenship unless you pick Domestic or International, e.g. for a green-card holder.${p.tm_id ? " Manual changes are preserved when you sync from Transfermarkt later." : ""}</p>
     <div class="m-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>`, { wide: true });
   $("#ep", m).addEventListener("submit", async (e) => {
     e.preventDefault();
-    try { await api("PATCH", `/api/players/${p.id}`, Object.fromEntries(new FormData(e.target))); closeModal(); toast("Saved"); await afterMutation(); } catch (err) { oops(err); }
+    const fields = Object.fromEntries(new FormData(e.target));
+    fields.long_throw_override = fields.long_throw_override === "" ? null : fields.long_throw_override === "1";
+    try { await api("PATCH", `/api/players/${p.id}`, fields); closeModal(); toast("Saved"); await afterMutation(); } catch (err) { oops(err); }
   });
 }
 
@@ -1190,7 +1199,7 @@ async function renderPlayer(main, idArg) {
     <section class="panel p-head ${p.is_signed ? "is-signed" : ""}">
       ${photo(p, "xl")}
       <div style="min-width:0">
-        <div class="p-name-row"><h1>${esc(p.name)}</h1>${p.shirt_number ? `<span class="shirt">#${p.shirt_number}</span>` : ""}${signedBadge(p, true)}${decisionChip(p.decision, true)}</div>
+        <div class="p-name-row"><h1>${esc(p.name)}</h1>${longThrowBadge(p)}${p.shirt_number ? `<span class="shirt">#${p.shirt_number}</span>` : ""}${signedBadge(p, true)}${decisionChip(p.decision, true)}</div>
         <div class="p-sub">${p.club_logo_url ? `<img class="club-logo" src="${esc(p.club_logo_url)}" alt="">` : ""}${esc([p.position, p.club, p.league].filter(Boolean).join(" · "))}</div>
         <dl class="facts">
           ${fact("Age", p.age != null ? `${p.age} <span class="muted">(${esc(fmtDate(p.birthdate))})</span>` : null, true)}
@@ -2664,6 +2673,7 @@ async function loadImpectCache(root) {
         ${d.leagues.map((x) => `<tr style="cursor:default"><td>${esc(x.competition)}</td><td>${esc(x.season)}${x.current ? ` <span class="chip">current</span>` : ""}</td><td>${status(x)}</td></tr>`).join("")}
         <tr style="cursor:default"><td>Player pool</td><td class="muted">all</td><td>${status(d.pool)} <span class="muted sm">· search and matching</span></td></tr>
       </tbody></table></div>
+      <p class="hint" id="long-throw-sync">Long-throw flags: ${!d.long_throws ? "awaiting first background sync." : `${d.long_throws.stale ? '<span class="warn">Update overdue</span> · ' : ""}updated ${esc(when(d.long_throws.generated_at))}${d.long_throws.pending_matches ? ` · ${d.long_throws.pending_matches} matches awaiting data; retried next run` : ""}.`} Refreshed nightly by the analysis worker, separately from Refresh all now.</p>
       ${d.not_kept.length ? `<p class="sm muted" style="margin:8px 0 0">Not kept: ${esc(d.not_kept.join(", "))}. Cup games are left out of the KPI benchmarks, so nothing uses them.</p>` : ""}`;
     $("#ic-go", el)?.addEventListener("click", async (e) => {
       e.target.disabled = true;
@@ -3153,7 +3163,7 @@ function ncaaBoardPanel(p, d) {
 /* ---------- activity + staff ---------- */
 // Who did it. The backup script downloads with its own key, not as a staff member.
 const actor = (a) => a.user || (a.action === "downloaded_backup" && /backup script/.test(a.detail || "") ? "Backup script"
-  : ["imported_college", "linked_big_board", "unlinked_big_board", "merged_player", "linked_tm"].includes(a.action) ? "PINE" : "Someone");
+  : ["imported_college", "linked_big_board", "unlinked_big_board", "merged_player", "linked_tm", "synced_long_throws"].includes(a.action) ? "PINE" : "Someone");
 
 function describe(a, onPlayerPage = false) {
   const move = describeMove(a, onPlayerPage);
@@ -3168,6 +3178,7 @@ function describeMove(a, onPlayerPage = false) {
   const chip = (v) => `<span class="dchip v-${esc(v)}">${esc(cap(v))}</span>`;
   switch (a.action) {
     case "added_player": return `added ${who}${d.list ? ` from the Impect list “${esc(d.list)}”` : d.source === "transfermarkt" ? " from Transfermarkt" : d.source === "impect" ? " from Impect" : ""}`;
+    case "synced_long_throws": return `updated long-throw flags`;
     case "imported_college": return `imported the college scouting database: ${d.prospects ?? 0} prospects, ${d.reports ?? 0} reports${d.created ? `, ${d.created} new player${d.created === 1 ? "" : "s"}` : ""}${d.boarded ? `, ${d.boarded} added to the NCAA board` : ""}${d.big_board ? `, ${d.big_board} added to the Big Board` : ""}`;
     case "merged_player": return `merged the college import “${esc(d.name)}” into ${who}, the same player already in PINE`;
     case "combined_profiles": return `combined a duplicate Transfermarkt profile into ${who}, keeping the connected data and board position`;
@@ -3218,7 +3229,8 @@ function describeMove(a, onPlayerPage = false) {
     case "linked_physical": return `updated physical data links for ${who}`;
     case "linked_impect": return d.impect_id ? `linked ${who} to Impect` : `unlinked ${who} from Impect`;
     case "requested_card": return `requested a player card for ${who} (${esc(d.position)}, ${esc(d.season)} ${esc(d.competition)})`;
-    case "edited_player": return `edited details for ${who}`;
+    case "edited_player": return `edited details for ${who}${d.long_throw && d.long_throw.previous !== d.long_throw.value
+      ? ` · long throw: ${d.long_throw.value == null ? "Auto" : d.long_throw.value ? "Yes" : "No"}` : ""}`;
     case "deleted_player": return `deleted ${esc(d.name || "a player")}`;
     case "bulk_deleted_players": return `deleted ${d.count} players nobody had placed on the Big Board or NCAA board`;
     case "imported_list": return `imported the Impect list “${esc(d.name)}” (${d.created ?? 0} new)`;

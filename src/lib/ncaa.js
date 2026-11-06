@@ -270,6 +270,7 @@ export function importCollege(db, data, { insertPlayer }) {
 // the college ranking wins: `intoId` takes `fromId`'s spot.
 export function mergePlayer(db, fromId, intoId) {
   db.tx(() => {
+    const sourceImpect = db.get("SELECT impect_id, impect_squad, impect_competition FROM players WHERE id = ?", fromId);
     const spot = ncaaSpot(db, fromId);
     if (spot) {
       const old = ncaaSpot(db, intoId);
@@ -288,11 +289,16 @@ export function mergePlayer(db, fromId, intoId) {
     db.run(`UPDATE players SET birthdate = coalesce(birthdate, (SELECT birthdate FROM players WHERE id = ?)),
       foot = coalesce(foot, (SELECT foot FROM players WHERE id = ?)) WHERE id = ?`, fromId, fromId, intoId);
     // Preserve an explicit signing when an imported college duplicate is folded into the profile.
+    db.run(`UPDATE players SET long_throw_override = coalesce(long_throw_override,
+      (SELECT long_throw_override FROM players WHERE id = ?)) WHERE id = ?`, fromId, intoId);
     db.run(`UPDATE players SET is_signed = 1,
       signed_by = (SELECT signed_by FROM players WHERE id = ?),
       signed_at = (SELECT signed_at FROM players WHERE id = ?)
       WHERE id = ? AND is_signed = 0 AND (SELECT is_signed FROM players WHERE id = ?) = 1`, fromId, fromId, intoId, fromId);
     db.run("DELETE FROM players WHERE id = ?", fromId);
+    // Free the unique ID first, then preserve detection/analytics when the survivor has no link.
+    if (sourceImpect?.impect_id) db.run(`UPDATE players SET impect_id = ?, impect_squad = ?, impect_competition = ?
+      WHERE id = ? AND impect_id IS NULL`, sourceImpect.impect_id, sourceImpect.impect_squad, sourceImpect.impect_competition, intoId);
   });
 }
 
