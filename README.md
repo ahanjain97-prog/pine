@@ -312,6 +312,24 @@ syncs leave the signing status alone.
 - **Agent**: the player page header shows Transfermarkt's agent line. The editable Agent panel was removed
   from the player page sidebar (2026-11); records already saved stay in `agent_info` and the
   `PUT /api/players/:id/agent` route remains.
+- **Review** (`#/review`, between Big Board and Short Board): for the review team only. Admins set it on the
+  Staff page (Review column: Lead / Scout); it starts with Ray as lead and Ahan and Ford as scouts.
+  - **Scouts send players up** to the lead for a Short Board decision, with a note. Players both scouts have
+    passed are suggested under "Ready for Ray" until someone sends them.
+  - **The lead decides** on each request:
+    - **Add to Short Board:** pick the role and write the reason. It goes through the Big Board's audited moves:
+      it adds the role if needed, then promotes him, with the note saved as the board reason.
+    - **Not for now.**
+  - **The lead assigns scouts** players to review, with a note. A scout marks one **reviewed**, optionally
+    setting their verdict, or **declines** it; the lead can **withdraw** an assignment.
+  - **Watch lists:** everyone on the team keeps a private watch list. Players can be added from a PINE search
+    or a Transfermarkt link (new players are added to PINE first).
+  - **Note thread:** every item keeps one.
+  - **Badge:** the nav badge counts what's waiting on you (the lead's open requests, a scout's open
+    assignments).
+  - **Player page:** has Watch / Send to Ray / Assign to … buttons.
+  - **Activity:** entries appear there, except watch lists, which are private.
+  - **Code:** `src/lib/review_queue.js`, plus tables `review_items` and `review_notes`.
 - **Database** (`#/players`): sortable and filterable table of everyone, with CSV export.
 - **Player page**: **Board history** lists recorded adds, promotions, drop-backs, removals and optional
   tracking reasons, newest first: date, staff member, role, source or exit reason and written
