@@ -25,23 +25,41 @@ test('binary capability respects both overrides and Auto', () => {
   assert.equal(longThrowOverride(null), null);
 });
 
-test('sync is atomic, idempotent, monotonic and independent of existing players', (t) => {
+test('complete sync replaces old detections atomically and rejects stale or reduced coverage', (t) => {
   const db = setup(t);
-  assert.deepEqual(saveLongThrows(db, snapshot()), { added: 1, players: 1 });
-  assert.deepEqual(saveLongThrows(db, snapshot()), { added: 0, players: 1 });
+  assert.deepEqual(saveLongThrows(db, snapshot()), { added: 1, removed: 0, players: 1 });
+  assert.deepEqual(saveLongThrows(db, snapshot()), { added: 0, removed: 0, players: 1 });
   assert.equal(db.get('SELECT count(*) AS n FROM activity').n, 1);
-  saveLongThrows(db, snapshot({ players: [202], generated_at: '2026-11-02T12:00:00Z', pending_matches: 3 }));
-  assert.equal(db.get('SELECT count(*) AS n FROM long_throw_players').n, 2);
+  assert.deepEqual(saveLongThrows(db, snapshot({ players: [202], generated_at: '2026-11-02T12:00:00Z', pending_matches: 3 })),
+    { added: 1, removed: 1, players: 1 });
+  assert.equal(db.get('SELECT count(*) AS n FROM long_throw_players').n, 1);
+  assert.equal(db.get('SELECT rule_version FROM long_throw_sync').rule_version, LONG_THROW_RULE);
   assert.throws(() => saveLongThrows(db, snapshot()), /older/);
+  assert.throws(() => saveLongThrows(db, snapshot({ matches: 9, generated_at: '2026-11-03T12:00:00Z' })), /coverage/);
   for (const extra of [{ players: [3, 3] }, { players: ['101'] }, { players: [0] }, { rule_version: 'other' },
     { generated_at: 'tomorrow' }, { generated_at: '2999-01-01' }, { pending_matches: -1 }, { matches: 0 }]) {
     assert.throws(() => saveLongThrows(db, snapshot(extra)));
   }
-  assert.equal(db.get('SELECT count(*) AS n FROM long_throw_players').n, 2);
+  assert.equal(db.get('SELECT impect_id FROM long_throw_players').impect_id, 202);
   db.raw.exec("CREATE TRIGGER fail BEFORE INSERT ON long_throw_sync BEGIN SELECT RAISE(ABORT,'disk full'); END");
   assert.throws(() => saveLongThrows(db, snapshot({ players: [303], generated_at: '2026-11-03T12:00:00Z' })), /disk full/);
-  assert.equal(db.get('SELECT count(*) AS n FROM long_throw_players').n, 2);
+  assert.equal(db.get('SELECT impect_id FROM long_throw_players').impect_id, 202);
   assert.equal(longThrowSyncStatus(db, new Date('2026-11-05')).stale, true);
+});
+
+test('rule migration replaces v1 positives and preserves both manual overrides', (t) => {
+  const db = setup(t);
+  db.run("INSERT INTO players(id,name,impect_id,long_throw_override) VALUES (1,'Manual Yes',101,1),(2,'Manual No',202,0)");
+  db.run('INSERT INTO long_throw_players(impect_id) VALUES (101)');
+  db.run("INSERT INTO long_throw_sync(id,generated_at,matches,pending_matches,rule_version) VALUES (1,'2026-10-31T12:00:00Z',10,0,'long-throw-v1')");
+  assert.throws(() => saveLongThrows(db, snapshot({ rule_version: 'long-throw-v1' })), /Unsupported/);
+  assert.deepEqual(saveLongThrows(db, snapshot({ players: [202] })), { added: 1, removed: 1, players: 1 });
+  for (const p of db.all('SELECT *, EXISTS(SELECT 1 FROM long_throw_players WHERE impect_id=players.impect_id) AS long_throw_detected FROM players')) {
+    assert.equal(hasLongThrow(p), p.id === 1);
+  }
+  assert.deepEqual(saveLongThrows(db, snapshot({ players: [], generated_at: '2026-11-02T12:00:00Z' })),
+    { added: 0, removed: 1, players: 0 });
+  assert.equal(JSON.parse(db.get('SELECT detail FROM activity ORDER BY id DESC LIMIT 1').detail).removed, 1);
 });
 
 test('existing database migrates; flags and manual No survive restart', () => {
@@ -50,9 +68,12 @@ test('existing database migrates; flags and manual No survive restart', () => {
     const file = join(dir, 'pine.db'), old = openDb(file);
     old.run("INSERT INTO players(id,name) VALUES (1,'Example Player')");
     old.raw.exec('ALTER TABLE players DROP COLUMN long_throw_override');
+    old.raw.exec('ALTER TABLE long_throw_sync DROP COLUMN rule_version');
+    old.run("INSERT INTO long_throw_sync(id,generated_at,matches,pending_matches) VALUES (1,'2026-10-31T12:00:00Z',10,0)");
     old.raw.close();
     const db = openDb(file);
     assert.equal(db.get('SELECT long_throw_override FROM players').long_throw_override, null);
+    assert.equal(db.get('SELECT rule_version FROM long_throw_sync').rule_version, 'long-throw-v1');
     saveLongThrows(db, snapshot());
     db.run('UPDATE players SET impect_id=101,long_throw_override=0 WHERE id=1');
     db.raw.close();

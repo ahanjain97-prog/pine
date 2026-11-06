@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS long_throw_sync(
   id INTEGER PRIMARY KEY CHECK (id = 1),
   generated_at TEXT NOT NULL,
   matches INTEGER NOT NULL,
-  pending_matches INTEGER NOT NULL
+  pending_matches INTEGER NOT NULL,
+  rule_version TEXT NOT NULL DEFAULT 'long-throw-v1'
 );
 CREATE TABLE IF NOT EXISTS board_entries(
   player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
@@ -266,6 +267,9 @@ export function openDb(file) {
   const userCols = raw.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
   if (!userCols.includes("password_hash")) raw.exec("ALTER TABLE users ADD COLUMN password_hash TEXT");
   raw.exec("DROP TABLE IF EXISTS login_codes"); // old email-code sign-in
+  if (!raw.prepare("PRAGMA table_info(long_throw_sync)").all().some((c) => c.name === "rule_version")) {
+    raw.exec("ALTER TABLE long_throw_sync ADD COLUMN rule_version TEXT NOT NULL DEFAULT 'long-throw-v1'");
+  }
   if (!raw.prepare("PRAGMA table_info(players)").all().some((c) => c.name === "tm_overrides")) {
     raw.exec("ALTER TABLE players ADD COLUMN tm_overrides TEXT NOT NULL DEFAULT '[]'");
   }
