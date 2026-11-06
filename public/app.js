@@ -3700,26 +3700,34 @@ function wireReview(root, d) {
   const form = $("#rv-add", root);
   if (form) {
     const inp = $("#rv-q", form), box = $("#rv-res", form);
-    let picked = null, results = [];
+    let picked = null, results = [], hl = 0;
     const draw = () => {
       box.hidden = !results.length;
-      box.innerHTML = results.map((p) => `<a href="#" data-pick="${p.id}">${photo(p)}<span class="ci">${nameWithMark(p)}<div class="csub">${esc([p.age, p.club].filter((x) => x != null && x !== "").join(" · "))}</div></span></a>`).join("");
+      box.innerHTML = results.map((p, i) => `<a href="#" data-pick="${p.id}" class="${i === hl ? "hl" : ""}">${photo(p)}<span class="ci">${nameWithMark(p)}<div class="csub">${esc([p.position, p.club, p.age].filter((x) => x != null && x !== "").join(" · "))}</div></span></a>`).join("");
     };
+    const pick = (p) => { picked = p; inp.value = p.name; results = []; draw(); $("#rv-note", form).focus(); };
     inp.addEventListener("input", () => {
-      picked = null; $("#rv-picked", form).textContent = "";
+      picked = null;
       const q = inp.value.trim();
       results = q && !TM_LINK.test(q) ? S.players.filter((p) => matchText(p, q)).slice(0, 8) : [];
+      hl = 0;
       draw();
     });
+    inp.addEventListener("keydown", (e) => {
+      if (box.hidden) return;
+      if (e.key === "ArrowDown") { hl = Math.min(hl + 1, results.length - 1); draw(); e.preventDefault(); }
+      else if (e.key === "ArrowUp") { hl = Math.max(hl - 1, 0); draw(); e.preventDefault(); }
+      else if (e.key === "Enter" && results[hl]) { e.preventDefault(); pick(results[hl]); } // pick, don't submit
+      else if (e.key === "Escape") { results = []; draw(); }
+    });
     inp.addEventListener("blur", () => setTimeout(() => (box.hidden = true), 150));
+    inp.addEventListener("focus", () => { if (results.length) box.hidden = false; });
     box.addEventListener("mousedown", (e) => e.preventDefault());
     box.addEventListener("click", (e) => {
       const a = e.target.closest("[data-pick]");
       if (!a) return;
       e.preventDefault();
-      picked = S.byId.get(Number(a.dataset.pick));
-      inp.value = picked.name; results = []; draw();
-      $("#rv-picked", form).textContent = [picked.position, picked.club].filter(Boolean).join(" · ");
+      pick(S.byId.get(Number(a.dataset.pick)));
     });
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -3727,6 +3735,10 @@ function wireReview(root, d) {
       const q = inp.value.trim();
       try {
         let player = picked;
+        if (!player && q && !TM_LINK.test(q)) { // typed a name without picking: fine if only one player matches
+          const matches = S.players.filter((p) => matchText(p, q));
+          if (matches.length === 1) player = matches[0];
+        }
         if (!player && TM_LINK.test(q)) {
           btn.disabled = true;
           try {
@@ -3738,7 +3750,7 @@ function wireReview(root, d) {
           }
           await reloadPlayers();
         }
-        if (!player) { toast("Pick a player from the search, or paste a Transfermarkt link"); return; }
+        if (!player) { toast(q ? "Several players match: pick one from the list" : "Search for a player, or paste a Transfermarkt link"); inp.focus(); return; }
         await reviewCreate(kind, player.id, { note: $("#rv-note", form).value.trim() || undefined, ...(btn?.dataset.to ? { to_user: Number(btn.dataset.to) } : {}) });
         inp.value = ""; $("#rv-note", form).value = "";
         S.review.tab = { watch: "watch", sb_review: "sent", assignment: "assigned" }[kind]; // show where it went
