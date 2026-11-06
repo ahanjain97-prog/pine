@@ -417,6 +417,11 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 13px; }
 .facts dt { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 .facts dd { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
 .p-links { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+/* The player's actions are real buttons, not faint text: a visible box, a size you can hit. */
+.p-links .btn.sm { padding: 7px 13px; font-size: 13px; border-radius: 8px; }
+.p-links .btn.ghost { background: var(--surface-2); border-color: var(--line-2); color: var(--ink); }
+.p-links .btn.ghost:hover { border-color: var(--accent); }
+.p-links .btn.ghost.danger { color: var(--fail); }
 .p-links form input { width: 280px; }
 .p-decision { background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 250px; display: flex; flex-direction: column; gap: 8px; }
 .consensus { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
