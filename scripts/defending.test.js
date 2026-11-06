@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addDefending, defendingOutlook, padj, SHRINK_K } from '../src/lib/defending.js';
+import { addBallSecurity, addDefending, defendingOutlook, padj, SHRINK_K } from '../src/lib/defending.js';
 import { CATEGORIES, COMPOSITES } from '../src/lib/impect_categories.js';
 
 test('possession adjustment: 1 at 50%, more for teams that have the ball more', () => {
@@ -38,8 +38,10 @@ test('only the Defending v2 groups get derived metrics, and every derived metric
   addDefending([w], new Map());
   assert.equal(w.values.derived__PADJ_BALL_WINS, undefined);
   const used = new Set(Object.values(CATEGORIES).flatMap((c) => Object.values(c).flat()).filter((m) => m.startsWith('derived__')));
-  const p = row('CB', { ...duels(2, 1), kpi__BALL_WIN_NUMBER: 5, score__INTERCEPTION_SCORE: 1, score__LOOSE_BALL_REGAIN_SCORE: 1, kpi__NUMBER_OF_PRESSES: 9, kpi__SECOND_BALL_START: 3, kpi__SECOND_BALL_WIN: 2 });
+  const p = row('CB', { ...duels(2, 1), kpi__BALL_WIN_NUMBER: 5, score__INTERCEPTION_SCORE: 1, score__LOOSE_BALL_REGAIN_SCORE: 1, kpi__NUMBER_OF_PRESSES: 9, kpi__SECOND_BALL_START: 3, kpi__SECOND_BALL_WIN: 2,
+    kpi__BALL_LOSS_NUMBER: 12, kpi__CRITICAL_BALL_LOSS_NUMBER: 1, score__TOTAL_TOUCHES: 60 });
   addDefending([p], new Map());
+  addBallSecurity([p]);
   for (const m of used) assert.ok(Number.isFinite(p.values[m]), `${m} is produced`);
 });
 
@@ -59,4 +61,13 @@ test('likely level: pulled toward the median, more so and with a wider range on 
   assert.equal(defendingOutlook(null, 18, 'CB'), null);
   const top = defendingOutlook(95, 18, 'FB');
   assert.ok(top.expected < 95 && top.expected > 60);
+});
+
+test('ball security is losses per touch, for every group, and empty without touches', () => {
+  const w = row('W', { kpi__BALL_LOSS_NUMBER: 12, kpi__CRITICAL_BALL_LOSS_NUMBER: 1, score__TOTAL_TOUCHES: 48 });
+  const none = row('CB', { kpi__BALL_LOSS_NUMBER: 3, kpi__CRITICAL_BALL_LOSS_NUMBER: 0, score__TOTAL_TOUCHES: 0 });
+  addBallSecurity([w, none]);
+  assert.equal(w.values.derived__BALL_LOSSES_PER_TOUCH, 0.25);
+  assert.equal(w.values.derived__CRITICAL_LOSSES_PER_TOUCH, 1 / 48);
+  assert.equal(none.values.derived__BALL_LOSSES_PER_TOUCH, null);
 });

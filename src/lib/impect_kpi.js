@@ -9,7 +9,7 @@ import { CATEGORIES, COMPOSITES, POSITION_MAP, POSITION_LABEL, MIN_MATCH_SHARE, 
 import { benchmark, fixedFloor } from "./impect_benchmark.js";
 import { diskSavedAt, readDisk, writeDisk } from "./disk_cache.js";
 import { categoryDisplay, phasesFor, metricKind, METRIC_KINDS, shortLeague } from "./impect_display.js";
-import { addDefending, defendingOutlook, DERIVED_META } from "./defending.js";
+import { addBallSecurity, addDefending, defendingOutlook, DERIVED_META } from "./defending.js";
 
 export const BENCHMARK_LEAGUES = ["USL Championship", "MLS Next Pro", "USL League One"];
 
@@ -55,7 +55,6 @@ export const DISPLAY_OVERRIDES = {
   score__RATIO_GOALS_SHOT_XG: "Goals \u00f7 shot xG",
   score__RATIO_GOALS_POSTSHOT_XG: "Goals \u00f7 post-shot xG",
   score__RATIO_SHOTS_PER_GOAL: "Shots per goal",
-  score__RATIO_REVERSE_PLAY_ADDED_OPPONENTS: "Backpasses \u00f7 possible backpasses",
   score__RATIO_REMOVED_OPPONENTS: "Opponents taken out per ball win",
 
   // Distances are metres gained towards the opponent's goal, not distance run.
@@ -93,7 +92,7 @@ async function definitions() {
   for (const d of scores) add(`score__${d.name}`, d, scoreById, d.id);
   // PINE's own metrics (defending.js) sit beside Impect's; higher is better for all of them.
   for (const [metric, d] of Object.entries(DERIVED_META)) {
-    if (METRICS.has(metric)) meta.set(metric, { label: d.label, definition: d.definition, meaning: null, inverted: false });
+    if (METRICS.has(metric)) meta.set(metric, { label: d.label, definition: d.definition, meaning: null, inverted: Boolean(d.inverted) });
   }
   defsCache = { at: Date.now(), meta, kpiById, scoreById };
   return defsCache;
@@ -222,6 +221,7 @@ async function buildCohort(iterationId) {
     }
   }
   addDefending([...byKey.values()], possession);
+  addBallSecurity([...byKey.values()]);
 
   const byGroup = new Map();
   for (const p of byKey.values()) {
@@ -236,7 +236,7 @@ async function buildCohort(iterationId) {
   return { at: Date.now(), iterationId, byGroup, shares };
 }
 
-const COHORT_FORMAT = 5; // bump when the cohort's shape changes, so old disk copies are rebuilt (5: second-ball metrics)
+const COHORT_FORMAT = 6; // bump when the cohort's shape changes, so old disk copies are rebuilt (6: ball losses per touch)
 const toDisk = (co) => ({ format: COHORT_FORMAT, at: co.at, iterationId: co.iterationId, byGroup: [...co.byGroup], shares: [...co.shares] });
 const fromDisk = (d) => (d?.format === COHORT_FORMAT
   ? { at: d.at, iterationId: d.iterationId, byGroup: new Map(d.byGroup), shares: new Map(d.shares) } : null);

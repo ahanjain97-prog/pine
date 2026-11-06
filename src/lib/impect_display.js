@@ -31,6 +31,7 @@ const CATEGORY_DISPLAY = {
   "Ball security": ["Ball security", "build", "Losing the ball: turnovers, dangerous turnovers, failed passes and the threat they give away."],
   // Attacking mids and wingers: losses plus how often play goes backwards (centre mids: see below).
   "Ball security and directness": ["Ball security & directness", "build", "Losing the ball, and how often play goes backwards."],
+  "Ball security (per touch)": ["Ball security", "build", "How often he loses the ball, and loses it dangerously, per touch, so a player who is on the ball a lot isn't marked down for it."],
   "Line-breaking distribution": ["Line-breaking passing", "build", "Passes that take opponents out of the game and add goal threat."],
   "Line-breaking progression": ["Line-breaking passing", "build", "Passes that take opponents out of the game and add goal threat."],
   "Long distribution and restarts": ["Long distribution", "build", "Launches, goal kicks, chipped and diagonal passes, and set-piece threat."],

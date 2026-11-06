@@ -28,8 +28,18 @@ const SCALED = {
   derived__PADJ_AERIAL_DUELS: DUELS.aerial,
 };
 
+// Ball security per touch, every outfield group: Impect's loss counts are per match, so a player who is rarely on
+// the ball looked secure and the category went with WORSE goal difference; per touch it turned positive
+// (impect_metric_stability evaluate_onball_detail.py: back six +2.5 points a season, front +7.4, 20th vs 80th pct).
+const PER_TOUCH = {
+  derived__BALL_LOSSES_PER_TOUCH: "kpi__BALL_LOSS_NUMBER",
+  derived__CRITICAL_LOSSES_PER_TOUCH: "kpi__CRITICAL_BALL_LOSS_NUMBER",
+};
+const TOUCHES = "score__TOTAL_TOUCHES";
+
 // Impect metrics the derived ones are built from, fetched whether or not a category shows them.
-export const DEFENDING_INPUTS = [...new Set([...Object.values(SCALED).flat(), ...Object.values(DUELS).flat()])];
+export const DEFENDING_INPUTS = [...new Set([...Object.values(SCALED).flat(), ...Object.values(DUELS).flat(),
+  ...Object.values(PER_TOUCH), TOUCHES])];
 
 const ADJ = "Scaled for his team's possession (StatsBomb's adjustment), so a player on a side that defends a lot isn't flattered.";
 export const DERIVED_META = {
@@ -47,6 +57,10 @@ export const DERIVED_META = {
     definition: "Share of defensive ground duels won, pulled toward the league average when he has contested few." },
   derived__AERIAL_WIN_SHRUNK: { label: "Defensive aerial duel win rate, sample-adjusted (0-1)",
     definition: "Share of defensive aerial duels won, pulled toward the league average when he has contested few." },
+  derived__BALL_LOSSES_PER_TOUCH: { label: "Ball losses per touch", inverted: true,
+    definition: "Ball losses divided by touches, so a player who is on the ball a lot isn't marked down for it." },
+  derived__CRITICAL_LOSSES_PER_TOUCH: { label: "Dangerous ball losses per touch", inverted: true,
+    definition: "Losses that lead to an opponent chance, divided by touches." },
 };
 
 const weighted = (shares, valueOf) => {
@@ -57,6 +71,18 @@ const weighted = (shares, valueOf) => {
   }
   return weight > 0 ? sum / weight : null;
 };
+
+// Adds ball losses per touch to one league season's player rows (every group).
+export function addBallSecurity(players) {
+  for (const p of players) {
+    const touches = p.values[TOUCHES];
+    for (const [name, count] of Object.entries(PER_TOUCH)) {
+      const v = p.values[count];
+      p.values[name] = Number.isFinite(v) && touches > 0 ? v / touches : null;
+    }
+  }
+  return players;
+}
 
 // Adds the derived metrics to one league season's player rows (p.values, p.matchShare, p.squadShares as
 // squad name -> match share). possession: squad name -> share of the ball (0-1). A squad with no possession

@@ -29,7 +29,7 @@ test('live card assembly pools three same-season leagues and withholds a cameo t
         data = ids(it).map((id, i) => ({playerId: id, position: 'RIGHT_WINGER',
           matchShare: id === 999 ? .67 : 10, playDuration: id === 999 ? 4140 : 54000,
           [kpi ? 'kpis' : 'playerScores']: metrics.filter((m) => m.metric.startsWith(kpi ? 'kpi__' : 'score__')).map((m) => ({
-            [kpi ? 'kpiId' : 'playerScoreId']: m.id, value: id === 999 ? 10000 : i + it * 20,
+            [kpi ? 'kpiId' : 'playerScoreId']: m.id, value: id === 999 ? 10000 : i + it * 20 + m.id, // + m.id keeps ratios (losses per touch) varied
           }))}));
         // Player 111 also logs a small striker stint, to exercise the position list and selection.
         if (it === 1) data.push({ ...data.find((r) => r.playerId === 111), position: 'CENTER_FORWARD', matchShare: 2, playDuration: 10800 });

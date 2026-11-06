@@ -669,4 +669,12 @@ CATEGORIES.MID = { ...pick(CATEGORIES.DM, ["Circulation and tempo", "Ball securi
   ...pick(CATEGORIES.DM, ["Carrying and pressure escape"]), ...DEFENDING_V2.MID };
 
 // Every metric a category shows, plus the Impect inputs PINE derives others from (derived__ names aren't Impect's).
+// Ball security per touch at every outfield position (defending.js): replaces the study's per-match loss counts
+// ("Ball security", and "Ball security and directness" for attacking mids and wingers).
+const BALL_SECURITY = ["derived__BALL_LOSSES_PER_TOUCH", "derived__CRITICAL_LOSSES_PER_TOUCH"];
+for (const g of ["CB", "FB", "MID", "AM", "W", "ST"]) {
+  CATEGORIES[g] = Object.fromEntries(Object.entries(CATEGORIES[g]).map(([name, metrics]) =>
+    (/^Ball security/.test(name) ? ["Ball security (per touch)", BALL_SECURITY] : [name, metrics])));
+}
+
 export const ALL_METRICS = [...new Set([...Object.values(CATEGORIES).flatMap((c) => Object.values(c).flat()), ...DEFENDING_INPUTS])];

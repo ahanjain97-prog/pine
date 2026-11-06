@@ -37,6 +37,14 @@ Defensive and central midfielders are one group (**Defensive / Central Mid**): a
 pooled into one row and ranked against everyone else's, on the DM categories plus Shooting threat
 (`CATEGORIES.MID` in `src/lib/impect_categories.js`). The player card and pitch maps keep DM and CM separate.
 
+**Ball security is per touch** at every outfield position: ball losses per touch and dangerous losses per touch
+(`addBallSecurity` in `src/lib/defending.js`). Impect's counts are per match, so a player rarely on the ball looked
+secure. The study's version went with *worse* goal difference for players who changed clubs; per touch, it went
+with better (impect_metric_stability `evaluate_onball_detail.py`; 20th vs 80th percentile, back six +2.5 points a
+season, front +7.4). It replaces "Ball security" and, for attacking mids and wingers, "Ball security and
+directness". Per touch leans the other way on involvement: players with many simple touches lose it less often
+per touch.
+
 **Defending v2 (centre-backs, full-backs, defensive / central mids).** The study's defending categories counted
 actions, which mostly measure how much a team defends. For centre-backs, pressing and interception volumes went
 with their team conceding *more*.
