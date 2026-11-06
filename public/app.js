@@ -255,7 +255,17 @@ async function reloadPlayers() {
   S.players = players;
   S.byId = new Map(players.map((p) => [p.id, p]));
 }
-async function syncVersion() { try { const c = await api("GET", "/api/changes"); S.version = c.version; setReviewBadge(c.review_open); } catch {} }
+const APP_VERSION = new URL(import.meta.url).searchParams.get("v");
+// A tab opened before a deploy keeps running the old code; say so rather than leave it quietly out of date.
+function checkAppVersion(server) {
+  if (!server || !APP_VERSION || server === APP_VERSION || S.staleNotified) return;
+  S.staleNotified = true;
+  const pill = $("#upd");
+  pill.hidden = false;
+  pill.innerHTML = `<button class="btn sm" type="button">PINE was updated · reload</button>`;
+  $("button", pill).addEventListener("click", () => location.reload());
+}
+async function syncVersion() { try { const c = await api("GET", "/api/changes"); S.version = c.version; setReviewBadge(c.review_open); checkAppVersion(c.app); } catch {} }
 async function refresh() {
   const keep = Object.fromEntries($$("#main [data-keep]").map((el) => [el.id, el.value]));
   const y = scrollY;
@@ -273,7 +283,7 @@ function busyEditing() {
 async function poll() {
   if (!S.me || document.hidden) return;
   let v;
-  try { const c = await api("GET", "/api/changes"); v = c.version; setReviewBadge(c.review_open); } catch { return; }
+  try { const c = await api("GET", "/api/changes"); v = c.version; setReviewBadge(c.review_open); checkAppVersion(c.app); } catch { return; }
   if (v === S.version) return;
   S.version = v;
   if (S.dragging || busyEditing() || $("#modal") || $("#board-reason-modal")) { $("#upd").hidden = false; return; }
@@ -439,7 +449,7 @@ async function render() {
   if (!S.me) return;
   const { view, arg } = route();
   $$("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.v === view || (view === "player" && a.dataset.v === "players")));
-  $("#upd").hidden = true;
+  $("#upd").hidden = !S.staleNotified; // the reload prompt stays up until they reload
   const views = { board: renderBoard, review: renderReview, "short-board": renderShortBoard, ncaa: renderNcaa, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
   // Pitch maps had their own tab for a day; its links now open the player's page, where the maps live.
   if (view === "maps") { location.hash = arg ? `#/player/${arg}` : "#/players"; return; }
@@ -1229,7 +1239,7 @@ async function renderPlayer(main, idArg) {
           <button type="button" class="btn sm ghost" id="mark-reviewed">Mark reviewed</button>
           ${reviewRole() ? `<button type="button" class="btn sm ghost" data-rv-player="watch">Watch</button>` : ""}
           ${reviewRole() === "scout" ? `<button type="button" class="btn sm ghost" data-rv-player="sb_review">Send to ${esc(reviewLead()?.name || "the lead")}</button>` : ""}
-          ${reviewRole() === "lead" ? reviewScouts().map((sc) => `<button type="button" class="btn sm ghost" data-rv-player="assignment" data-to="${sc.id}">Assign to ${esc(sc.name)}</button>`).join("") : ""}
+          ${reviewRole() === "lead" ? `<button type="button" class="btn sm ghost" data-rv-player="assignment">Assign for review</button>` : ""}
           ${S.me.is_admin ? `<button type="button" class="btn sm ghost danger" id="del-p">Delete</button>` : ""}
         </div>
       </div>
@@ -1753,7 +1763,7 @@ function wirePlayer(root, d) {
     try {
       if (t.id === "back") { if (history.length > 1) history.back(); else location.hash = "#/board"; return; }
       if (t.dataset.rvPlayer) {
-        if (await reviewSendDialog(p, t.dataset.rvPlayer, t.dataset.to ? Number(t.dataset.to) : undefined)) await afterMutation();
+        if (await reviewSendDialog(p, t.dataset.rvPlayer)) await afterMutation();
         return;
       }
       if (t.id === "mark-reviewed") {
@@ -3547,15 +3557,23 @@ function reviewCard(item, actions) {
   if (!p) return "";
   const settled = item.status !== "open";
   const [label, tone] = settled ? RV_STATUS[item.status] || [item.status, ""] : [];
+  const others = (item.assignees || []).filter((x) => x.user_id !== S.me.id).map((x) => x.name);
   const route = item.kind === "sb_review" ? `From ${esc(item.from_name)}` : item.kind === "assignment"
-    ? (item.to_user === S.me.id ? `From ${esc(item.from_name)}` : `To ${esc(item.to_name)}`) : "Watching";
+    ? (reviewRole() === "lead" ? `To ${esc(item.to_name)}` : `From ${esc(item.from_name)}${others.length ? `, with ${esc(others.join(" and "))}` : ""}`) : "Watching";
+  // Each scout's answer on a shared assignment. A settled one is credited by these, not by whoever answered last.
+  const shared = item.kind === "assignment" && item.assignees?.length;
+  const answers = shared ? `<div class="rv-answers">${item.assignees.map((x) =>
+    `<span class="rv-answer ${x.status}">${esc(x.user_id === S.me.id ? "You" : x.name)}: ${x.status === "open" ? (settled ? "no answer" : "to review")
+      : x.status === "reviewed" ? `reviewed${p.verdicts?.[x.name] ? ` (${esc(cap(p.verdicts[x.name]))})` : ""}` : "declined"}</span>`).join("")}</div>` : "";
+  const by = shared && item.status !== "removed" ? "" : esc(item.resolved_by_name || "");
   const last = item.notes.at(-1);
   return `<article class="rv-row ${settled ? "settled" : ""}" data-item="${item.id}" data-player="${p.id}">
     ${reviewPlayerHead(p)}
     <div class="rv-info">
       <div class="rv-route">${route} · ${rvWhen(item.created_at)}${settled ? ` <span class="dchip ${tone ? "v-" + tone : ""}">${esc(label)}</span>
-        <span class="muted">${esc(item.resolved_by_name || "")} · ${rvWhen(item.resolved_at)}</span>` : ""}</div>
+        <span class="muted">${by ? `${by} · ` : ""}${rvWhen(item.resolved_at)}</span>` : ""}</div>
       ${last ? `<div class="rv-last"><b>${esc(last.user_name)}:</b> ${esc(last.body)}</div>` : `<div class="rv-last muted">No notes</div>`}
+      ${answers}
     </div>
     <div class="rv-actions">${settled ? "" : actions}${verdictDots(p.verdicts)}</div>
     <details class="rv-thread"><summary>${item.notes.length ? `${item.notes.length} note${item.notes.length === 1 ? "" : "s"}` : "Add a note"}</summary>
@@ -3580,7 +3598,7 @@ function reviewAddForm(role) {
     <input id="rv-note" placeholder="Why? (optional)" maxlength="4000" aria-label="Note">
     <div class="rv-add-btns"><button class="btn" type="submit" data-rv-target="watch">Watch</button>
       ${role === "scout" ? `<button class="btn primary" type="submit" data-rv-target="sb_review">Send to ${esc(lead)}</button>` : ""}
-      ${role === "lead" ? reviewScouts().map((s) => `<button class="btn primary" type="submit" data-rv-target="assignment" data-to="${s.id}">Assign to ${esc(s.name)}</button>`).join("") : ""}</div>
+      ${role === "lead" ? `<button class="btn primary" type="submit" data-rv-target="assignment">Assign for review</button>` : ""}</div>
   </form>`;
 }
 
@@ -3598,10 +3616,12 @@ async function renderReview(main) {
   const watch = d.items.filter((i) => i.kind === "watch" && open(i));
   const rows = (list, actions) => list.map((i) => reviewCard(i, actions(i))).join("");
   const watchActions = () => [
-    ...(role === "lead" ? reviewScouts().map((s) => `<button type="button" class="btn sm" data-rv-assign="${s.id}">Assign to ${esc(s.name)}</button>`) : []),
+    ...(role === "lead" ? [`<button type="button" class="btn sm" data-rv-assign="1">Assign for review</button>`] : []),
     role === "scout" ? `<button type="button" class="btn sm" data-rv-send>Send to ${esc(leadName)}</button>` : "",
     `<button type="button" class="btn sm ghost" data-rv-resolve="removed" title="Remove from your watch list">Remove</button>`].join("");
-  const history = d.items.filter((i) => !open(i) && i.kind !== "watch");
+  const myAnswer = (i) => i.assignees?.find((x) => x.user_id === S.me.id)?.status;
+  // Settled items, plus (for a scout) shared assignments they've answered while the other scout hasn't yet.
+  const history = d.items.filter((i) => i.kind !== "watch" && (!open(i) || (role === "scout" && i.kind === "assignment" && myAnswer(i) !== "open")));
   let tabs;
   if (role === "lead") {
     tabs = [
@@ -3616,7 +3636,7 @@ async function renderReview(main) {
     const sent = new Set(sb.map((i) => i.player_id));
     const ready = d.suggestions.filter((id) => !sent.has(id)).map((id) => S.byId.get(id)).filter(Boolean);
     tabs = [
-      { id: "assigned", label: "Assigned to you", list: asg.filter((i) => open(i) && i.to_user === S.me.id), urgent: true, empty: `Nothing from ${leadName} to review.`,
+      { id: "assigned", label: "Assigned to you", list: asg.filter((i) => open(i) && myAnswer(i) === "open"), urgent: true, empty: `Nothing from ${leadName} to review.`,
         html: (l) => rows(l, () => `<button type="button" class="btn sm primary" data-rv-review>Review</button><button type="button" class="btn sm" data-rv-resolve="declined">Decline</button>`) },
       { id: "ready", label: `Ready for ${leadName}`, list: ready, empty: `No players ${reviewScouts().map((x) => x.name).join(" and ")} have both passed are waiting.`,
         html: (l) => l.map(reviewSuggestion).join("") },
@@ -3648,12 +3668,12 @@ async function renderReview(main) {
 }
 
 // One small dialog for every review action: an optional extra field (role, scout, verdict) and a note.
-function reviewDialog({ title, player, extra = "", noteLabel = "Note", required = false, submit = "Save" }) {
+function reviewDialog({ title, player, extra = "", noteLabel = "Note", required = false, submit = "Save", note: prefill = "" }) {
   return new Promise((resolve) => {
     const m = modal(`<header class="m-h"><h2>${esc(title)}</h2><button type="button" class="icon-btn" data-close aria-label="Close">×</button></header>
       <p class="hint">${esc(player)}</p><form id="rv-dialog">${extra}
       <label class="lbl" for="rv-d-note">${esc(noteLabel)} ${required ? "*" : "(optional)"}</label>
-      <textarea id="rv-d-note" name="note" rows="4" maxlength="4000" ${required ? "required" : ""}></textarea>
+      <textarea id="rv-d-note" name="note" rows="4" maxlength="4000" ${required ? "required" : ""}>${esc(prefill)}</textarea>
       <div class="m-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" class="btn primary">${esc(submit)}</button></div></form>`);
     const done = (v) => { obs.disconnect(); resolve(v); };
     const obs = new MutationObserver(() => { if (!m.isConnected) done(null); });
@@ -3663,7 +3683,9 @@ function reviewDialog({ title, player, extra = "", noteLabel = "Note", required 
       const note = $("#rv-d-note", m);
       note.setCustomValidity(required && !note.value.trim() ? "Please write a note." : "");
       if (!note.reportValidity()) return;
-      const out = Object.fromEntries([...new FormData(e.target)].map(([k, v]) => [k, String(v).trim()]));
+      const form = new FormData(e.target);
+      const out = Object.fromEntries([...form].map(([k, v]) => [k, String(v).trim()]));
+      out.to = form.getAll("to").map(Number);
       obs.disconnect(); closeModal(); resolve(out);
     });
     $("select, textarea", m)?.focus();
@@ -3684,13 +3706,19 @@ async function reviewCreate(kind, playerId, extra = {}) {
   toast(kind === "watch" ? "Added to your watch list" : kind === "sb_review" ? `Sent to ${reviewLead()?.name || "the lead"}` : "Assigned");
 }
 
-async function reviewSendDialog(p, kind, toUser) {
-  const lead = reviewLead()?.name || "the lead", scout = reviewScouts().find((s) => s.id === toUser)?.name;
-  const v = await reviewDialog({ player: p.name, submit: kind === "watch" ? "Add" : kind === "sb_review" ? `Send to ${lead}` : `Assign to ${scout}`,
-    title: kind === "watch" ? "Add to your watch list" : kind === "sb_review" ? `Send to ${lead} for a Short Board decision` : `Assign ${scout} to review`,
+// Assignments go to every scout unless the lead unticks one; the thread and the item are shared.
+const scoutPicker = () => `<label class="lbl">Assign to</label><div class="rv-pick">${reviewScouts().map((sc) =>
+  `<label><input type="checkbox" name="to" value="${sc.id}" checked> ${esc(sc.name)}</label>`).join("")}</div>`;
+
+async function reviewSendDialog(p, kind, note = "") {
+  const lead = reviewLead()?.name || "the lead";
+  const v = await reviewDialog({ player: p.name, note, extra: kind === "assignment" ? scoutPicker() : "",
+    submit: kind === "watch" ? "Add" : kind === "sb_review" ? `Send to ${lead}` : "Assign",
+    title: kind === "watch" ? "Add to your watch list" : kind === "sb_review" ? `Send to ${lead} for a Short Board decision` : "Assign for review",
     noteLabel: kind === "assignment" ? "Why are you assigning him?" : kind === "sb_review" ? "Why should he go on the Short Board?" : "What to follow up on" });
   if (!v) return false;
-  await reviewCreate(kind, p.id, { note: v.note, ...(toUser ? { to_user: toUser } : {}) });
+  if (kind === "assignment" && !v.to.length) { toast("Pick at least one scout"); return false; }
+  await reviewCreate(kind, p.id, { note: v.note || undefined, ...(kind === "assignment" ? { to_users: v.to } : {}) });
   return true;
 }
 
@@ -3750,7 +3778,10 @@ function wireReview(root, d) {
           await reloadPlayers();
         }
         if (!player) { toast(q ? "Several players match: pick one from the list" : "Search for a player, or paste a Transfermarkt link"); inp.focus(); return; }
-        await reviewCreate(kind, player.id, { note: $("#rv-note", form).value.trim() || undefined, ...(btn?.dataset.to ? { to_user: Number(btn.dataset.to) } : {}) });
+        const barNote = $("#rv-note", form).value.trim();
+        if (kind === "assignment") {
+          if (!(await reviewSendDialog(S.byId.get(player.id) || player, "assignment", barNote))) return;
+        } else await reviewCreate(kind, player.id, { note: barNote || undefined });
         inp.value = ""; $("#rv-note", form).value = "";
         S.review.tab = { watch: "watch", sb_review: "sent", assignment: "assigned" }[kind]; // show where it went
         await afterMutation();
@@ -3777,7 +3808,7 @@ function wireReview(root, d) {
       if (t.matches("[data-rv-send]")) {
         if (await reviewSendDialog(p, "sb_review")) await afterMutation();
       } else if (t.dataset.rvAssign) {
-        if (await reviewSendDialog(p, "assignment", Number(t.dataset.rvAssign))) await afterMutation();
+        if (await reviewSendDialog(p, "assignment")) await afterMutation();
       } else if (t.matches("[data-rv-add-sb]")) {
         const v = await reviewDialog({ title: "Add to the Short Board", player: p.name, extra: roleOptions(p), noteLabel: "Why (saved as the board reason)", required: true, submit: "Add to Short Board" });
         if (!v) return;

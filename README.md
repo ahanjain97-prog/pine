@@ -323,16 +323,23 @@ syncs leave the signing status alone.
     - **Add to Short Board:** pick the role and write the reason. It goes through the Big Board's audited moves:
       it adds the role if needed, then promotes him, with the note saved as the board reason.
     - **Not for now.**
-  - **The lead assigns scouts** players to review, with a note. A scout marks one **reviewed**, optionally
-    setting their verdict, or **declines** it; the lead can **withdraw** an assignment.
+  - **The lead assigns players for review**, with a note. Every scout is ticked by default (the lead can untick
+    one). It's one item with one note thread, shown to every scout on it. Each scout answers for themselves:
+    **reviewed**, optionally with their verdict, or **declined**. The row shows each scout's answer.
+    - **Settling:** it settles once everyone has answered, as reviewed if anyone reviewed it, otherwise declined.
+    - **Answered early:** a scout who has answered sees the item under History until the others answer.
+    - **Withdraw:** the lead can withdraw an assignment.
   - **Watch lists:** everyone on the team keeps a private watch list. Players can be added from a PINE search
     or a Transfermarkt link (new players are added to PINE first).
   - **Note thread:** every item keeps one.
   - **Badge:** the nav badge counts what's waiting on you (the lead's open requests, a scout's open
     assignments).
-  - **Player page:** has Watch / Send to Ray / Assign to … buttons.
+  - **Player page:** has Watch / Send to Ray / Assign for review buttons.
   - **Activity:** entries appear there, except watch lists, which are private.
-  - **Code:** `src/lib/review_queue.js`, plus tables `review_items` and `review_notes`.
+  - **Code:** `src/lib/review_queue.js`, plus tables `review_items`, `review_assignees` (who an assignment is with,
+    and each answer) and `review_notes`.
+- **Reload prompt:** a tab left open across a deploy shows **PINE was updated · reload**. `/api/changes`
+  reports the front end's asset version.
 - **Database** (`#/players`): sortable and filterable table of everyone, with CSV export.
 - **Player page**: **Board history** lists recorded adds, promotions, drop-backs, removals and optional
   tracking reasons, newest first: date, staff member, role, source or exit reason and written

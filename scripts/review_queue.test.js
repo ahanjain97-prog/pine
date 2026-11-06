@@ -53,27 +53,45 @@ test('scouts send a player up; the lead puts him on the Short Board through the 
   assert.deepEqual(statuses(db), ['sb_review:added_sb', 'sb_review:not_sb']);
 });
 
-test('the lead assigns a scout, who reviews (with a verdict) or declines; the lead can withdraw', (t) => {
+test('the lead assigns both scouts: one item and thread they share, each answering on their own', (t) => {
   const db = setup(t);
-  const a = createItem(db, RAY, { kind: 'assignment', player_id: 1, to_user: 3, note: 'Watch his last three games.' });
-  assert.throws(() => createItem(db, RAY, { kind: 'assignment', player_id: 1, to_user: 3 }), /already assigned/);
-  assert.throws(() => createItem(db, RAY, { kind: 'assignment', player_id: 1, to_user: 4 }), /Choose a scout/);
-  assert.throws(() => createItem(db, AHAN, { kind: 'assignment', player_id: 1, to_user: 3 }), /Only the review lead/);
-  assert.equal(reviewBoard(db, AHAN).items.length, 0, 'an assignment is between the lead and that scout');
-  assert.equal(reviewCount(db, FORD), 1);
+  const a = createItem(db, RAY, { kind: 'assignment', player_id: 1, to_users: [2, 3], note: 'Watch his last three games.' });
+  assert.throws(() => createItem(db, RAY, { kind: 'assignment', player_id: 1, to_user: 3 }), /already out for review/);
+  assert.throws(() => createItem(db, RAY, { kind: 'assignment', player_id: 2, to_users: [3, 4] }), /Choose scouts/);
+  assert.throws(() => createItem(db, RAY, { kind: 'assignment', player_id: 2, to_users: [] }), /Choose scouts/);
+  assert.throws(() => createItem(db, AHAN, { kind: 'assignment', player_id: 2, to_user: 3 }), /Only the review lead/);
+  for (const scout of [AHAN, FORD]) {
+    const [item] = reviewBoard(db, scout).items;
+    assert.equal(item.id, a, 'both scouts see the same item');
+    assert.equal(item.to_name, 'Ahan and Ford');
+  }
+  assert.equal(reviewCount(db, AHAN), 1); assert.equal(reviewCount(db, FORD), 1);
+  addNote(db, FORD, a, 'I can take the first two.');
+  resolveItem(db, AHAN, a, { outcome: 'reviewed', verdict: 'pass', note: 'Good in possession.' });
+  assert.throws(() => resolveItem(db, AHAN, a, { outcome: 'declined' }), /already answered/);
+  assert.equal(db.get('SELECT verdict FROM verdicts WHERE player_id = 1 AND user_id = 2').verdict, 'pass');
+  let item = reviewBoard(db, RAY).items[0];
+  assert.equal(item.status, 'open', 'open until every scout has answered');
+  assert.deepEqual(item.assignees.map((x) => `${x.name}:${x.status}`), ['Ahan:reviewed', 'Ford:open']);
+  assert.equal(reviewCount(db, AHAN), 0); assert.equal(reviewCount(db, FORD), 1);
+  resolveItem(db, FORD, a, { outcome: 'declined', note: 'Seen enough from Ahan\'s notes.' });
+  item = reviewBoard(db, RAY).items[0];
+  assert.deepEqual([item.status, item.notes.length], ['reviewed', 4], 'settled as reviewed when anyone reviewed; one thread');
+  assert.throws(() => reviewBoard(db, BOBBY), /review team/);
+});
+
+test('a single scout can be assigned; declining alone settles it as declined; the lead can withdraw', (t) => {
+  const db = setup(t);
+  const a = createItem(db, RAY, { kind: 'assignment', player_id: 1, to_user: 3 });
+  assert.equal(reviewBoard(db, AHAN).items.length, 0, 'only the scouts it was given to see it');
   assert.throws(() => resolveItem(db, AHAN, a, { outcome: 'reviewed' }), /not found/);
-  assert.throws(() => resolveItem(db, FORD, a, { outcome: 'reviewed', verdict: 'maybe' }), /Verdict/);
-  resolveItem(db, FORD, a, { outcome: 'reviewed', verdict: 'pass', note: 'Good in possession.' });
-  assert.equal(db.get('SELECT verdict FROM verdicts WHERE player_id = 1 AND user_id = 3').verdict, 'pass');
-  const board = reviewBoard(db, RAY).items[0];
-  assert.deepEqual([board.status, board.resolved_by_name, board.notes.map((n) => n.body)],
-    ['reviewed', 'Ford', ['Watch his last three games.', 'Good in possession.']]);
-  const b = createItem(db, RAY, { kind: 'assignment', player_id: 2, to_user: 2 });
+  resolveItem(db, FORD, a, { outcome: 'declined' });
+  assert.equal(reviewBoard(db, RAY).items[0].status, 'declined');
+  const b = createItem(db, RAY, { kind: 'assignment', player_id: 2, to_users: [2, 3] });
   assert.throws(() => resolveItem(db, AHAN, b, { outcome: 'removed' }), /withdraws/);
   resolveItem(db, RAY, b, { outcome: 'removed' });
-  const c = createItem(db, RAY, { kind: 'assignment', player_id: 3, to_user: 2 });
-  resolveItem(db, AHAN, c, { outcome: 'declined', note: 'Already seen enough.' });
-  assert.deepEqual(statuses(db), ['assignment:reviewed', 'assignment:removed', 'assignment:declined']);
+  assert.deepEqual(statuses(db), ['assignment:declined', 'assignment:removed']);
+  assert.equal(reviewCount(db, AHAN), 0, 'a withdrawn assignment waits on no one');
 });
 
 test('players both scouts passed are suggested until someone sends them up, and never once on the Short Board', (t) => {

@@ -246,6 +246,14 @@ CREATE TABLE IF NOT EXISTS review_notes(
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS review_notes_item ON review_notes(item_id, id);
+-- Who an assignment is with: one row per scout, each answering on their own; the item settles when all have.
+CREATE TABLE IF NOT EXISTS review_assignees(
+  item_id INTEGER NOT NULL REFERENCES review_items(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','reviewed','declined')),
+  resolved_at TEXT,
+  PRIMARY KEY (item_id, user_id)
+);
 `;
 
 const STAFF = [
@@ -360,6 +368,13 @@ export function openDb(file) {
       name, admin ? process.env.PINE_ADMIN_EMAIL || null : null, admin, i)
   );
   // The Review tab's first team: Ray decides, Ahan and Ford scout. Admins change it on the Staff page.
+  // Assignments made before several scouts could share one: their single scout becomes the one assignee.
+  db.once("review_assignees_2026_11", () => {
+    db.run(`INSERT OR IGNORE INTO review_assignees(item_id, user_id, status, resolved_at)
+      SELECT id, to_user, CASE status WHEN 'reviewed' THEN 'reviewed' WHEN 'declined' THEN 'declined' ELSE 'open' END,
+        CASE WHEN status IN ('reviewed','declined') THEN resolved_at END
+      FROM review_items WHERE kind = 'assignment' AND to_user IS NOT NULL`);
+  });
   db.once("review_team_2026_11", () => {
     db.run("UPDATE users SET review_role = 'lead' WHERE name = 'Ray' AND review_role IS NULL");
     db.run("UPDATE users SET review_role = 'scout' WHERE name IN ('Ahan', 'Ford') AND review_role IS NULL");

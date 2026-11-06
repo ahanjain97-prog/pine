@@ -413,8 +413,9 @@ app.get("/api/config", (c) =>
     board_reasons: { sources: BOARD_SOURCES, exit_reasons: BOARD_EXIT_REASONS },
   })
 );
+// app: the deployed front end's version, so a tab left open across a deploy can offer a reload.
 app.get("/api/changes", (c) => c.json({ version: db.get("SELECT coalesce(max(id), 0) AS v FROM activity").v,
-  review_open: reviewCount(db, c.get("user")) }));
+  review_open: reviewCount(db, c.get("user")), app: ASSET_VERSION }));
 
 /* ---------- players ---------- */
 app.get("/api/players", (c) => {
