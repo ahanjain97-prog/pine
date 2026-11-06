@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addDefending, padj, SHRINK_K } from '../src/lib/defending.js';
+import { addDefending, defendingOutlook, padj, SHRINK_K } from '../src/lib/defending.js';
 import { CATEGORIES, COMPOSITES } from '../src/lib/impect_categories.js';
 
 test('possession adjustment: 1 at 50%, more for teams that have the ball more', () => {
@@ -47,4 +47,16 @@ test('each Defending overall averages categories that exist at that position', (
   for (const [group, comps] of Object.entries(COMPOSITES)) {
     for (const members of Object.values(comps)) for (const m of members) assert.ok(CATEGORIES[group][m], `${group}: ${m}`);
   }
+});
+
+test('likely level: pulled toward the median, more so and with a wider range on small samples', () => {
+  const full = defendingOutlook(35, 18, 'CB'), thin = defendingOutlook(35, 4, 'CB'), long = defendingOutlook(35, 40, 'CB');
+  assert.ok(full.expected > 35 && full.expected < 50, 'a below-median score moves toward the median');
+  assert.ok(thin.expected > full.expected && thin.high - thin.low > full.high - full.low, 'fewer matches: nearer 50, wider');
+  assert.ok(long.high - long.low < full.high - full.low, 'more matches: narrower');
+  assert.ok(full.low < full.expected && full.expected < full.high);
+  assert.equal(defendingOutlook(35, 18, 'W'), null, 'only the back-six groups');
+  assert.equal(defendingOutlook(null, 18, 'CB'), null);
+  const top = defendingOutlook(95, 18, 'FB');
+  assert.ok(top.expected < 95 && top.expected > 60);
 });

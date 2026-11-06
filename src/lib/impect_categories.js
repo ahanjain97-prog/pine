@@ -611,7 +611,9 @@ export const CATEGORIES = {
 //   - Defending (ranked): ball winning, second balls and where he wins the ball, all possession-adjusted, for every
 //     back-six position; plus aerial defending for centre-backs and pressing for full-backs and midfielders, where
 //     those held up at that position. DEFENDING_OVERALL averages them into one headline score.
-//   - Defending style (described, not a quality ranking): duels, workload and Impect's packing regain value.
+//   - Defending style (described, not a quality ranking): duels and workload. Impect's packing regain value and the
+//     event-built measures (press success, danger defused, box defending, 1v1; evaluate_event_defending.py) added
+//     nothing, so they aren't shown.
 // Left out because they predicted nothing: duel win rates, blocks, loose-ball regains, counter-pressing, Impect's
 // Defensive IMPECT. Pressing went with conceding more for centre-backs and was negative or untestable for
 // attackers; where a player presses (build-up, between the lines, counter-press) mattered at no position.
@@ -626,7 +628,6 @@ const DEFENDING_V2 = {
     "Aerial dominance": ["derived__AERIAL_WIN_SHRUNK", "derived__PADJ_AERIAL_DUELS", "score__DEFENSIVE_HEADER_SCORE"],
     "Duel profile": ["derived__GROUND_WIN_SHRUNK", "derived__PADJ_GROUND_DUELS"],
     "Defensive workload": ["kpi__BALL_WIN_NUMBER", "score__LOOSE_BALL_REGAIN_SCORE", "score__CLEARANCE_SCORE", "score__BLOCK_SCORE"],
-    "Regain value": ["score__RATIO_ADDED_TEAMMATES", "score__INTERVENTIONS_SCORE_PACKING"],
   },
   FB: {
     ...BACK_SIX_CORE,
@@ -634,7 +635,6 @@ const DEFENDING_V2 = {
     "Duel profile": ["derived__GROUND_WIN_SHRUNK", "derived__AERIAL_WIN_SHRUNK", "derived__PADJ_GROUND_DUELS", "derived__PADJ_AERIAL_DUELS"],
     "Defensive workload": ["kpi__BALL_WIN_NUMBER", "score__LOOSE_BALL_REGAIN_SCORE", "score__CLEARANCE_SCORE", "score__BLOCK_SCORE",
       "score__DEFENSIVE_HEADER_SCORE"],
-    "Regain value": ["score__RATIO_ADDED_TEAMMATES", "score__INTERVENTIONS_SCORE_PACKING"],
   },
   MID: {
     ...BACK_SIX_CORE,
@@ -642,7 +642,6 @@ const DEFENDING_V2 = {
     "Duel profile": ["derived__GROUND_WIN_SHRUNK", "derived__AERIAL_WIN_SHRUNK", "derived__PADJ_GROUND_DUELS", "derived__PADJ_AERIAL_DUELS"],
     "Defensive workload": ["kpi__BALL_WIN_NUMBER", "score__LOOSE_BALL_REGAIN_SCORE", "score__CLEARANCE_SCORE", "score__BLOCK_SCORE",
       "score__DEFENSIVE_HEADER_SCORE"],
-    "Regain value": ["score__RATIO_ADDED_TEAMMATES", "score__INTERVENTIONS_SCORE_PACKING"],
   },
 };
 // Headline defending score per position: the equal-weight average of its ranked Defending categories, ranked

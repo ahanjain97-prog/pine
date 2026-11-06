@@ -1345,6 +1345,8 @@ const tier = (v) => (v < 20 ? "Bottom 20%" : v < 40 ? "Below average" : v < 60 ?
 const byPercentile = (a, b) => (b.percentile ?? -1) - (a.percentile ?? -1);
 const wholePct = (v) => (v == null ? null : Math.round(v));
 // Percentile bar; the tick at its midpoint (CSS) marks the median peer.
+// Defending overall's bar also shades where his true level likely sits (an 80% range), with the likely level marked.
+const kpiRangeBar = (pct, o) => !o ? kpiBar(pct) : `<span class="kpi-bar kpi-bar-range">${pct == null ? "" : `<span style="width:${Math.max(2, pct)}%;background:${band(pct)}"></span>`}<i class="kpi-range" style="left:${o.low}%;width:${Math.max(1, o.high - o.low)}%"></i><i class="kpi-likely" style="left:${o.expected}%"></i></span>`;
 // Style categories describe a role rather than rank quality, so their bars are neutral rather than red-to-green.
 const kpiBar = (pct, neutral = false) => `<span class="kpi-bar">${pct == null ? "" : `<span style="width:${Math.max(2, pct)}%;background:${neutral ? "var(--muted)" : band(pct)}"></span>`}</span>`;
 
@@ -1369,7 +1371,7 @@ function kpiCategory(c, d) {
     ? `The overall score averages its ${c.components.length} Defending categories equally and ranks against ${c.peer_count} ${esc(peers)}; across the back six it predicted fewer goals conceded better than any single measure.`
     : `The category score averages its ${c.components.length} metrics, flipped where lower is better, and ranks against ${c.peer_count} ${esc(peers)}.`;
   return `<li class="${c.composite ? "kpi-headline" : ""}"><details>
-    <summary><span class="kpi-name" title="${esc(`Study category: ${c.name}`)}">${esc(c.label)}</span>${kpiBar(pct, neutral)}<b>${pct ?? "–"}</b><span class="kpi-chev" aria-hidden="true"></span></summary>
+    <summary><span class="kpi-name" title="${esc(`Study category: ${c.name}`)}">${esc(c.label)}${c.outlook ? `<small class="kpi-outlook" title="One season of defending stats is about half signal (its reliability here is ${c.outlook.reliability}), so the score is pulled toward the median: this is where his true level likely sits among peers (80% range).">Likely level ${c.outlook.expected} · range ${c.outlook.low}–${c.outlook.high}</small>` : ""}</span>${c.composite ? kpiRangeBar(pct, c.outlook) : kpiBar(pct, neutral)}<b>${pct ?? "–"}</b><span class="kpi-chev" aria-hidden="true"></span></summary>
     <div class="kpi-detail">
       <p class="kpi-about">${pct == null || neutral ? "" : `<span class="kpi-tier" style="--c:${band(pct)}">${tier(pct)}</span>`}${c.description ? `<span>${esc(c.description)}</span>` : ""}</p>
       <div class="kpi-m kpi-mh"><span>${c.composite ? "Category" : "Metric"}</span><span>${c.composite ? "Score" : `Value · ${esc(league)} median`}</span><span>vs ${d.peer_count} ${esc(peers)}</span><span>Pct</span>
@@ -1384,6 +1386,13 @@ function kpiCategory(c, d) {
 function kpiPhase(ph, d) {
   // The headline (Defending overall) leads its section; the rest are ranked by percentile.
   const cats = d.categories.filter((c) => c.phase === ph.id).sort((x, y) => (y.composite ? 1 : 0) - (x.composite ? 1 : 0) || byPercentile(x, y));
+  // Defending style is context, not a ranking: one line, opened for the detail.
+  if (ph.id === "defstyle") {
+    return `<section class="kpi-group kpi-style"><details>
+      <summary><span class="kpi-phase-inline"><b>${esc(ph.name)}</b> ${cats.map((c) => `${esc(c.label)} ${wholePct(c.percentile) ?? "–"}`).join(" · ")}</span><span class="muted sm">${esc(ph.desc)}</span><span class="kpi-chev" aria-hidden="true"></span></summary>
+      <ol class="kpi-list">${cats.map((c) => kpiCategory(c, d)).join("")}</ol>
+    </details></section>`;
+  }
   return `<section class="kpi-group">
     <div class="kpi-phase"><h3>${esc(ph.name)}</h3>${ph.desc ? `<span>${esc(ph.desc)}</span>` : ""}</div>
     <ol class="kpi-list">${cats.map((c) => kpiCategory(c, d)).join("")}</ol>
@@ -1509,6 +1518,7 @@ function loadKpiPanel(root, p) {
           <p>A category's score is the equal-weight average of its metrics' z-scores, fitted only on qualified peers and flipped where lower is better (marked ↓); each metric belongs to one category.
             Values are Impect rates per match share; ratios and scores are shown as supplied. Medians and the ${esc(d.iteration.short)} column use ${esc(d.iteration.competition)} ${esc(peers)} only.</p>
           ${d.phases.some((ph) => ph.id === "defending") ? `<p><b>Defending</b> is judged on what predicted fewer goals conceded across the back six: for players who changed clubs, did the new club concede fewer goals than the season before? (2022–25, confirmed on 2026.) That's possession-adjusted ball winning, second balls and how high he wins the ball, plus aerial defending for centre-backs and pressing for full-backs and midfielders. <b>Defending overall</b> averages them equally. Counts are scaled for his team's possession.
+            One season of these stats is only about half signal, so Defending overall also shows his <b>likely level</b>: the score pulled toward the median by how much it repeats season to season at that sample, with an 80% range (the shaded band).
             <b>Defending style</b> (duels, workload, Impect's regain value) describes how much and how he defends; those measures didn't predict goals conceded, so read them as role, not quality.</p>` : ""}
           <p>Transfers count once in the reference, using their largest qualified league sample. Oldest reference fetch: ${esc(new Date(d.cohort_built_at).toLocaleString())}. Cached for up to 12 hours.</p>
         </div>

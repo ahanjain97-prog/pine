@@ -9,7 +9,7 @@ import { CATEGORIES, COMPOSITES, POSITION_MAP, POSITION_LABEL, MIN_MATCH_SHARE, 
 import { benchmark, fixedFloor } from "./impect_benchmark.js";
 import { diskSavedAt, readDisk, writeDisk } from "./disk_cache.js";
 import { categoryDisplay, phasesFor, metricKind, METRIC_KINDS, shortLeague } from "./impect_display.js";
-import { addDefending, DERIVED_META } from "./defending.js";
+import { addDefending, defendingOutlook, DERIVED_META } from "./defending.js";
 
 export const BENCHMARK_LEAGUES = ["USL Championship", "MLS Next Pro", "USL League One"];
 
@@ -57,8 +57,6 @@ export const DISPLAY_OVERRIDES = {
   score__RATIO_SHOTS_PER_GOAL: "Shots per goal",
   score__RATIO_REVERSE_PLAY_ADDED_OPPONENTS: "Backpasses \u00f7 possible backpasses",
   score__RATIO_REMOVED_OPPONENTS: "Opponents taken out per ball win",
-  score__RATIO_ADDED_TEAMMATES: "Teammates put back goal-side per ball win",
-  score__INTERVENTIONS_SCORE_PACKING: "Interventions Score (packing)",
 
   // Distances are metres gained towards the opponent's goal, not distance run.
   kpi__DISTANCE_TO_GOAL_COVERED_DRIBBLE: "Distance carried towards goal (m)",
@@ -349,7 +347,7 @@ export async function playerKpiCard(impectId, { iterationId = null, minShare = M
       const parts = c.members.map((name) => categories.find((x) => x.name === name)).filter(Boolean);
       categories.push({
         ...categoryDisplay(row.group, c.name), name: c.name, composite: true, score: round(c.score, 3),
-        percentile: round(c.percentile, 1), peer_count: c.peer_count,
+        percentile: round(c.percentile, 1), peer_count: c.peer_count, outlook: defendingOutlook(c.percentile, row.matchShare, row.group),
         league_percentile: round(league.composites[i].percentile, 1), league_peer_count: league.composites[i].peer_count,
         components: parts.map((x) => ({ metric: x.name, label: x.label, kind: "category", value: x.score, inverted: false,
           definition: x.description, percentile: x.percentile, league_percentile: x.league_percentile,

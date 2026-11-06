@@ -56,10 +56,23 @@ the season before? Evidence is in impect_metric_stability: `evaluate_defending_v
 - **Defending overall** averages a position's Defending categories equally and ranks the average against the
   same peers (`benchmark(..., { composites })`). Across the back six it beat every single measure: goals
   conceded r 0.19 in 2022–25 and 0.24–0.30 in 2026, against about 0.15 for the best single metric.
-- **Defending style** (neutral bars, not a quality ranking): duels (sample-adjusted win rates and contested
-  volume), defensive workload (raw counts), and Impect's packing regain value.
-- **Left out** because they predicted nothing: duel win rates, blocks, loose-ball regains and counter-pressing.
-  Impect's "shots blocked" counts the player's *own* shots that were blocked, so it isn't a defensive measure.
+- **Likely level** on Defending overall: one season of these stats is only about half signal, so the card also
+  shows where his true level likely sits among peers.
+  - The score is pulled toward the median by its reliability at his sample (`defendingOutlook` in
+    `defending.js`).
+  - Reliability is the season-to-season r for players who changed clubs: CB 0.52, FB 0.34, DM/CM 0.45 at a
+    typical season, scaled by sample size (Spearman-Brown).
+  - The card shows an 80% range as a shaded band.
+- **Defending style** collapses to one context line (neutral bars inside, not a quality ranking): duels
+  (sample-adjusted win rates and contested volume) and defensive workload (raw counts).
+- **Left out** because they predicted nothing:
+  - From Impect's season averages: duel win rates, blocks, loose-ball regains, counter-pressing, and Impect's
+    packing regain value. Impect's "shots blocked" counts the player's *own* shots that were blocked, so it
+    isn't a defensive measure.
+  - From the raw event feed (`build_event_defending.py`, `evaluate_event_defending.py`):
+    - press success (his team regains within 5 s), which isn't a player trait;
+    - exact exposure (per 100 opponent touches), which was no better than the possession sigmoid;
+    - danger defused, box defending, and 1v1 defending (2025–26).
 - **Pressing** appears only for full-backs and midfielders. It went with conceding more for centre-backs and was
   negative or untestable for attackers, and where a player presses (build-up, between the lines, counter-press)
   mattered at no position. Attackers keep a plain "Ball winning" (ball wins and interceptions).

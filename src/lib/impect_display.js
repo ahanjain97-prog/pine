@@ -70,7 +70,6 @@ const CATEGORY_DISPLAY = {
   // Defending v2: described, not ranked as quality.
   "Duel profile": ["Duels", "defstyle", "Defensive duel win rates (pulled toward the league average when he has contested few) and how many he contests, possession-adjusted. Not linked to his team conceding less."],
   "Defensive workload": ["Defensive workload", "defstyle", "How much defending he does per match. Mostly reflects how much his team defends."],
-  "Regain value": ["Regain value", "defstyle", "Impect's packing view of his ball wins: teammates put back goal-side per win and the Interventions Score."],
 };
 // The one study name that covers two different metric sets: at centre mid it is plain ball security.
 const POSITION_OVERRIDES = {
