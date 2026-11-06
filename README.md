@@ -230,7 +230,8 @@ syncs leave the signing status alone.
   Players without a Big Board role stay searchable and in the Database tab, without a list below the board.
   New role spots require **Source** (Search: Data screen, Video, NCAA database, Live, Other scouting; or
   Referral: Staff, Agent, Contact) and a written **Why**. This applies to the
-  player page, role + picker, Add player with roles, NCAA + BB, duplicates and staff Impect list imports.
+  player page, role + picker, Add player with roles, NCAA + BB and duplicates. Impect list imports don't ask:
+  each new spot records Source "Search: Data screen" and Why "Imported from the Impect list “<name>”".
   Taking a player off a role requires an **Exit reason**; a note is optional except for **Other**, which
   requires one. Dialogs can be cancelled before anything changes. Reordering, role transfers and automated
   imports/merges/workers do not require reasons. Hover a card for that role's latest add or promotion reason;

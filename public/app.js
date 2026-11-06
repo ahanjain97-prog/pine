@@ -2712,10 +2712,9 @@ async function loadShortLists(root) {
     b.disabled = true;
     b.textContent = "Importing…";
     try {
+      // No reason prompt: PINE records "Imported from the Impect list …" as the board reason for every spot.
       const role = $("[data-sl-role]", tr).value || null;
-      const reason = role ? await askBoardReason('add', `Players in ${$("b", tr).textContent}`, S.config.roles[role] ? [role] : [], 'This reason applies to each new board spot from this import.') : null;
-      if (role && !reason) return null;
-      return await api("POST", `/api/impect/shortlists/${encodeURIComponent(tr.dataset.sl)}/import`, { role, reason });
+      return await api("POST", `/api/impect/shortlists/${encodeURIComponent(tr.dataset.sl)}/import`, { role });
     }
     finally { b.disabled = false; b.textContent = "Sync"; }
   };

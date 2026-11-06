@@ -921,9 +921,11 @@ app.get("/api/impect/shortlists", async (c) => {
 app.post("/api/impect/shortlists/:id/import", async (c) => {
   const user = c.get("user");
   const { role = null, reason: reasonInput } = await c.req.json().catch(() => ({}));
-  const boardReason = role ? validateBoardReason("add", reasonInput) : null;
   if (role && !ROLES[role] && !SPLIT_ROLES[role]) fail(400, `Unknown role ${role}`);
   const sl = (await impectShortLists()).find((l) => l.id === c.req.param("id")) || fail(404, "Short list not found in Impect");
+  // Every board spot from a list import has the same reason, so PINE writes it rather than asking each time:
+  // the list is the source (a data screen) and its name is the why. A reason sent with the request still wins.
+  const boardReason = role ? validateBoardReason("add", reasonInput ?? { source: "Search: Data screen", why: `Imported from the Impect list “${sl.name}”` }) : null;
   let meta = new Map();
   try { meta = await shortListPlayerMeta(sl.player_ids); } catch (e) { console.warn("short list meta failed:", e.message); }
   let listId = db.get("SELECT id FROM lists WHERE source = 'impect' AND external_id = ?", sl.id)?.id;
