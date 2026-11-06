@@ -431,6 +431,9 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 13px; }
 .p-grid > .analytics { grid-area: an; min-width: 0; }
 .p-grid > .playing-time { grid-area: pt; min-width: 0; }
 .p-grid > .panel { margin-top: 0; }
+/* When the sidebar ends before the evaluations do, nothing sits beside the KPI and playing-time panels, so they take
+   the full width (set by fitPlayerGrid in app.js). */
+.p-grid.side-short { grid-template-rows: auto; grid-template-areas: "main side" "an an" "pt pt"; }
 .role-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--line); flex-wrap: wrap; }
 .role-row:last-child { border-bottom: 0; }
 .role-row .chip { font-weight: 600; }
@@ -824,7 +827,7 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
 }
 
 @media (max-width: 1180px) {
-  .p-grid { grid-template-columns: 1fr; grid-template-rows: none; grid-template-areas: "main" "side" "an" "pt"; }
+  .p-grid, .p-grid.side-short { grid-template-columns: 1fr; grid-template-rows: none; grid-template-areas: "main" "side" "an" "pt"; }
   .p-head { grid-template-columns: auto 1fr; }
   .p-decision { grid-column: 1 / -1; }
 }

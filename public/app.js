@@ -1280,6 +1280,7 @@ async function renderPlayer(main, idArg) {
   </div>`;
   const root = main.firstElementChild;
   wirePlayer(root, d);
+  fitPlayerGrid(root);
   loadPlayingTimePanel($("#playing-time-panel", root), p, api);
   if (!p.tm_url) loadTmPanel(root, p);
   loadImpectPanel(root, p);
@@ -1719,6 +1720,19 @@ function wireSummary(root, p) {
     }
     if (id === "confirm-delete-summary") persist(null);
   });
+}
+
+// The KPI and playing-time panels sit under the evaluations, beside the sidebar, so a tall sidebar leaves no gap
+// above them; when the sidebar is the shorter column they span the full width instead. Re-checked whenever either
+// column changes height (the Impect, Transfermarkt and history panels load after the page).
+function fitPlayerGrid(root) {
+  const grid = $(".p-grid", root), main = $(".p-main", root), side = $(".p-side", root);
+  if (!grid || !main || !side || !window.ResizeObserver) return;
+  // Up to 60px taller still counts as short: a sliver of gap beats a squeezed KPI block.
+  const fit = () => grid.isConnected ? grid.classList.toggle("side-short", side.offsetHeight <= main.offsetHeight + 60) : ro.disconnect();
+  const ro = new ResizeObserver(fit);
+  ro.observe(main); ro.observe(side);
+  fit();
 }
 
 function wirePlayer(root, d) {
