@@ -5,7 +5,7 @@
 // retain raw values but receive no percentiles. Scoring lives in impect_benchmark.js.
 
 import { impectGet, iterations as impectIterations, getImpectPlayer } from "./impect.js";
-import { CATEGORIES, POSITION_MAP, POSITION_LABEL, MIN_MATCH_SHARE, ALL_METRICS } from "./impect_categories.js";
+import { CATEGORIES, COMPOSITES, POSITION_MAP, POSITION_LABEL, MIN_MATCH_SHARE, ALL_METRICS } from "./impect_categories.js";
 import { benchmark, fixedFloor } from "./impect_benchmark.js";
 import { diskSavedAt, readDisk, writeDisk } from "./disk_cache.js";
 import { categoryDisplay, phasesFor, metricKind, METRIC_KINDS, shortLeague } from "./impect_display.js";
@@ -238,7 +238,7 @@ async function buildCohort(iterationId) {
   return { at: Date.now(), iterationId, byGroup, shares };
 }
 
-const COHORT_FORMAT = 4; // bump when the cohort's shape changes, so old disk copies are rebuilt (4: Defending v2 metrics)
+const COHORT_FORMAT = 5; // bump when the cohort's shape changes, so old disk copies are rebuilt (5: second-ball metrics)
 const toDisk = (co) => ({ format: COHORT_FORMAT, at: co.at, iterationId: co.iterationId, byGroup: [...co.byGroup], shares: [...co.shares] });
 const fromDisk = (d) => (d?.format === COHORT_FORMAT
   ? { at: d.at, iterationId: d.iterationId, byGroup: new Map(d.byGroup), shares: new Map(d.shares) } : null);
@@ -329,8 +329,9 @@ export async function playerKpiCard(impectId, { iterationId = null, minShare = M
     // League-adjusted pooling: tag reference rows with their league so each KPI is standardised
     // within its own league before the three leagues are ranked together.
     const pooledRows = cohorts.flatMap((c) => (c.byGroup.get(row.group) || []).map((p) => ({ ...p, league: c.iterationId })));
-    const pooled = benchmark({ ...row, league: it.id }, pooledRows, cats, defs.meta, floor, { byLeague: true });
-    const league = benchmark(row, co.byGroup.get(row.group), cats, defs.meta, floor);
+    const composites = COMPOSITES[row.group] || {};
+    const pooled = benchmark({ ...row, league: it.id }, pooledRows, cats, defs.meta, floor, { byLeague: true, composites });
+    const league = benchmark(row, co.byGroup.get(row.group), cats, defs.meta, floor, { composites });
     const categories = pooled.categories.map((c, i) => ({
       ...c, ...categoryDisplay(row.group, c.name), percentile: round(c.percentile, 1), score: round(c.score, 3),
       league_percentile: round(league.categories[i].percentile, 1),
@@ -343,6 +344,18 @@ export async function playerKpiCard(impectId, { iterationId = null, minShare = M
         league_peer_count: league.categories[i].components[j].peer_count,
       })),
     }));
+    // A composite (Defending overall) is shown as a category whose rows are its categories.
+    for (const [i, c] of pooled.composites.entries()) {
+      const parts = c.members.map((name) => categories.find((x) => x.name === name)).filter(Boolean);
+      categories.push({
+        ...categoryDisplay(row.group, c.name), name: c.name, composite: true, score: round(c.score, 3),
+        percentile: round(c.percentile, 1), peer_count: c.peer_count,
+        league_percentile: round(league.composites[i].percentile, 1), league_peer_count: league.composites[i].peer_count,
+        components: parts.map((x) => ({ metric: x.name, label: x.label, kind: "category", value: x.score, inverted: false,
+          definition: x.description, percentile: x.percentile, league_percentile: x.league_percentile,
+          peer_count: x.peer_count, league_median: null })),
+      });
+    }
 
     return {
       iteration: { id: it.id, competition: it.competition, season: it.season, short: shortLeague(it.competition) },

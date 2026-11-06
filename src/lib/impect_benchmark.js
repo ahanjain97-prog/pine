@@ -47,7 +47,9 @@ export function median(values) {
 // byLeague: standardise every KPI within the row's own league (row.league) before pooling, so
 // league-wide differences in raw output don't tilt pooled ranks. Component percentiles then rank
 // those league-standardised values. Without it, one fit covers the whole pool (the original method).
-export function benchmark(target, rows, categories, meta, floor = 5, { byLeague = false } = {}) {
+// composites: { name: [category names] }, each scored as the mean of its categories' scores (at least half
+// present) and ranked against the same peers' composites.
+export function benchmark(target, rows, categories, meta, floor = 5, { byLeague = false, composites = {} } = {}) {
   const peers = qualifiedReference(rows, floor);
   const eligible = target.matchShare >= floor;
   const metrics = [...new Set(Object.values(categories).flat())];
@@ -70,8 +72,23 @@ export function benchmark(target, rows, categories, meta, floor = 5, { byLeague 
   const oriented = (p, m) =>
     byLeague ? z(p, m) : Number.isFinite(p.values[m]) ? p.values[m] * sign(m) : null;
 
+  const names = Object.keys(categories);
+  const scoresOf = (p) => Object.fromEntries(names.map((n) => [n, score(p, categories[n])]));
+  const peerScores = Object.keys(composites).length ? peers.map(scoresOf) : [];
+  const targetScores = scoresOf(target);
+  const mean = (v) => v.reduce((a, b) => a + b, 0) / v.length;
+  const compositeOf = (s, members) => {
+    const v = members.map((m) => s[m]).filter(Number.isFinite);
+    return v.length >= Math.ceil(members.length / 2) ? mean(v) : null;
+  };
+
   return {
     peers: peers.length, eligible, league_adjusted: byLeague,
+    composites: Object.entries(composites).map(([name, members]) => {
+      const ref = peerScores.map((s) => compositeOf(s, members)).filter(Number.isFinite);
+      const value = compositeOf(targetScores, members);
+      return { name, members, score: value, percentile: percentile(value, ref), peer_count: ref.length };
+    }),
     categories: Object.entries(categories).map(([name, ms]) => {
       const ref = peers.map((p) => score(p, ms)).filter(Number.isFinite);
       // Targets below the floor are still scored against the qualified reference (eligible: false).

@@ -110,3 +110,16 @@ test('each metric carries the raw median of qualified peers', () => {
   assert.equal(pass.median, 9.5, 'raw scale, and the unqualified player is ignored');
   assert.equal(loss.median, 10.5, 'not flipped for lower-is-better metrics');
 });
+
+test('a composite is the mean of its categories and ranks against the same peers', () => {
+  const cats = { A: ['a'], B: ['b'] };
+  const meta = new Map([['a', {}], ['b', {}]]);
+  const rows = Array.from({ length: 20 }, (_, i) => ({ playerId: i, matchShare: 10, values: { a: i, b: 19 - i } }));
+  const best = { playerId: 99, matchShare: 10, values: { a: 30, b: 30 } };
+  const r = benchmark(best, rows, cats, meta, 5, { composites: { Both: ['A', 'B'] } });
+  assert.equal(r.composites.length, 1);
+  assert.equal(r.composites[0].percentile, 100, 'top on both categories means top overall');
+  const mid = benchmark(rows[10], rows, cats, meta, 5, { composites: { Both: ['A', 'B'] } });
+  assert.ok(Math.abs(mid.composites[0].score - (mid.categories[0].score + mid.categories[1].score) / 2) < 1e-12);
+  assert.deepEqual(benchmark(best, rows, cats, meta).composites, [], 'no composites unless asked');
+});

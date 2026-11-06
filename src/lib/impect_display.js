@@ -10,7 +10,7 @@ export const PHASES = [
   { id: "attack", name: "Final third", desc: "Creating chances, shooting and finishing" },
   { id: "defend", name: "Off-Ball", desc: "Getting open to receive, winning the ball back, and duels at both ends" },
   // Centre-backs, full-backs and midfielders (Defending v2, defending.js): quality, then style.
-  { id: "defending", name: "Defending", desc: "Linked to his team conceding less, checked on players who changed clubs" },
+  { id: "defending", name: "Defending", desc: "What predicted fewer goals conceded across the back six, checked on players who changed clubs" },
   { id: "defstyle", name: "Defending style", desc: "How much and how he defends: role and workload, not a quality ranking" },
 ];
 const OTHER = { id: "other", name: "Other", desc: "" };
@@ -61,7 +61,9 @@ const CATEGORY_DISPLAY = {
   "Aerial target play": ["Aerial target play", "defend", "Attacking aerial duels, headers and headed shots."],
 
   // Defending v2: ranked as quality.
-  "Ball winning (possession-adjusted)": ["Ball winning", "defending", "Ball wins with interceptions (midfielders) or loose-ball regains (centre-backs), scaled for his team's possession."],
+  "Defending overall": ["Defending overall", "defending", "The equal-weight average of his Defending categories: the best-supported single read on how much he helps his team concede fewer goals."],
+  "Ball winning (possession-adjusted)": ["Ball winning", "defending", "Ball wins and interceptions, scaled for his team's possession."],
+  "Second balls (possession-adjusted)": ["Second balls", "defending", "Contesting balls into a loose-ball phase and coming away with them, scaled for his team's possession."],
   "Aerial dominance": ["Aerial defending", "defending", "Defensive aerial win rate (adjusted for how many he has contested), how many he contests (possession-adjusted), and defensive headers."],
   "Where he wins the ball": ["Where he wins the ball", "defending", "How many opponents each ball win takes out of the game: winning it early and high, before the opponent gets through."],
   "Pressing (possession-adjusted)": ["Pressing", "defending", "How often he presses, scaled for his team's possession."],
@@ -94,6 +96,7 @@ export const METRIC_KINDS = [
   { id: "volume", name: "How much", note: "Per match: a high percentile means more, not necessarily better" },
   { id: "mistake", name: "Mistakes", note: "A high percentile means fewer" },
   { id: "score", name: "Impect scores", note: "Impect's own composite ratings" },
+  { id: "category", name: "Categories", note: "Averaged equally into the overall score" },
 ];
 
 export function metricKind(metric) {

@@ -1365,21 +1365,25 @@ function kpiCategory(c, d) {
   const league = d.iteration.short;
   const kinds = d.metric_kinds.map((k) => ({ ...k, rows: c.components.filter((m) => m.kind === k.id).sort(byPercentile) }))
     .filter((k) => k.rows.length);
-  return `<li><details>
+  const foot = c.composite
+    ? `The overall score averages its ${c.components.length} Defending categories equally and ranks against ${c.peer_count} ${esc(peers)}; across the back six it predicted fewer goals conceded better than any single measure.`
+    : `The category score averages its ${c.components.length} metrics, flipped where lower is better, and ranks against ${c.peer_count} ${esc(peers)}.`;
+  return `<li class="${c.composite ? "kpi-headline" : ""}"><details>
     <summary><span class="kpi-name" title="${esc(`Study category: ${c.name}`)}">${esc(c.label)}</span>${kpiBar(pct, neutral)}<b>${pct ?? "–"}</b><span class="kpi-chev" aria-hidden="true"></span></summary>
     <div class="kpi-detail">
       <p class="kpi-about">${pct == null || neutral ? "" : `<span class="kpi-tier" style="--c:${band(pct)}">${tier(pct)}</span>`}${c.description ? `<span>${esc(c.description)}</span>` : ""}</p>
-      <div class="kpi-m kpi-mh"><span>Metric</span><span>Value · ${esc(league)} median</span><span>vs ${d.peer_count} ${esc(peers)}</span><span>Pct</span>
+      <div class="kpi-m kpi-mh"><span>${c.composite ? "Category" : "Metric"}</span><span>${c.composite ? "Score" : `Value · ${esc(league)} median`}</span><span>vs ${d.peer_count} ${esc(peers)}</span><span>Pct</span>
         <span title="${esc(`Percentile against ${d.iteration.competition} ${peers} only`)}">${esc(league)}</span></div>
       ${kinds.map((k) => `<h4 class="kpi-kind">${esc(k.name)} <span>${esc(k.note)}</span></h4>${k.rows.map((m) => kpiMetric(m, neutral)).join("")}`).join("")}
-      <p class="kpi-foot">The category score averages its ${c.components.length} metrics, flipped where lower is better, and ranks against ${c.peer_count} ${esc(peers)}.
+      <p class="kpi-foot">${foot}
         Against ${esc(d.iteration.competition)} ${esc(peers)} alone (${c.league_peer_count}) it ranks ${wholePct(c.league_percentile) ?? "–"}.</p>
     </div>
   </details></li>`;
 }
 
 function kpiPhase(ph, d) {
-  const cats = d.categories.filter((c) => c.phase === ph.id).sort(byPercentile);
+  // The headline (Defending overall) leads its section; the rest are ranked by percentile.
+  const cats = d.categories.filter((c) => c.phase === ph.id).sort((x, y) => (y.composite ? 1 : 0) - (x.composite ? 1 : 0) || byPercentile(x, y));
   return `<section class="kpi-group">
     <div class="kpi-phase"><h3>${esc(ph.name)}</h3>${ph.desc ? `<span>${esc(ph.desc)}</span>` : ""}</div>
     <ol class="kpi-list">${cats.map((c) => kpiCategory(c, d)).join("")}</ol>
@@ -1504,8 +1508,8 @@ function loadKpiPanel(root, p) {
             Each metric is standardised within its own league before the leagues are pooled, so league-wide differences in output don't tilt the ranks.</p>
           <p>A category's score is the equal-weight average of its metrics' z-scores, fitted only on qualified peers and flipped where lower is better (marked ↓); each metric belongs to one category.
             Values are Impect rates per match share; ratios and scores are shown as supplied. Medians and the ${esc(d.iteration.short)} column use ${esc(d.iteration.competition)} ${esc(peers)} only.</p>
-          ${d.phases.some((ph) => ph.id === "defending") ? `<p><b>Defending</b> categories passed a check on players who changed clubs: they follow the player, and the clubs that signed players who rated well on them conceded less (2022–25, confirmed on 2026). Counts are scaled for his team's possession, and duel win rates are pulled toward the league average when he has contested few.
-            <b>Defending style</b> describes how much and how he defends; those measures didn't pass, so read them as role and workload, not quality.</p>` : ""}
+          ${d.phases.some((ph) => ph.id === "defending") ? `<p><b>Defending</b> is judged on what predicted fewer goals conceded across the back six: for players who changed clubs, did the new club concede fewer goals than the season before? (2022–25, confirmed on 2026.) That's possession-adjusted ball winning, second balls and how high he wins the ball, plus aerial defending for centre-backs and pressing for full-backs and midfielders. <b>Defending overall</b> averages them equally. Counts are scaled for his team's possession.
+            <b>Defending style</b> (duels, workload, Impect's regain value) describes how much and how he defends; those measures didn't predict goals conceded, so read them as role, not quality.</p>` : ""}
           <p>Transfers count once in the reference, using their largest qualified league sample. Oldest reference fetch: ${esc(new Date(d.cohort_built_at).toLocaleString())}. Cached for up to 12 hours.</p>
         </div>
         ${(d.positions || []).length < 2 ? "" : `<div class="kpi-positions" role="group" aria-label="Position benchmarked"><span class="muted sm">Benchmark as</span>${d.positions.map((o) =>

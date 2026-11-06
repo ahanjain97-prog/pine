@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { addDefending, padj, SHRINK_K } from '../src/lib/defending.js';
-import { CATEGORIES } from '../src/lib/impect_categories.js';
+import { CATEGORIES, COMPOSITES } from '../src/lib/impect_categories.js';
 
 test('possession adjustment: 1 at 50%, more for teams that have the ball more', () => {
   assert.equal(padj(0.5), 1);
@@ -38,7 +38,13 @@ test('only the Defending v2 groups get derived metrics, and every derived metric
   addDefending([w], new Map());
   assert.equal(w.values.derived__PADJ_BALL_WINS, undefined);
   const used = new Set(Object.values(CATEGORIES).flatMap((c) => Object.values(c).flat()).filter((m) => m.startsWith('derived__')));
-  const p = row('CB', { ...duels(2, 1), kpi__BALL_WIN_NUMBER: 5, score__INTERCEPTION_SCORE: 1, score__LOOSE_BALL_REGAIN_SCORE: 1, kpi__NUMBER_OF_PRESSES: 9 });
+  const p = row('CB', { ...duels(2, 1), kpi__BALL_WIN_NUMBER: 5, score__INTERCEPTION_SCORE: 1, score__LOOSE_BALL_REGAIN_SCORE: 1, kpi__NUMBER_OF_PRESSES: 9, kpi__SECOND_BALL_START: 3, kpi__SECOND_BALL_WIN: 2 });
   addDefending([p], new Map());
   for (const m of used) assert.ok(Number.isFinite(p.values[m]), `${m} is produced`);
+});
+
+test('each Defending overall averages categories that exist at that position', () => {
+  for (const [group, comps] of Object.entries(COMPOSITES)) {
+    for (const members of Object.values(comps)) for (const m of members) assert.ok(CATEGORIES[group][m], `${group}: ${m}`);
+  }
 });

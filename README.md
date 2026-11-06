@@ -39,33 +39,40 @@ pooled into one row and ranked against everyone else's, on the DM categories plu
 
 **Defending v2 (centre-backs, full-backs, defensive / central mids).** The study's defending categories counted
 actions, which mostly measure how much a team defends. For centre-backs, pressing and interception volumes went
-with their team conceding *more*. Each of these positions now has two defending sets (`src/lib/defending.js`,
-`DEFENDING_V2` in `impect_categories.js`; evidence in impect_metric_stability `evaluate_defending_v2.py`):
+with their team conceding *more*.
 
-- **Defending** (ranked as quality): metrics that follow players who change clubs (mover r ≥ 0.2) *and* whose
-  new clubs conceded less than the season before (incoming r > 0.1 in 2022–25 and again in the 2026 holdout).
-  - Centre-backs: possession-adjusted ball winning (ball wins, loose balls); aerial defending (sample-adjusted
-    win rate, possession-adjusted duels, headers); where he wins the ball (opponents taken out per ball win).
-  - Full-backs: where he wins the ball; possession-adjusted pressing.
-  - Midfielders: possession-adjusted ball winning (ball wins, interceptions); possession-adjusted pressing.
-- **Defending style** (described, not a quality ranking): duels (sample-adjusted win rates and contested
+Defending is now judged on what predicted fewer goals conceded across the back six. The test pools CB + FB +
+DM/CM (182 players who changed clubs in 2022–25, 91 in 2026) and asks: did the new club concede fewer goals than
+the season before? Evidence is in impect_metric_stability: `evaluate_defending_v2.py`,
+`evaluate_back6_defending.py` and `results/defending_v2/`. Code: `src/lib/defending.js`, plus `DEFENDING_V2` and
+`COMPOSITES` in `impect_categories.js`.
+
+- **Defending** (ranked), at every back-six position:
+  - **Ball winning**: possession-adjusted ball wins and interceptions.
+  - **Second balls**: possession-adjusted second balls contested and won.
+  - **Where he wins the ball**: opponents taken out per ball win.
+  - Centre-backs add **Aerial defending** (sample-adjusted win rate, possession-adjusted duels, headers).
+  - Full-backs and midfielders add **Pressing** (possession-adjusted volume). These held up at those positions.
+- **Defending overall** averages a position's Defending categories equally and ranks the average against the
+  same peers (`benchmark(..., { composites })`). Across the back six it beat every single measure: goals
+  conceded r 0.19 in 2022–25 and 0.24–0.30 in 2026, against about 0.15 for the best single metric.
+- **Defending style** (neutral bars, not a quality ranking): duels (sample-adjusted win rates and contested
   volume), defensive workload (raw counts), and Impect's packing regain value.
-- **Pressing** appears only for full-backs and midfielders, as one possession-adjusted volume. For centre-backs
-  it went with conceding more. For wingers and strikers it was negative or untestable (few movers). Where a
-  player presses (build-up, between the lines, counter-press) mattered at no position. Centre-backs, attacking
-  mids, wingers and strikers show no pressing; attackers keep the ball-wins-and-interceptions half of their
-  old "Pressing & ball winning" category.
+- **Left out** because they predicted nothing: duel win rates, blocks, loose-ball regains and counter-pressing.
+  Impect's "shots blocked" counts the player's *own* shots that were blocked, so it isn't a defensive measure.
+- **Pressing** appears only for full-backs and midfielders. It went with conceding more for centre-backs and was
+  negative or untestable for attackers, and where a player presses (build-up, between the lines, counter-press)
+  mattered at no position. Attackers keep a plain "Ball winning" (ball wins and interceptions).
 
 The derived metrics are worked out when a league season is downloaded:
 
 - Possession adjustment uses StatsBomb's sigmoid, `2 / (1 + e^(−0.1 × (possession% − 50)))`, on Impect's squad
   possession, weighted by the player's squads.
-- Win rates add the per-group pseudo-duels in `SHRINK_K`, at the league rate. They were fitted by beta-binomial
-  method of moments on 2022–25.
+- Win rates add the per-group pseudo-duels in `SHRINK_K`, at the league rate (beta-binomial method of moments,
+  2022–25).
 
-Ground duel win rate didn't pass at any position (negative for midfielders), and pressing volume was negative
-for centre-backs. Samples are small (27–66 incoming movers per test), so treat these as the best-supported split
-rather than settled.
+Effects are modest: one signing explains a few percent of his new club's change in goals conceded. Treat this as
+the best-supported split rather than settled.
 Requests can raise the floor, but cannot lower it below five.
 
 Categories retain the existing equal-weight, direction-adjusted, 1%-winsorized z-score definitions.

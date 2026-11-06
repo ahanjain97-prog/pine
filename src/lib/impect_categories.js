@@ -603,43 +603,55 @@ export const CATEGORIES = {
   },
 };
 
-// Defending v2 (impect_metric_stability/evaluate_defending_v2.py; derived metrics in defending.js). The study's
-// defending categories counted actions, which measure how much a team defends: for centre-backs, pressing and
-// interception volumes went with conceding MORE. Each position now has two sets:
-//   - Defending (ranked as quality): metrics that held up for players who changed clubs AND whose new clubs
-//     conceded less, in 2022-25 and again in the 2026 holdout (mover r >= 0.2; incoming r > 0.1 in both);
-//   - Defending style (described, not a quality ranking): duels, workload and Impect's packing regain value,
-//     which describe the role but didn't pass.
-// Pressing is shown only where it went with conceding less: possession-adjusted press volume for full-backs and
-// midfielders (evaluate_back6_defending.py). For centre-backs it went with conceding more, for wingers and
-// strikers it was negative or untestable, and where a player presses (build-up, between the lines, counter-press)
-// mattered nowhere, so those positions and splits show no pressing.
+// Defending v2 (impect_metric_stability: evaluate_defending_v2.py, evaluate_back6_defending.py; derived metrics in
+// defending.js). The study's defending categories counted actions, which mostly measure how much a team defends:
+// for centre-backs, pressing and interception volumes went with conceding MORE. Defending is now judged on what
+// predicted fewer goals conceded across the back six (CB, FB, DM/CM pooled: players who changed clubs, did their new
+// club concede fewer goals than the season before? 2022-25, then the 2026 holdout):
+//   - Defending (ranked): ball winning, second balls and where he wins the ball, all possession-adjusted, for every
+//     back-six position; plus aerial defending for centre-backs and pressing for full-backs and midfielders, where
+//     those held up at that position. DEFENDING_OVERALL averages them into one headline score.
+//   - Defending style (described, not a quality ranking): duels, workload and Impect's packing regain value.
+// Left out because they predicted nothing: duel win rates, blocks, loose-ball regains, counter-pressing, Impect's
+// Defensive IMPECT. Pressing went with conceding more for centre-backs and was negative or untestable for
+// attackers; where a player presses (build-up, between the lines, counter-press) mattered at no position.
+const BACK_SIX_CORE = {
+  "Ball winning (possession-adjusted)": ["derived__PADJ_BALL_WINS", "derived__PADJ_INTERCEPTIONS"],
+  "Second balls (possession-adjusted)": ["derived__PADJ_SECOND_BALL_STARTS", "derived__PADJ_SECOND_BALL_WINS"],
+  "Where he wins the ball": ["score__RATIO_REMOVED_OPPONENTS"],
+};
 const DEFENDING_V2 = {
   CB: {
-    "Ball winning (possession-adjusted)": ["derived__PADJ_BALL_WINS", "derived__PADJ_LOOSE_BALL_REGAINS"],
+    ...BACK_SIX_CORE,
     "Aerial dominance": ["derived__AERIAL_WIN_SHRUNK", "derived__PADJ_AERIAL_DUELS", "score__DEFENSIVE_HEADER_SCORE"],
-    "Where he wins the ball": ["score__RATIO_REMOVED_OPPONENTS"],
     "Duel profile": ["derived__GROUND_WIN_SHRUNK", "derived__PADJ_GROUND_DUELS"],
-    "Defensive workload": ["kpi__BALL_WIN_NUMBER", "score__INTERCEPTION_SCORE", "kpi__SECOND_BALL_WIN", "score__CLEARANCE_SCORE",
-      "score__BLOCK_SCORE"],
+    "Defensive workload": ["kpi__BALL_WIN_NUMBER", "score__LOOSE_BALL_REGAIN_SCORE", "score__CLEARANCE_SCORE", "score__BLOCK_SCORE"],
     "Regain value": ["score__RATIO_ADDED_TEAMMATES", "score__INTERVENTIONS_SCORE_PACKING"],
   },
   FB: {
-    "Where he wins the ball": ["score__RATIO_REMOVED_OPPONENTS"],
+    ...BACK_SIX_CORE,
     "Pressing (possession-adjusted)": ["derived__PADJ_PRESSES"],
     "Duel profile": ["derived__GROUND_WIN_SHRUNK", "derived__AERIAL_WIN_SHRUNK", "derived__PADJ_GROUND_DUELS", "derived__PADJ_AERIAL_DUELS"],
-    "Defensive workload": ["kpi__BALL_WIN_NUMBER", "score__INTERCEPTION_SCORE", "score__LOOSE_BALL_REGAIN_SCORE", "kpi__SECOND_BALL_WIN",
-      "score__CLEARANCE_SCORE", "score__BLOCK_SCORE", "score__DEFENSIVE_HEADER_SCORE"],
+    "Defensive workload": ["kpi__BALL_WIN_NUMBER", "score__LOOSE_BALL_REGAIN_SCORE", "score__CLEARANCE_SCORE", "score__BLOCK_SCORE",
+      "score__DEFENSIVE_HEADER_SCORE"],
     "Regain value": ["score__RATIO_ADDED_TEAMMATES", "score__INTERVENTIONS_SCORE_PACKING"],
   },
   MID: {
-    "Ball winning (possession-adjusted)": ["derived__PADJ_BALL_WINS", "derived__PADJ_INTERCEPTIONS"],
+    ...BACK_SIX_CORE,
     "Pressing (possession-adjusted)": ["derived__PADJ_PRESSES"],
     "Duel profile": ["derived__GROUND_WIN_SHRUNK", "derived__AERIAL_WIN_SHRUNK", "derived__PADJ_GROUND_DUELS", "derived__PADJ_AERIAL_DUELS"],
-    "Defensive workload": ["kpi__BALL_WIN_NUMBER", "score__LOOSE_BALL_REGAIN_SCORE", "kpi__SECOND_BALL_WIN", "score__CLEARANCE_SCORE",
-      "score__BLOCK_SCORE", "score__DEFENSIVE_HEADER_SCORE"],
-    "Regain value": ["score__RATIO_ADDED_TEAMMATES", "score__INTERVENTIONS_SCORE_PACKING", "score__RATIO_REMOVED_OPPONENTS"],
+    "Defensive workload": ["kpi__BALL_WIN_NUMBER", "score__LOOSE_BALL_REGAIN_SCORE", "score__CLEARANCE_SCORE", "score__BLOCK_SCORE",
+      "score__DEFENSIVE_HEADER_SCORE"],
+    "Regain value": ["score__RATIO_ADDED_TEAMMATES", "score__INTERVENTIONS_SCORE_PACKING"],
   },
+};
+// Headline defending score per position: the equal-weight average of its ranked Defending categories, ranked
+// against the same peers. Across the back six it beat every single metric (goals conceded r 0.19 in 2022-25,
+// 0.24-0.30 in 2026, vs ~0.15 for the best single metric).
+export const COMPOSITES = {
+  CB: { "Defending overall": [...Object.keys(BACK_SIX_CORE), "Aerial dominance"] },
+  FB: { "Defending overall": [...Object.keys(BACK_SIX_CORE), "Pressing (possession-adjusted)"] },
+  MID: { "Defending overall": [...Object.keys(BACK_SIX_CORE), "Pressing (possession-adjusted)"] },
 };
 const pick = (set, names) => Object.fromEntries(names.map((name) => [name, set[name]]));
 CATEGORIES.CB = { ...pick(CATEGORIES.CB, ["Build-up circulation", "Ball security", "Line-breaking distribution",

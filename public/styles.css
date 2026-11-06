@@ -645,6 +645,9 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
   letter-spacing: .07em; text-transform: uppercase; }
 .kpi-kind span { font-size: 11.5px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--muted); }
 .kpi-foot { margin: 10px 0 0; font-size: 11.5px; color: var(--muted); }
+/* Defending overall: the headline of its section. */
+.kpi-headline > details > summary .kpi-name { font-weight: 700; }
+.kpi-headline { border-bottom: 1px solid var(--line-2); }
 @media (max-width: 680px) {
   .kpi-axis, .kpi-list summary { grid-template-columns: minmax(0, 1fr) 96px 30px 12px; gap: 8px; }
   .kpi-name { white-space: normal; }
