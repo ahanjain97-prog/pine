@@ -3522,50 +3522,58 @@ const RV_STATUS = { added_sb: ["On the Short Board", "pass"], not_sb: ["Not for 
   declined: ["Declined", "hold"], removed: ["Withdrawn", ""] };
 
 function reviewPlayerHead(p) {
-  const tags = [p.roles.some((r) => r.shortlist) ? `<span class="rv-tag sb">SB</span>` : p.roles.length ? `<span class="rv-tag">BB</span>` : ""].join("");
-  return `<div class="rv-head">${photo(p)}<div class="rv-who"><a href="#/player/${p.id}">${nameWithMark(p)}</a>
+  const sb = p.roles.some((r) => r.shortlist);
+  return `<div class="rv-player">${photo(p)}<div class="rv-who"><a href="#/player/${p.id}">${nameWithMark(p)}</a>
     <div class="csub">${esc([p.position, p.club, p.age != null ? `${p.age}` : null].filter(Boolean).join(" · "))}</div></div>
-    <div class="rv-tags">${tags}${verdictDots(p.verdicts)}</div></div>`;
+    ${sb ? `<span class="rv-tag sb" title="On the Short Board">SB</span>` : p.roles.length ? `<span class="rv-tag" title="On the Big Board">BB</span>` : ""}</div>`;
 }
 
+const rvWhen = (s) => `<span title="${esc(fmtDateTime(s))}">${esc(relTime(s))}</span>`;
+
+// One row per item: the player, where it came from and the latest note, the actions; the note thread folds open.
 function reviewCard(item, actions) {
   const p = S.byId.get(item.player_id);
   if (!p) return "";
-  const [label, tone] = item.status !== "open" ? RV_STATUS[item.status] || [item.status, ""] : [];
-  const route = item.kind === "sb_review" ? `Sent by ${esc(item.from_name)} for a Short Board decision`
-    : item.kind === "assignment" ? `${esc(item.from_name)} asked ${esc(item.to_name)} to review`
-    : "On your watch list";
-  return `<article class="rv-card ${item.status !== "open" ? "settled" : ""}" data-item="${item.id}" data-player="${p.id}">
+  const settled = item.status !== "open";
+  const [label, tone] = settled ? RV_STATUS[item.status] || [item.status, ""] : [];
+  const route = item.kind === "sb_review" ? `From ${esc(item.from_name)}` : item.kind === "assignment"
+    ? (item.to_user === S.me.id ? `From ${esc(item.from_name)}` : `To ${esc(item.to_name)}`) : "Watching";
+  const last = item.notes.at(-1);
+  return `<article class="rv-row ${settled ? "settled" : ""}" data-item="${item.id}" data-player="${p.id}">
     ${reviewPlayerHead(p)}
-    <div class="rv-meta"><span>${route} · <span title="${esc(fmtDateTime(item.created_at))}">${esc(relTime(item.created_at))}</span></span>
-      ${label ? `<span class="dchip ${tone ? "v-" + tone : ""}">${esc(label)}</span><span class="muted sm">${esc(item.resolved_by_name || "")} · ${esc(relTime(item.resolved_at))}</span>` : ""}</div>
-    ${item.notes.length ? `<ol class="rv-notes">${item.notes.map((n) => `<li><b>${esc(n.user_name)}</b> ${esc(n.body)}<span class="when" title="${esc(fmtDateTime(n.created_at))}">${esc(relTime(n.created_at))}</span></li>`).join("")}</ol>` : ""}
-    ${item.status === "open" ? `<form class="rv-note-form"><input name="body" maxlength="4000" placeholder="Add a note…" aria-label="Add a note"><button class="btn sm ghost" type="submit">Add note</button></form>
-      <div class="rv-actions">${actions}</div>` : ""}
+    <div class="rv-info">
+      <div class="rv-route">${route} · ${rvWhen(item.created_at)}${settled ? ` <span class="dchip ${tone ? "v-" + tone : ""}">${esc(label)}</span>
+        <span class="muted">${esc(item.resolved_by_name || "")} · ${rvWhen(item.resolved_at)}</span>` : ""}</div>
+      ${last ? `<div class="rv-last"><b>${esc(last.user_name)}:</b> ${esc(last.body)}</div>` : `<div class="rv-last muted">No notes</div>`}
+    </div>
+    <div class="rv-actions">${settled ? "" : actions}${verdictDots(p.verdicts)}</div>
+    <details class="rv-thread"><summary>${item.notes.length ? `${item.notes.length} note${item.notes.length === 1 ? "" : "s"}` : "Add a note"}</summary>
+      ${item.notes.length ? `<ol class="rv-notes">${item.notes.map((n) => `<li><b>${esc(n.user_name)}</b> ${esc(n.body)}<span class="when">${rvWhen(n.created_at)}</span></li>`).join("")}</ol>` : ""}
+      ${settled ? "" : `<form class="rv-note-form"><input name="body" maxlength="4000" placeholder="Add a note…" aria-label="Add a note"><button class="btn sm" type="submit">Add</button></form>`}
+    </details>
   </article>`;
 }
 
-// Suggested (both scouts passed): a player card with a Send button, before anything has been created.
+// Suggested (both scouts passed): a row with a Send button, before anything has been created.
 function reviewSuggestion(p) {
-  return `<article class="rv-card" data-player="${p.id}">${reviewPlayerHead(p)}
-    <div class="rv-meta"><span>${reviewScouts().map((s) => esc(s.name)).join(" and ")} both passed</span></div>
-    <div class="rv-actions"><button type="button" class="btn sm primary" data-rv-send>Send to ${esc(reviewLead()?.name || "the lead")}</button></div></article>`;
+  return `<article class="rv-row" data-player="${p.id}">${reviewPlayerHead(p)}
+    <div class="rv-info"><div class="rv-route">${reviewScouts().map((s) => esc(s.name)).join(" and ")} both passed</div></div>
+    <div class="rv-actions"><button type="button" class="btn sm primary" data-rv-send>Send to ${esc(reviewLead()?.name || "the lead")}</button>${verdictDots(p.verdicts)}</div></article>`;
 }
-
-const rvSection = (title, sub, body, empty, { id = "", open = true } = {}) => `<section class="panel rv-section" ${id ? `id="${id}"` : ""}>
-  <details ${open ? "open" : ""}><summary class="panel-h"><h2>${esc(title)}</h2>${sub ? `<span class="muted sm">${esc(sub)}</span>` : ""}</summary>
-  ${body || `<p class="empty">${esc(empty)}</p>`}</details></section>`;
 
 function reviewAddForm(role) {
+  const lead = reviewLead()?.name || "the lead";
   return `<form class="rv-add" id="rv-add" autocomplete="off">
-    <div class="rv-add-row"><div class="rv-find"><input id="rv-q" data-keep placeholder="Search PINE, or paste a Transfermarkt link" aria-label="Player">
+    <div class="rv-find"><input id="rv-q" data-keep placeholder="Search PINE or paste a Transfermarkt link" aria-label="Player">
       <div class="gs-res" id="rv-res" hidden></div></div>
-      <input id="rv-note" placeholder="Why? (optional)" maxlength="4000" aria-label="Note"></div>
-    <div class="rv-add-row"><button class="btn sm" type="submit" data-rv-target="watch">Add to my watch list</button>
-      ${role === "scout" ? `<button class="btn sm primary" type="submit" data-rv-target="sb_review">Send to ${esc(reviewLead()?.name || "the lead")}</button>` : ""}
-      ${role === "lead" ? reviewScouts().map((s) => `<button class="btn sm primary" type="submit" data-rv-target="assignment" data-to="${s.id}">Assign to ${esc(s.name)}</button>`).join("") : ""}
-      <span class="muted sm" id="rv-picked"></span></div></form>`;
+    <input id="rv-note" placeholder="Why? (optional)" maxlength="4000" aria-label="Note">
+    <div class="rv-add-btns"><button class="btn" type="submit" data-rv-target="watch">Watch</button>
+      ${role === "scout" ? `<button class="btn primary" type="submit" data-rv-target="sb_review">Send to ${esc(lead)}</button>` : ""}
+      ${role === "lead" ? reviewScouts().map((s) => `<button class="btn primary" type="submit" data-rv-target="assignment" data-to="${s.id}">Assign to ${esc(s.name)}</button>`).join("") : ""}</div>
+  </form>`;
 }
+
+S.review = { tab: null };
 
 async function renderReview(main) {
   const role = reviewRole();
@@ -3573,45 +3581,59 @@ async function renderReview(main) {
   if (!role) { main.innerHTML = `<div class="page"><p class="empty">The Review tab is for the review team (set on the Staff page).</p></div>`; return; }
   if (!main.querySelector(".rv-page")) main.innerHTML = `<div class="page"><div class="loading">Loading…</div></div>`;
   const d = await api("GET", "/api/review");
-  const lead = reviewLead(), mine = (i) => i.kind === "watch";
+  const lead = reviewLead(), leadName = lead?.name || "the lead";
   const open = (i) => i.status === "open";
-  const sb = d.items.filter((i) => i.kind === "sb_review"), asg = d.items.filter((i) => i.kind === "assignment"), watch = d.items.filter(mine);
-  const cards = (list, actions) => list.map((i) => reviewCard(i, actions(i))).join("");
-  const watchActions = (i) => [
+  const sb = d.items.filter((i) => i.kind === "sb_review"), asg = d.items.filter((i) => i.kind === "assignment");
+  const watch = d.items.filter((i) => i.kind === "watch" && open(i));
+  const rows = (list, actions) => list.map((i) => reviewCard(i, actions(i))).join("");
+  const watchActions = () => [
     ...(role === "lead" ? reviewScouts().map((s) => `<button type="button" class="btn sm" data-rv-assign="${s.id}">Assign to ${esc(s.name)}</button>`) : []),
-    role === "scout" ? `<button type="button" class="btn sm" data-rv-send>Send to ${esc(lead?.name || "the lead")}</button>` : "",
-    `<button type="button" class="btn sm ghost" data-rv-resolve="removed">Remove</button>`].join("");
-  let sections;
+    role === "scout" ? `<button type="button" class="btn sm" data-rv-send>Send to ${esc(leadName)}</button>` : "",
+    `<button type="button" class="btn sm ghost" data-rv-resolve="removed" title="Remove from your watch list">Remove</button>`].join("");
+  const history = d.items.filter((i) => !open(i) && i.kind !== "watch");
+  let tabs;
   if (role === "lead") {
-    sections = [
-      rvSection("Short Board decisions", "Players the scouts sent up", cards(sb.filter(open), () =>
-        `<button type="button" class="btn sm primary" data-rv-add-sb>Add to Short Board</button><button type="button" class="btn sm" data-rv-resolve="not_sb">Not for now</button>`),
-        "Nothing waiting for a decision."),
-      rvSection("Your watch list", "Players to follow up on: private to you", reviewAddForm(role) + cards(watch.filter(open), watchActions), "", { id: "rv-watch" }),
-      rvSection("Assigned to scouts", "Open, and settled in the last 30 days", cards(asg, () => `<button type="button" class="btn sm ghost" data-rv-resolve="removed">Withdraw</button>`),
-        "No assignments out."),
-      rvSection("Decided in the last 30 days", "", cards(sb.filter((i) => !open(i)), () => ""), "Nothing decided yet.", { open: false }),
+    tabs = [
+      { id: "decide", label: "Decisions", list: sb.filter(open), urgent: true, empty: "Nothing waiting for a decision.",
+        html: (l) => rows(l, () => `<button type="button" class="btn sm primary" data-rv-add-sb>Add to Short Board</button><button type="button" class="btn sm" data-rv-resolve="not_sb">Not for now</button>`) },
+      { id: "watch", label: "Watch list", list: watch, empty: "Your watch list is empty. Add players with the bar above.", html: (l) => rows(l, watchActions) },
+      { id: "assigned", label: "Assigned out", list: asg.filter(open), empty: "No reviews out with the scouts.",
+        html: (l) => rows(l, () => `<button type="button" class="btn sm ghost" data-rv-resolve="removed">Withdraw</button>`) },
+      { id: "history", label: "History", list: history, empty: "Nothing settled in the last 30 days.", html: (l) => rows(l, () => "") },
     ];
   } else {
     const sent = new Set(sb.map((i) => i.player_id));
-    const suggestions = d.suggestions.filter((id) => !sent.has(id)).map((id) => S.byId.get(id)).filter(Boolean);
-    sections = [
-      rvSection("Assigned to you", lead ? `From ${lead.name}` : "", cards(asg.filter(open), () =>
-        `<button type="button" class="btn sm primary" data-rv-review>Review</button><button type="button" class="btn sm" data-rv-resolve="declined">Decline</button>`),
-        "Nothing assigned to you."),
-      rvSection(`Ready for ${lead?.name || "the lead"}`, `${reviewScouts().map((s) => s.name).join(" and ")} both passed, not sent up yet`,
-        suggestions.map(reviewSuggestion).join(""), "No players you've both passed are waiting."),
-      rvSection(`Sent to ${lead?.name || "the lead"}`, "Waiting, and decided in the last 30 days", cards(sb, () => ""), "Nothing sent up."),
-      rvSection("Your watch list", "Players to follow up on: private to you", reviewAddForm(role) + cards(watch.filter(open), watchActions), "", { id: "rv-watch" }),
-      rvSection("Your past assignments", "Settled in the last 30 days", cards(asg.filter((i) => !open(i)), () => ""), "None yet.", { open: false }),
+    const ready = d.suggestions.filter((id) => !sent.has(id)).map((id) => S.byId.get(id)).filter(Boolean);
+    tabs = [
+      { id: "assigned", label: "Assigned to you", list: asg.filter((i) => open(i) && i.to_user === S.me.id), urgent: true, empty: `Nothing from ${leadName} to review.`,
+        html: (l) => rows(l, () => `<button type="button" class="btn sm primary" data-rv-review>Review</button><button type="button" class="btn sm" data-rv-resolve="declined">Decline</button>`) },
+      { id: "ready", label: `Ready for ${leadName}`, list: ready, empty: `No players ${reviewScouts().map((x) => x.name).join(" and ")} have both passed are waiting.`,
+        html: (l) => l.map(reviewSuggestion).join("") },
+      { id: "sent", label: `Sent to ${leadName}`, list: sb.filter(open), empty: `Nothing waiting with ${leadName}.`, html: (l) => rows(l, () => "") },
+      { id: "watch", label: "Watch list", list: watch, empty: "Your watch list is empty. Add players with the bar above.", html: (l) => rows(l, watchActions) },
+      { id: "history", label: "History", list: history, empty: "Nothing settled in the last 30 days.", html: (l) => rows(l, () => "") },
     ];
   }
-  main.innerHTML = `<div class="page rv-page"><div class="page-h"><h1>Review</h1><span class="muted">${role === "lead"
-    ? "Decide what the scouts send up, assign reviews, and keep your watch list"
-    : `Players ${esc(lead?.name || "the lead")} assigned you, players to send up, and your watch list`}</span></div>
-    <div class="rv-grid">${sections.join("")}</div></div>`;
-  setReviewBadge(role === "lead" ? sb.filter(open).length : asg.filter((i) => open(i) && i.to_user === S.me.id).length);
-  wireReview(main.querySelector(".rv-page"), d);
+  // Stay on the chosen tab; otherwise open on whatever is waiting on you, else the first tab with anything in it.
+  const tab = tabs.find((t) => t.id === S.review.tab) || tabs.find((t) => t.urgent && t.list.length) || tabs.find((t) => t.list.length) || tabs[0];
+  S.review.tab = tab.id;
+  main.innerHTML = `<div class="page rv-page">
+    <div class="page-h"><h1>Review</h1><span class="muted">${role === "lead"
+      ? "Decide what the scouts send up, assign reviews, and keep your watch list"
+      : `What ${esc(leadName)} assigned you, players to send up, and your watch list`}</span></div>
+    <section class="panel rv-bar">${reviewAddForm(role)}</section>
+    <div class="rv-tabs" role="tablist">${tabs.map((t) => `<button type="button" role="tab" data-rv-tab="${t.id}" aria-selected="${t === tab}" class="${t === tab ? "on" : ""}">
+      ${esc(t.label)}${t.id !== "history" && t.list.length ? `<span class="rv-count ${t.urgent ? "urgent" : ""}">${t.list.length}</span>` : ""}</button>`).join("")}</div>
+    <section class="panel rv-list" role="tabpanel">${tab.list.length ? tab.html(tab.list) : `<p class="rv-empty">${esc(tab.empty)}</p>`}</section>
+  </div>`;
+  const waiting = tabs.find((t) => t.urgent)?.list.length || 0;
+  setReviewBadge(waiting);
+  const root = main.querySelector(".rv-page");
+  root.querySelector(".rv-tabs").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-rv-tab]");
+    if (b && b.dataset.rvTab !== S.review.tab) { S.review.tab = b.dataset.rvTab; renderReview(main); }
+  });
+  wireReview(root, d);
 }
 
 // One small dialog for every review action: an optional extra field (role, scout, verdict) and a note.
@@ -3707,6 +3729,7 @@ function wireReview(root, d) {
         if (!player) { toast("Pick a player from the search, or paste a Transfermarkt link"); return; }
         await reviewCreate(kind, player.id, { note: $("#rv-note", form).value.trim() || undefined, ...(btn?.dataset.to ? { to_user: Number(btn.dataset.to) } : {}) });
         inp.value = ""; $("#rv-note", form).value = "";
+        S.review.tab = { watch: "watch", sb_review: "sent", assignment: "assigned" }[kind]; // show where it went
         await afterMutation();
       } catch (err) { oops(err); } finally { if (btn) btn.disabled = false; }
     });
@@ -3723,7 +3746,7 @@ function wireReview(root, d) {
 
   root.addEventListener("click", async (e) => {
     const t = e.target.closest("button");
-    const card = t?.closest(".rv-card");
+    const card = t?.closest(".rv-row");
     if (!card) return;
     const p = S.byId.get(Number(card.dataset.player)), itemId = card.dataset.item;
     const resolve = (body) => api("POST", `/api/review/items/${itemId}/resolve`, body);
