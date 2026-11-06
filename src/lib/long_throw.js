@@ -3,7 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { tokenMatches } from "../auth.js";
 import { logActivity } from "../db.js";
 
-export const LONG_THROW_RULE = "long-throw-v1";
+export const LONG_THROW_RULE = "long-throw-v2";
 export const hasLongThrow = (p) => p.long_throw_override == null ? Boolean(p.long_throw_detected) : Boolean(p.long_throw_override);
 export function longThrowOverride(value) {
   if (value === null) return null;
@@ -27,20 +27,24 @@ export function saveLongThrows(db, input, now = new Date()) {
   }
   if (!input.matches && ids.size) bad("Positive flags require processed matches");
   return db.tx(() => {
-    const previous = db.get("SELECT generated_at FROM long_throw_sync WHERE id = 1");
+    const previous = db.get("SELECT generated_at, matches FROM long_throw_sync WHERE id = 1");
     if (previous && Date.parse(previous.generated_at) > at) bad("An older sync cannot replace the current one");
-    let added = 0;
+    if (previous && input.matches < previous.matches) bad("A sync cannot discard cached match coverage");
+    let added = 0, removed = 0;
+    for (const { impect_id } of db.all("SELECT impect_id FROM long_throw_players")) {
+      if (!ids.has(impect_id)) removed += Number(db.run("DELETE FROM long_throw_players WHERE impect_id = ?", impect_id).changes);
+    }
     for (const id of ids) added += Number(db.run("INSERT OR IGNORE INTO long_throw_players(impect_id) VALUES (?)", id).changes);
-    db.run(`INSERT OR REPLACE INTO long_throw_sync(id, generated_at, matches, pending_matches) VALUES (1,?,?,?)`,
-      new Date(at).toISOString(), input.matches, input.pending_matches);
+    db.run(`INSERT OR REPLACE INTO long_throw_sync(id, generated_at, matches, pending_matches, rule_version) VALUES (1,?,?,?,?)`,
+      new Date(at).toISOString(), input.matches, input.pending_matches, LONG_THROW_RULE);
     // Wake open boards only when a flag changes; metadata-only syncs don't interrupt staff.
-    if (added) logActivity(db, null, null, "synced_long_throws", { added });
-    return { added, players: db.get("SELECT count(*) AS n FROM long_throw_players").n };
+    if (added || removed) logActivity(db, null, null, "synced_long_throws", { added, removed });
+    return { added, removed, players: ids.size };
   });
 }
 
 export function longThrowSyncStatus(db, now = new Date()) {
-  const run = db.get("SELECT generated_at, matches, pending_matches FROM long_throw_sync WHERE id = 1");
+  const run = db.get("SELECT generated_at, matches, pending_matches, rule_version FROM long_throw_sync WHERE id = 1");
   return run ? { ...run, stale: +now - Date.parse(run.generated_at) > 48 * 3600000 } : null;
 }
 

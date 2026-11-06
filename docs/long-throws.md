@@ -6,14 +6,17 @@ Edit details → **Long throw** offers **Auto / Yes / No**, beside roster status
 
 ## Detection rule
 
-`long-throw-v1` requires one `THROW_IN`, successful or otherwise:
+`long-throw-v2` uses the September Hearts audit's event definition:
 
-- At least 25 m of standardized ground displacement, forward in attacking coordinates, from a touchline into the opponent's penalty area.
-- Provider type `THROW_IN_CROSS`, `THROW_IN_HIGH_BALL` or `THROW_IN_INTO_HIGH_BALL` and endpoint tag `OPPONENT_BOX`.
-- Finite coordinates on the standard 105 × 68 m pitch; start within 0.5 m of either touchline; endpoint X 36–52.5 and |Y| ≤20.16; identified thrower and team.
-- Duration >0.001 s and distance ≤60 m. Missing coordinates, placeholder durations and implausible events do not establish capability.
+- `THROW_IN`, successful or otherwise, forward in attacking coordinates from a touchline into the opponent's penalty area. There is **no distance minimum** or subtype requirement.
+- Finite coordinates on the standard 105 × 68 m pitch; start X −52.5–52.5 and within 0.5 m of either touchline; endpoint X 36–52.5 and |Y| ≤20.16; provider endpoint tag `OPPONENT_BOX`; identified thrower and team.
+- Duration >0.001 s and distance ≤60 m. Missing coordinates, placeholder durations and extreme distances are withheld, as in the audit.
 
-This combines the April Hearts report's 25 m threshold with the September audit's stricter forward-to-box geometry and quality checks. It deliberately excludes short near-side box entries and long throws down the line. It measures demonstrated capability, not effectiveness or repeatability. One valid example is enough. Source: `hearts-of-pine/reports/scouting/long-throws/README.md`, `analyse.py`, and the set-piece driver's long-throw type list.
+**Automatic Yes requires at least 20 qualifying throws across covered matches.** The September report already marks fewer than 20 as a small sample. PINE reuses that sample threshold as a conservative automatic-flag policy; the report used it to caution about statistical reliability, not as a validated capability test. No xG or effectiveness criterion enters the flag.
+
+A rare thrower can still be capable. Staff should set **Yes** manually when they know the player has the ability; Auto: No only means the automatic evidence threshold has not been met. The UI remains a binary flag with no counts or analysis. Manual Yes and No always take precedence.
+
+Source: `hearts-of-pine/reports/scouting/long-throws/README.md` (Exact event definition and Attributed xG sample warning) and `analyse.py` (`classify`, `summarise`). Version 1 mixed the older April 25 m threshold with the September geometry and accepted a single event. Version 2 restores the September event definition and applies the conservative sample gate. It does not introduce a new distance cutoff. Ground displacement is not independently measured flight or first-contact distance.
 
 ## Nightly update
 
@@ -24,7 +27,7 @@ flowchart TD
   C -->|Yes, unchanged| D[Reuse local throw-only SQLite cache]
   C -->|New or corrected| E[Fetch events in batches; checkpoint each match]
   E --> D
-  D --> F[One qualifying throw → capable]
+  D --> F[20+ audit-qualifying throws → automatic Yes]
   F --> G[Authenticated sync: positive player IDs only]
   G --> H[PINE SQLite lookup]
   H --> I{Staff override?}
@@ -42,13 +45,15 @@ Every online run refreshes the six baseline league-season match lists (a shared 
 
 Empty/omitted event responses and unavailable games remain pending. Provider failures preserve completed local checkpoints and prevent a misleading successful server-sync timestamp. Successful partial coverage reports pending matches in Impect → Impect data in PINE. The same panel marks a sync overdue after 48 hours. Refresh all now refreshes PINE's KPI cache; it does not launch this separate worker.
 
-Positive capability is retained across inactivity, partial snapshots and provider corrections. Staff can force No if an apparent example proves incorrect. A rule change requires coordinated worker/server versioning and a cache migration; it must not silently reinterpret existing flags.
+Every run rebuilds the detected IDs from **all retained cached matches** under the current rule, then uploads the complete derived lookup. Inactivity or unavailable matches do not remove their cached evidence. Corrected events and stricter rules can remove a detection; manual Yes and No are never changed. No historical event download is needed for reclassification.
+
+Worker and server must agree on the rule version. The server atomically replaces the detected lookup and records that version with the sync metadata. It rejects older timestamps, old-rule uploads and reduced cached-match coverage (for example, an accidentally empty cache). A failed upload leaves the last successful lookup intact. Removal-only updates also notify open boards.
 
 Adding or linking a player only queries PINE's indexed Impect-ID lookup. It does not fetch events. The flag tables, overrides and last-sync metadata are included in existing PINE database backups. All raw evidence stays on the analysis host; no player names, staff notes, board state or match-level analysis enter the sync payload.
 
-## Rollout after merging this PR
+## Rollout
 
-Both the web deploy and the analysis-host job are needed. Nothing in this PR automatically starts a production job or writes production flags before review.
+Both the web deploy and the analysis-host job are needed. For the v2 upgrade, deploy the server and update the existing analysis-host checkout, then run the existing sync job. It reclassifies the retained evidence and atomically replaces the old detected flags. The installed schedule and manual overrides remain in place. The steps below also cover a new installation.
 
 1. Deploy the web change normally. Update the Pine checkout on the analysis host. Use the existing Hearts virtualenv and a private env file containing `PINE_URL` (HTTPS) and the existing `PINE_WORKER_TOKEN`. Impect credentials remain in Hearts' existing environment. No new application dependency is needed.
 2. Seed and validate the private cache without provider access or uploads:
@@ -83,11 +88,11 @@ Both the web deploy and the analysis-host job are needed. Nothing in this PR aut
 
 5. Verify the sync timestamp in Impect → Impect data in PINE and compare the log's fetched/reused/pending counts on successive runs. Run now with `launchctl kickstart gui/$(id -u)/com.pine.long-throw-sync`. To stop the job, `launchctl bootout gui/$(id -u)/com.pine.long-throw-sync`; the last flags remain available.
 
-The upload route is `PUT /api/worker/long-throws`, protected by `X-PINE: 1` and the worker token. It validates rule version, IDs, timestamps and counts before atomically merging positives. Older snapshots cannot replace newer metadata; retries are idempotent. The worker refuses redirects, uses HTTPS outside localhost and never logs credentials.
+The upload route is `PUT /api/worker/long-throws`, protected by `X-PINE: 1` and the worker token. It validates rule version, IDs, timestamps and counts before atomically replacing the detected lookup. Older snapshots and reduced match coverage are rejected; retries are idempotent. The worker refuses redirects, uses HTTPS outside localhost and never logs credentials.
 
 ## Validation and visual examples
 
-Automated checks cover classification boundaries, a single failed example, both touchlines, disk reuse after reopening, incremental discovery, corrections, missing-data retry, provider failures, bounded batches, audit seeding, atomic rollback, authentication, migrations, manual No persistence, merges and the real HTTP hydration/board path. Run:
+Automated checks cover audit geometry and quality boundaries, the 19/20 throw threshold, failed throws, no double counting on cache reuse, old-rule reclassification without provider access, both touchlines, disk reuse after reopening, incremental discovery, corrections, missing-data retry, provider failures, bounded batches, audit seeding, atomic rollback, authentication, migrations, manual Yes/No persistence through detection removal, reduced-coverage protection, merges and the real HTTP hydration/board path. Run:
 
 ```bash
 npm run check

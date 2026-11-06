@@ -57,10 +57,17 @@ test('HTTP: sync → newly linked player → manual No → refresh → Auto → 
   await sync([101, 202]);
   assert.equal((await read()).has_long_throw, false);
   assert.equal((await update(null)).has_long_throw, true);
+  await sync([202]); // a stricter snapshot must remove an old detected badge
+  assert.equal((await read()).has_long_throw, false);
+  assert.equal((await update(true)).has_long_throw, true);
+  await sync([]);
+  assert.equal((await read()).has_long_throw, true); // manual Yes survives removal
+  await update(null);
+  await sync([101]);
   for (const v of ['yes', 'false', 0, 1, {}]) assert.equal((await request('/api/players/10001', { long_throw_override: v })).status, 400);
   const auditDb = openDb(file);
   assert.deepEqual(JSON.parse(auditDb.get("SELECT detail FROM activity WHERE action='edited_player' ORDER BY id DESC LIMIT 1").detail).long_throw,
-    { previous: 0, value: null });
+    { previous: 1, value: null });
   auditDb.raw.close();
   await update(false);
   await stop(); await start();

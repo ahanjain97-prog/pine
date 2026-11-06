@@ -8,6 +8,7 @@ transactional throw-only SQLite cache because get_events() does not cache events
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import csv
 import fcntl
 import gzip
@@ -22,9 +23,9 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-RULE = 'long-throw-v1'
+RULE = 'long-throw-v2'
+MIN_THROWS = 20
 ITERATIONS = {1248: 2025, 1236: 2025, 1253: 2025, 1916: 2026, 1918: 2026, 1870: 2026}
-TYPES = {'THROW_IN_CROSS', 'THROW_IN_HIGH_BALL', 'THROW_IN_INTO_HIGH_BALL'}
 FIELDS = ['action', 'playerId', 'squadId', 'startAdjCoordinatesX', 'startAdjCoordinatesY',
           'endAdjCoordinatesX', 'endAdjCoordinatesY', 'endPitchPosition',
           'setPieceSubPhaseThrowInType', 'duration']
@@ -34,9 +35,9 @@ def timestamp(value):
     return datetime.fromisoformat(str(value).replace('Z', '+00:00')).astimezone(timezone.utc)
 
 
-def positive_id(row):
-    """A single valid delivery proves capability, regardless of outcome/frequency."""
-    if row.get('action') != 'THROW_IN' or row.get('endPitchPosition') != 'OPPONENT_BOX' or row.get('setPieceSubPhaseThrowInType') not in TYPES:
+def qualifying_id(row):
+    """September Hearts audit event definition; outcome and distance minimum excluded."""
+    if row.get('action') != 'THROW_IN' or row.get('endPitchPosition') != 'OPPONENT_BOX':
         return None
     try:
         sx, sy, ex, ey = [float(row[k]) for k in FIELDS[3:7]]
@@ -49,11 +50,26 @@ def positive_id(row):
         distance = math.hypot(ex - sx, ey - sy)
         if (-52.5 <= sx <= 52.5 and abs(sy) <= 34.5 and abs(abs(sy) - 34) <= .5
                 and ex > sx and 36 <= ex <= 52.5 and abs(ey) <= 20.16
-                and 25 <= distance <= 60 and duration > .001):
+                and distance <= 60 and duration > .001):
             return int(player)
     except (KeyError, TypeError, ValueError, OverflowError):
         pass
     return None
+
+
+def rebuild_positives(db):
+    # Evidence, not the old positive-ID table, is the source of truth. Recompute
+    # atomically so stricter rules and corrected events can remove false flags.
+    with db:
+        counts = Counter()
+        for (payload,) in db.execute('SELECT throws FROM matches'):
+            for row in json.loads(payload):
+                pid = qualifying_id(row)
+                if pid:
+                    counts[pid] += 1
+        db.execute('DELETE FROM positives')
+        db.executemany('INSERT INTO positives VALUES (?)',
+                       [(pid,) for pid, count in counts.items() if count >= MIN_THROWS])
 
 
 def open_cache(path):
@@ -79,10 +95,6 @@ def store_match(db, iteration, match_id, rows, at, revision=''):
                 r[k] = None
     db.execute('INSERT OR REPLACE INTO matches VALUES (?,?,?,?,?)',
                (iteration, match_id, at.isoformat(), revision, json.dumps(throws, allow_nan=False)))
-    for r in throws:
-        pid = positive_id(r)
-        if pid:
-            db.execute('INSERT OR IGNORE INTO positives VALUES (?)', (pid,))
 
 
 def bootstrap_audit(db, directory):
@@ -107,6 +119,7 @@ def bootstrap_audit(db, directory):
                 store_match(db, int(it['iteration']), mid, grouped.get((int(it['iteration']), mid), []),
                             observed, registered.get(mid, {}).get('lastCalculationDate', ''))
                 added += 1
+    rebuild_positives(db)
     return added
 
 
@@ -187,13 +200,8 @@ def sync(db, provider, iterations, *, cache_only=False, max_matches=150, now=Non
                 errors.append(f'Event batch: {type(e).__name__}')
             if pause:
                 time.sleep(pause)
-    # Re-run the classifier over cached throws too (e.g. interrupted bootstrap).
-    with db:
-        for (payload,) in db.execute('SELECT throws FROM matches'):
-            for row in json.loads(payload):
-                pid = positive_id(row)
-                if pid:
-                    db.execute('INSERT OR IGNORE INTO positives VALUES (?)', (pid,))
+    # Reuse every cached match, including during partial upstream availability.
+    rebuild_positives(db)
     snapshot = dict(schema_version=1, rule_version=RULE, generated_at=now.isoformat(),
                     players=[r[0] for r in db.execute('SELECT player_id FROM positives ORDER BY player_id')],
                     matches=db.execute('SELECT count(*) FROM matches').fetchone()[0], pending_matches=len(pending))
