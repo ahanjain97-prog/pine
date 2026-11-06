@@ -43,6 +43,7 @@ import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
 import { connectedDuplicate, connectionMergeProblem, mergeConnection, resolvePlayerId } from "./lib/player_connections.js";
 import { registerSigning } from "./lib/signing.js";
 import { addBoardRole, boardHistory, BOARD_SOURCES, BOARD_EXIT_REASONS, recordBoardReason, registerBoardMoves, validateBoardReason } from "./lib/board_reasons.js";
+import { registerReviewQueue, reviewCount, reviewTeam } from "./lib/review_queue.js";
 import { boardLastReviews, registerReview, REVIEW_AFTER_DAYS } from "./lib/review.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -398,7 +399,8 @@ app.get("/api/config", (c) =>
     roles: ROLES,
     decisions: DECISIONS,
     college: { grades: GRADE_SCALE, classes: CLASSES, sources: REPORT_SOURCES },
-    staff: db.all("SELECT id, name, in_evals FROM users ORDER BY sort, id"),
+    staff: db.all("SELECT id, name, in_evals, review_role FROM users ORDER BY sort, id"),
+    review_team: reviewTeam(db),
     me: c.get("user"),
     auth: AUTH_OFF ? "off" : "email",
     impect: impectConfigured(),
@@ -406,7 +408,8 @@ app.get("/api/config", (c) =>
     board_reasons: { sources: BOARD_SOURCES, exit_reasons: BOARD_EXIT_REASONS },
   })
 );
-app.get("/api/changes", (c) => c.json({ version: db.get("SELECT coalesce(max(id), 0) AS v FROM activity").v }));
+app.get("/api/changes", (c) => c.json({ version: db.get("SELECT coalesce(max(id), 0) AS v FROM activity").v,
+  review_open: reviewCount(db, c.get("user")) }));
 
 /* ---------- players ---------- */
 app.get("/api/players", (c) => {
@@ -811,6 +814,7 @@ db.run("UPDATE activity SET hidden = 1 WHERE id IN (2626, 2627, 2628) AND action
 
 /* ---------- board ---------- */
 registerBoardMoves(app, { db, getPlayer });
+registerReviewQueue(app, { db });
 
 /* ---------- physical data ---------- */
 app.get("/api/players/:id/physical", async (c) => {
@@ -1227,7 +1231,7 @@ app.post("/api/worker/maps/:id/fail", async (c) => {
 app.get("/api/users", (c) => {
   const user = c.get("user");
   const cols = user.is_admin
-    ? `id, name, email, is_admin, in_evals, password_hash IS NOT NULL AS has_password,
+    ? `id, name, email, is_admin, in_evals, review_role, password_hash IS NOT NULL AS has_password,
        (SELECT max(expires_at) FROM setup_links l WHERE l.user_id = users.id AND l.expires_at > ${Date.now()}) AS link_expires_at`
     : "id, name, is_admin";
   return c.json({ users: db.all(`SELECT ${cols} FROM users ORDER BY sort, id`) });
@@ -1248,13 +1252,17 @@ app.patch("/api/users/:id", async (c) => {
   const user = c.get("user");
   if (!user.is_admin) fail(403, "Only admins can manage staff");
   const target = db.get("SELECT * FROM users WHERE id = ?", Number(c.req.param("id"))) || fail(404, "User not found");
-  const { email, is_admin, in_evals } = await c.req.json();
+  const { email, is_admin, in_evals, review_role } = await c.req.json();
   const e = email === undefined ? target.email : String(email || "").trim() || null;
+  const rr = review_role === undefined ? target.review_role : review_role || null;
+  if (rr != null && !["lead", "scout"].includes(rr)) fail(400, "Review role must be lead, scout or none");
+  if (rr === "lead" && db.get("SELECT name FROM users WHERE review_role = 'lead' AND id <> ?", target.id))
+    fail(409, `${db.get("SELECT name FROM users WHERE review_role = 'lead' AND id <> ?", target.id).name} is already the review lead`);
   if (e && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) fail(400, "That email doesn't look right");
   if (target.id === user.id && is_admin === false) fail(400, "You can't remove your own admin access");
   try {
-    db.run("UPDATE users SET email = ?, is_admin = ?, in_evals = ? WHERE id = ?", e, is_admin === undefined ? target.is_admin : is_admin ? 1 : 0,
-      in_evals === undefined ? target.in_evals : in_evals ? 1 : 0, target.id);
+    db.run("UPDATE users SET email = ?, is_admin = ?, in_evals = ?, review_role = ? WHERE id = ?", e, is_admin === undefined ? target.is_admin : is_admin ? 1 : 0,
+      in_evals === undefined ? target.in_evals : in_evals ? 1 : 0, rr, target.id);
   } catch { fail(409, "Another staff member already uses that email"); }
   logActivity(db, user.id, null, "edited_staff", { name: target.name });
   return c.json({ ok: true });

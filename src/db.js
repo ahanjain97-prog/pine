@@ -213,6 +213,28 @@ CREATE TABLE IF NOT EXISTS board_reasons(
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS board_reasons_player ON board_reasons(player_id, created_at, id);
+-- The Review tab (src/lib/review_queue.js). watch: a member's own follow-up list. sb_review: a scout asks the lead
+-- whether a player goes on the Short Board. assignment: the lead asks a scout to review a player.
+CREATE TABLE IF NOT EXISTS review_items(
+  id INTEGER PRIMARY KEY,
+  player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('watch','sb_review','assignment')),
+  from_user INTEGER NOT NULL REFERENCES users(id),
+  to_user INTEGER REFERENCES users(id),
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','added_sb','not_sb','reviewed','declined','removed')),
+  resolved_by INTEGER REFERENCES users(id),
+  resolved_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS review_items_status ON review_items(status, kind, to_user);
+CREATE TABLE IF NOT EXISTS review_notes(
+  id INTEGER PRIMARY KEY,
+  item_id INTEGER NOT NULL REFERENCES review_items(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS review_notes_item ON review_notes(item_id, id);
 `;
 
 const STAFF = [
@@ -275,6 +297,10 @@ export function openDb(file) {
   if (!raw.prepare("PRAGMA table_info(users)").all().some((c) => c.name === "in_evals")) {
     raw.exec("ALTER TABLE users ADD COLUMN in_evals INTEGER NOT NULL DEFAULT 1");
   }
+  // Who is on the Review tab: 'lead' (decides the Short Board, assigns reviews) or 'scout'; NULL = no Review tab.
+  if (!raw.prepare("PRAGMA table_info(users)").all().some((c) => c.name === "review_role")) {
+    raw.exec("ALTER TABLE users ADD COLUMN review_role TEXT CHECK (review_role IN ('lead','scout'))");
+  }
   // Entries kept for the record but left out of the Activity feed and player histories.
   if (!raw.prepare("PRAGMA table_info(activity)").all().some((c) => c.name === "hidden")) {
     raw.exec("ALTER TABLE activity ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0");
@@ -316,6 +342,11 @@ export function openDb(file) {
     db.run("INSERT OR IGNORE INTO users(name, email, is_admin, sort) VALUES (?,?,?,?)",
       name, admin ? process.env.PINE_ADMIN_EMAIL || null : null, admin, i)
   );
+  // The Review tab's first team: Ray decides, Ahan and Ford scout. Admins change it on the Staff page.
+  db.once("review_team_2026_11", () => {
+    db.run("UPDATE users SET review_role = 'lead' WHERE name = 'Ray' AND review_role IS NULL");
+    db.run("UPDATE users SET review_role = 'scout' WHERE name IN ('Ahan', 'Ford') AND review_role IS NULL");
+  });
   return db;
 }
 
