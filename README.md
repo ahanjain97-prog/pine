@@ -332,6 +332,11 @@ syncs leave the signing status alone.
   - **Watch lists:** everyone on the team keeps a private watch list. Players can be added from a PINE search
     or a Transfermarkt link (new players are added to PINE first).
   - **Note thread:** every item keeps one.
+  - **Staff evaluations:** notes that report on the player are also saved as the author's evaluation note on the
+    player page, labelled with what they were (e.g. "Review: reviewed, Hold", "Review: asked Ahan and Ford to
+    review"). That covers the lead's note when assigning; a scout's note when reviewing, declining or sending a
+    player up; and the lead's Short Board decision. Thread replies and watch lists stay in the Review tab. The
+    copy is the author's to edit or delete; the thread keeps the original.
   - **Badge:** the nav badge counts what's waiting on you (the lead's open requests, a scout's open
     assignments).
   - **Player page:** has Watch / Send to Ray / Assign for review buttons.

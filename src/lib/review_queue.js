@@ -7,6 +7,9 @@
 //               (review_assignees); it settles once every scout has answered
 // Every item keeps a short note thread (why it was sent, replies). Players both scouts have passed, and that no one
 // has sent up yet, are suggested to the scouts.
+// Notes that report on the player also go in the author's Staff evaluation on the player page: the lead's note when
+// assigning, a scout's note when reviewing, declining or sending a player up, and the lead's Short Board decision.
+// Thread replies and watch lists stay in the Review tab.
 import { logActivity } from "../db.js";
 import { ROLES } from "../roles.js";
 import { addBoardRole, setBoardStar } from "./board_reasons.js";
@@ -53,7 +56,50 @@ function canSee(me, item) {
 const hideLast = (db) => db.run("UPDATE activity SET hidden = 1 WHERE id = last_insert_rowid()");
 
 function addNoteRow(db, itemId, userId, body) {
-  db.run("INSERT INTO review_notes(item_id, user_id, body) VALUES (?,?,?)", itemId, userId, body);
+  return Number(db.run("INSERT INTO review_notes(item_id, user_id, body) VALUES (?,?,?)", itemId, userId, body).lastInsertRowid);
+}
+
+// What the copied note was, shown as its context in the evaluation.
+function evalContext(action, { to, verdict, role } = {}) {
+  const r = role && ROLES[role];
+  return {
+    assignment: `Review: asked ${to || "the scouts"} to review`,
+    sb_review: `Review: sent to ${to || "the lead"} for the Short Board`,
+    reviewed: `Review: reviewed${verdict ? `, ${verdict[0].toUpperCase()}${verdict.slice(1)}` : ""}`,
+    declined: "Review: declined to review",
+    added_sb: `Review: put on the Short Board${r ? ` (${r.position} ${r.label})` : ""}`,
+    not_sb: "Review: not for the Short Board for now",
+  }[action];
+}
+
+// The evaluation copy of a Review note, unless the author already wrote the same note there (ignoring case, spacing
+// and punctuation: a report pasted into both, with a full stop added).
+const sameText = (t) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+function addEvalNote(db, { playerId, userId, reviewNoteId, body, context, at = null }) {
+  const key = sameText(body);
+  if (db.all("SELECT body FROM notes WHERE player_id = ? AND user_id = ?", playerId, userId).some((n) => sameText(n.body) === key)) return;
+  db.run(`INSERT OR IGNORE INTO notes(player_id, user_id, context, body, review_note_id, created_at, updated_at)
+    VALUES (?,?,?,?,?, coalesce(?, datetime('now')), coalesce(?, datetime('now')))`, playerId, userId, context, body, reviewNoteId, at, at);
+  db.run("UPDATE players SET updated_at = datetime('now') WHERE id = ?", playerId);
+}
+
+// Once, for notes written before evaluations got their copy. A scout's answer or the lead's decision is the note
+// its activity entry recorded (same author, player and text); the note explaining a request is its sender's first.
+export function copyReviewNotesToEvals(db) {
+  const rows = db.all(`SELECT n.id, n.user_id, n.body, n.created_at, i.id AS item_id, i.kind, i.player_id, i.to_user,
+      n.id = (SELECT min(m.id) FROM review_notes m WHERE m.item_id = i.id AND m.user_id = i.from_user) AS sender_first
+    FROM review_notes n JOIN review_items i ON i.id = n.item_id WHERE i.kind <> 'watch' ORDER BY n.id`);
+  const answers = db.all(`SELECT user_id, player_id, detail FROM activity
+    WHERE action = 'review_resolved' AND json_extract(detail, '$.note') IS NOT NULL`).map((a) => ({ ...a, d: JSON.parse(a.detail) }));
+  const nameOf = (id) => db.get("SELECT name FROM users WHERE id = ?", id)?.name;
+  for (const r of rows) {
+    const answer = answers.find((a) => a.user_id === r.user_id && a.player_id === r.player_id && a.d.kind === r.kind
+      && a.d.note === r.body && a.d.outcome !== "removed");
+    const context = answer ? evalContext(answer.d.outcome, answer.d)
+      : r.sender_first ? evalContext(r.kind, { to: r.kind === "assignment" ? assigneesOf(db, r.item_id).map((a) => a.name).join(" and ") : nameOf(r.to_user) })
+      : null;
+    if (context) addEvalNote(db, { playerId: r.player_id, userId: r.user_id, reviewNoteId: r.id, body: r.body, context, at: r.created_at });
+  }
 }
 
 export function createItem(db, user, input) {
@@ -86,7 +132,11 @@ export function createItem(db, user, input) {
     const id = Number(db.run("INSERT INTO review_items(player_id, kind, from_user, to_user) VALUES (?,?,?,?)",
       player.id, kind, me.id, to?.id ?? (scouts.length === 1 ? scouts[0].id : null)).lastInsertRowid);
     for (const sc of scouts) db.run("INSERT INTO review_assignees(item_id, user_id) VALUES (?,?)", id, sc.id);
-    if (note) addNoteRow(db, id, me.id, note);
+    if (note) {
+      const nid = addNoteRow(db, id, me.id, note);
+      if (kind !== "watch") addEvalNote(db, { playerId: player.id, userId: me.id, reviewNoteId: nid, body: note,
+        context: evalContext(kind, { to: to?.name ?? scouts.map((x) => x.name).join(" and ") }) });
+    }
     logActivity(db, me.id, player.id, `review_${kind}`, { to: to?.name ?? (scouts.map((x) => x.name).join(" and ") || null), note });
     if (kind === "watch") hideLast(db);
     return id;
@@ -142,7 +192,11 @@ export function resolveItem(db, user, itemId, input) {
     } else {
       db.run("UPDATE review_items SET status = ?, resolved_by = ?, resolved_at = datetime('now') WHERE id = ?", outcome, me.id, item.id);
     }
-    if (note) addNoteRow(db, item.id, me.id, note);
+    if (note) {
+      const nid = addNoteRow(db, item.id, me.id, note);
+      const context = outcome === "removed" ? null : evalContext(outcome, { verdict, role });
+      if (context) addEvalNote(db, { playerId: item.player_id, userId: me.id, reviewNoteId: nid, body: note, context });
+    }
     logActivity(db, me.id, item.player_id, "review_resolved", { kind: item.kind, outcome, role, verdict, note });
     if (item.kind === "watch") hideLast(db);
   });
@@ -180,6 +234,7 @@ export function reviewCount(db, user) {
 }
 
 export function registerReviewQueue(app, { db }) {
+  db.once("review_notes_to_evals_2026_11_08", () => copyReviewNotesToEvals(db));
   const actor = (c) => c.get("user") || fail(401, "Not signed in");
   app.get("/api/review", (c) => c.json(reviewBoard(db, actor(c))));
   app.post("/api/review/items", async (c) => {

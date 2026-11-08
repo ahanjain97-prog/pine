@@ -295,6 +295,11 @@ export function openDb(file) {
   if (!raw.prepare("PRAGMA table_info(board_entries)").all().some((c) => c.name === "shortlist")) {
     raw.exec("ALTER TABLE board_entries ADD COLUMN shortlist INTEGER NOT NULL DEFAULT 0");
   }
+  // An evaluation note copied from a Review note (src/lib/review_queue.js): the link keeps the copy from being made twice.
+  if (!raw.prepare("PRAGMA table_info(notes)").all().some((c) => c.name === "review_note_id")) {
+    raw.exec("ALTER TABLE notes ADD COLUMN review_note_id INTEGER REFERENCES review_notes(id) ON DELETE SET NULL");
+  }
+  raw.exec("CREATE UNIQUE INDEX IF NOT EXISTS notes_review_note ON notes(review_note_id) WHERE review_note_id IS NOT NULL");
   // A link survives role rewrites; the history itself never depends on a board entry existing.
   if (!raw.prepare("PRAGMA table_info(board_entries)").all().some((c) => c.name === "reason_id")) {
     raw.exec("ALTER TABLE board_entries ADD COLUMN reason_id INTEGER REFERENCES board_reasons(id)");

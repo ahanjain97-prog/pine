@@ -4,7 +4,7 @@ import { openDb } from '../src/db.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addNote, createItem, resolveItem, reviewBoard, reviewCount } from '../src/lib/review_queue.js';
+import { addNote, copyReviewNotesToEvals, createItem, resolveItem, reviewBoard, reviewCount } from '../src/lib/review_queue.js';
 
 // openDb seeds Ray (1, lead), Ahan (2, scout), Ford (3, scout), Bobby (4, not on the review team).
 const RAY = { id: 1 }, AHAN = { id: 2 }, FORD = { id: 3 }, BOBBY = { id: 4 };
@@ -124,6 +124,36 @@ test('players both scouts passed are suggested until someone sends them up, and 
   assert.deepEqual(reviewBoard(db, RAY).suggestions, [], 'suggestions are for the scouts');
   createItem(db, FORD, { kind: 'sb_review', player_id: 4 });
   assert.deepEqual(reviewBoard(db, AHAN).suggestions, []);
+});
+
+test('notes that report on a player go in the author\'s staff evaluation; replies and watch lists stay in Review', (t) => {
+  const db = setup(t);
+  const evals = () => db.all(`SELECT n.player_id AS p, u.name AS who, n.context, n.body FROM notes n JOIN users u ON u.id = n.user_id
+    ORDER BY n.player_id, n.id`).map((r) => `${r.p}|${r.who}|${r.context}|${r.body}`);
+  const a = createItem(db, RAY, { kind: 'assignment', player_id: 1, note: 'Good offensive production two years in a row.' });
+  addNote(db, AHAN, a, 'I can take the first two games.');
+  resolveItem(db, FORD, a, { outcome: 'reviewed', verdict: 'hold', note: 'More of a deep/wide winger.' });
+  resolveItem(db, AHAN, a, { outcome: 'declined' }); // no note, nothing to copy
+  const sb = createItem(db, AHAN, { kind: 'sb_review', player_id: 2, note: 'BP LF CB, very good technique.' });
+  resolveItem(db, RAY, sb, { outcome: 'added_sb', role: 'FWD1', note: 'Needed depth.' });
+  createItem(db, AHAN, { kind: 'watch', player_id: 3, note: 'Private follow-up.' });
+  db.run("INSERT INTO notes(player_id, user_id, body) VALUES (4, 2, 'Already  written here')");
+  const c = createItem(db, RAY, { kind: 'assignment', player_id: 4, note: 'Already written here.' }); // Ray's, so it's copied
+  resolveItem(db, AHAN, c, { outcome: 'reviewed', note: 'Already written here.' }); // Ahan wrote it (bar a full stop): no duplicate
+  const live = evals();
+  assert.deepEqual(live, [
+    '1|Ray|Review: asked Ahan and Ford to review|Good offensive production two years in a row.',
+    '1|Ford|Review: reviewed, Hold|More of a deep/wide winger.',
+    '2|Ahan|Review: sent to Ray for the Short Board|BP LF CB, very good technique.',
+    '2|Ray|Review: put on the Short Board (FWD Complete)|Needed depth.',
+    '4|Ahan|null|Already  written here',
+    '4|Ray|Review: asked Ahan and Ford to review|Already written here.',
+  ]);
+  // The one-time copy of older notes reads the same actions back from the timestamps, and never copies twice.
+  db.run('DELETE FROM notes WHERE review_note_id IS NOT NULL');
+  copyReviewNotesToEvals(db);
+  copyReviewNotesToEvals(db);
+  assert.deepEqual(evals().sort(), live.sort());
 });
 
 test('notes need text and visibility', (t) => {
