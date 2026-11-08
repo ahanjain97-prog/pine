@@ -4,7 +4,7 @@ import { openDb } from '../src/db.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addNote, copyReviewNotesToEvals, createItem, resolveItem, reviewBoard, reviewCount } from '../src/lib/review_queue.js';
+import { addNote, copyReviewNotesToEvals, createItem, resolveItem, reviewBoard, reviewCount, syncReviewNote } from '../src/lib/review_queue.js';
 
 // openDb seeds Ray (1, lead), Ahan (2, scout), Ford (3, scout), Bobby (4, not on the review team).
 const RAY = { id: 1 }, AHAN = { id: 2 }, FORD = { id: 3 }, BOBBY = { id: 4 };
@@ -207,6 +207,18 @@ test('notes that report on a player go in the author\'s staff evaluation; replie
   copyReviewNotesToEvals(db);
   copyReviewNotesToEvals(db);
   assert.deepEqual(evals().sort(), live.sort());
+});
+
+test('editing the Staff reports copy of a Review note updates the thread, marked edited', (t) => {
+  const db = setup(t);
+  const a = createItem(db, RAY, { kind: 'assignment', player_id: 1 });
+  resolveItem(db, AHAN, a, { outcome: 'reviewed', verdict: 'hold', note: 'First take.' });
+  const copy = db.get('SELECT review_note_id FROM notes WHERE player_id = 1 AND user_id = 2');
+  syncReviewNote(db, copy.review_note_id, 'First take, plus the second watch.');
+  const [n] = reviewBoard(db, RAY).items[0].notes;
+  assert.equal(n.body, 'First take, plus the second watch.');
+  assert.ok(n.updated_at);
+  syncReviewNote(db, null, 'ignored'); // an ordinary note has no Review original
 });
 
 test('notes need text and visibility', (t) => {

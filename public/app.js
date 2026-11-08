@@ -3799,7 +3799,7 @@ function reviewCard(item, actions, always = false) {
     </div>
     <div class="rv-actions">${settled && !always ? "" : actions}${verdictDots(p.verdicts)}</div>
     <details class="rv-thread"><summary>${item.notes.length ? `${item.notes.length} note${item.notes.length === 1 ? "" : "s"}` : "Add a note"}</summary>
-      ${item.notes.length ? `<ol class="rv-notes">${item.notes.map((n) => `<li><b>${esc(n.user_name)}</b> ${esc(n.body)}<span class="when">${rvWhen(n.created_at)}</span></li>`).join("")}</ol>` : ""}
+      ${item.notes.length ? `<ol class="rv-notes">${item.notes.map((n) => `<li><b>${esc(n.user_name)}</b> ${esc(n.body)}<span class="when">${rvWhen(n.created_at)}${n.updated_at ? ` · edited ${rvWhen(n.updated_at)}` : ""}</span></li>`).join("")}</ol>` : ""}
       ${settled ? "" : `<form class="rv-note-form"><input name="body" maxlength="4000" placeholder="Add a note…" aria-label="Add a note"><button class="btn sm" type="submit">Add</button></form>`}
     </details>
   </article>`;

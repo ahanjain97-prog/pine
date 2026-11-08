@@ -158,6 +158,11 @@ function withdrawTraces(db, item) {
   db.run("DELETE FROM notes WHERE review_note_id IN (SELECT id FROM review_notes WHERE item_id = ? AND user_id = ?)", item.id, item.from_user);
 }
 
+// The author edited the Staff reports copy of a Review note: the thread shows the same words, marked edited.
+export function syncReviewNote(db, reviewNoteId, body) {
+  if (reviewNoteId != null) db.run("UPDATE review_notes SET body = ?, updated_at = datetime('now') WHERE id = ?", body, reviewNoteId);
+}
+
 export function addNote(db, user, itemId, body) {
   const me = member(db, user), item = itemRow(db, itemId);
   if (!canSee(me, item)) fail(404, "Review item not found");

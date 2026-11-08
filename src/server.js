@@ -44,7 +44,7 @@ import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
 import { connectedDuplicate, connectionMergeProblem, mergeConnection, resolvePlayerId } from "./lib/player_connections.js";
 import { registerSigning } from "./lib/signing.js";
 import { addBoardRole, boardHistory, BOARD_SOURCES, BOARD_EXIT_REASONS, recordBoardReason, registerBoardMoves, validateBoardReason } from "./lib/board_reasons.js";
-import { registerReviewQueue, reviewCount, reviewTeam } from "./lib/review_queue.js";
+import { registerReviewQueue, reviewCount, reviewTeam, syncReviewNote } from "./lib/review_queue.js";
 import { boardLastReviews, registerReview, REVIEW_AFTER_DAYS } from "./lib/review.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -660,6 +660,7 @@ app.patch("/api/notes/:id", async (c) => {
   const { body, context } = await c.req.json();
   if (!String(body || "").trim()) fail(400, "Note is empty");
   db.run("UPDATE notes SET body = ?, context = ?, updated_at = datetime('now') WHERE id = ?", String(body).trim(), String(context || "").trim() || null, note.id);
+  syncReviewNote(db, note.review_note_id, String(body).trim()); // a copy of a Review note: the thread follows
   logActivity(db, note.user_id, note.player_id, "edited_note", { note_id: note.id });
   return c.json({ ok: true });
 });

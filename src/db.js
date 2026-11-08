@@ -300,6 +300,10 @@ export function openDb(file) {
     raw.exec("ALTER TABLE notes ADD COLUMN review_note_id INTEGER REFERENCES review_notes(id) ON DELETE SET NULL");
   }
   raw.exec("CREATE UNIQUE INDEX IF NOT EXISTS notes_review_note ON notes(review_note_id) WHERE review_note_id IS NOT NULL");
+  // A Review note edited through its Staff reports copy (src/lib/review_queue.js syncReviewNote).
+  if (!raw.prepare("PRAGMA table_info(review_notes)").all().some((c) => c.name === "updated_at")) {
+    raw.exec("ALTER TABLE review_notes ADD COLUMN updated_at TEXT");
+  }
   // A link survives role rewrites; the history itself never depends on a board entry existing.
   if (!raw.prepare("PRAGMA table_info(board_entries)").all().some((c) => c.name === "reason_id")) {
     raw.exec("ALTER TABLE board_entries ADD COLUMN reason_id INTEGER REFERENCES board_reasons(id)");
@@ -393,6 +397,11 @@ export function openDb(file) {
     db.run(`UPDATE activity SET detail = json_set(detail, '$.reason.exit_reason', 'Out of our range', '$.reason.note', NULL)
       WHERE action = 'removed_role' AND json_extract(detail, '$.reason.exit_reason') = 'Unwilling to play in League One'
         AND ${outOfRange("json_extract(detail, '$.reason.note')")}`);
+  });
+  // Staff reports copies edited before edits reached the Review thread: the thread takes the edited text.
+  db.once("review_notes_take_eval_edits_2026_11_08", () => {
+    db.run(`UPDATE review_notes SET body = n.body, updated_at = n.updated_at FROM notes n
+      WHERE n.review_note_id = review_notes.id AND n.body <> review_notes.body`);
   });
   // Assignments now always go to every scout; open ones made for a single scout get the others added.
   db.once("review_assign_every_scout_2026_11_07", () => {
