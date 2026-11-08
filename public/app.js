@@ -5,6 +5,7 @@ import { loadPlayingTimePanel } from "./playing-time.js";
 // Shared links come in as /p/:id, which the server rewrites to #/player/:id before this boots.
 
 import { matchText, textMatch } from "./search.js";
+import { stampSummary, SUMMARY_STAMP } from "./summary-stamp.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -1441,11 +1442,11 @@ async function renderPlayer(main, idArg) {
         <section class="panel" id="summary-panel" aria-labelledby="summary-heading">
           <header class="panel-h"><h2 id="summary-heading">Summary</h2><span class="muted sm">Shared club summary</span></header>
           <div id="summary-view">
-            ${summaryViewHTML(p.summary)}
+            ${summaryViewHTML(p.summary, p.summary_updated)}
           </div>
           <form id="summary-form" hidden>
             <label class="lbl" for="summary">Club summary</label>
-            <textarea id="summary" rows="5" data-draft data-orig="${esc(p.summary || "")}" aria-describedby="summary-hint" placeholder="Overall summary, fit, next steps…">${esc(p.summary || "")}</textarea>
+            <textarea id="summary" rows="5" data-draft data-orig="${esc(p.summary || "")}" aria-describedby="summary-hint" placeholder="Overall summary, fit, next steps… (what you add is dated and signed when you save)">${esc(p.summary || "")}</textarea>
             <div class="summary-actions row"><span class="muted sm" id="summary-hint">${p.summary?.trim() ? "Editing summary" : "New summary"} · not saved yet</span><span class="spacer"></span>
               <button type="button" class="btn sm ghost" id="cancel-summary">Cancel</button><button type="submit" class="btn sm primary" id="save-summary" disabled>Save summary</button></div>
           </form>
@@ -1858,9 +1859,12 @@ function noteHTML(n, mine) {
   </div>`;
 }
 
-function summaryViewHTML(summary) {
-  return summary?.trim() ? `<div class="summary-body">${esc(summary)}</div>
-    <div class="summary-actions row"><span class="summary-status sm">✓ Saved</span><span class="spacer"></span>
+const summaryWithStamps = (summary) => esc(summary).replace(SUMMARY_STAMP, (_, date, who) => `<span class="sum-stamp">${date} · ${who}</span>`);
+
+function summaryViewHTML(summary, updated = null) {
+  const when = updated?.at ? `Updated ${relTime(updated.at)}${updated.by ? ` by ${updated.by}` : ""}` : "✓ Saved";
+  return summary?.trim() ? `<div class="summary-body">${summaryWithStamps(summary)}</div>
+    <div class="summary-actions row"><span class="summary-status sm" ${updated?.at ? `title="${esc(fmtDateTime(updated.at))}"` : ""}>${esc(when)}</span><span class="spacer"></span>
       <button type="button" class="btn sm" id="edit-summary">Edit</button><button type="button" class="btn sm ghost danger" id="delete-summary">Delete</button></div>`
     : `<div class="summary-empty"><p class="muted">No summary yet.</p><button type="button" class="btn sm" id="edit-summary">Add summary</button></div>`;
 }
@@ -1890,11 +1894,12 @@ function wireSummary(root, p) {
     const action = summary === null ? $("#confirm-delete-summary", panel) : save;
     action.textContent = summary === null ? "Deleting…" : "Saving…";
     try {
-      const result = await api("PATCH", `/api/players/${p.id}`, { summary });
+      const result = await api("PATCH", `/api/players/${p.id}`, { summary: summary === null ? null : stampSummary(p.summary, summary, S.me.name) });
       p.summary = result.player.summary;
+      p.summary_updated = { at: new Date().toISOString(), by: S.me.name };
       const cached = S.byId.get(p.id);
       if (cached) cached.summary = p.summary;
-      view.innerHTML = summaryViewHTML(p.summary);
+      view.innerHTML = summaryViewHTML(p.summary, p.summary_updated);
       closeEditor();
       toast(summary === null ? "Summary deleted" : "Summary saved");
     } catch (err) {

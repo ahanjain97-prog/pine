@@ -473,8 +473,12 @@ app.get("/api/players/:id", (c) => {
      WHERE a.player_id = ? AND a.hidden = 0 ORDER BY a.id DESC LIMIT 40`, player.id);
   const lists = db.all("SELECT l.id, l.name, l.source FROM list_members m JOIN lists l ON l.id = m.list_id WHERE m.player_id = ?", player.id);
   const decision_by = player.decision_by ? db.get("SELECT name FROM users WHERE id = ?", player.decision_by)?.name : null;
+  // Who last saved the shared summary, and when (from the edit log).
+  const summary_updated = db.get(`SELECT a.created_at AS at, u.name AS by FROM activity a LEFT JOIN users u ON u.id = a.user_id
+    WHERE a.player_id = ? AND a.action = 'edited_player' AND EXISTS (SELECT 1 FROM json_each(a.detail, '$.fields') WHERE value = 'summary')
+    ORDER BY a.id DESC LIMIT 1`, player.id) || null;
   return c.json({
-    player: { ...player, decision_by_name: decision_by }, staff, activity, lists, board_history: boardHistory(db, player.id),
+    player: { ...player, decision_by_name: decision_by, summary_updated }, staff, activity, lists, board_history: boardHistory(db, player.id),
     college: prospectDetail(db, { playerId: player.id }), ncaa: ncaaPlace(player), agent: getAgent(db, player.id),
   });
 });

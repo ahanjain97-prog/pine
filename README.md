@@ -370,7 +370,8 @@ syncs leave the signing status alone.
   also appear in Activity. **History** lists everything done to the player; a note's entry shows the start of what it said. The header holds Transfermarkt facts, the club decision and the staff verdict tally. Staff reports
   show everyone's box (yours first, then anyone who has weighed in); "Hide empty" folds the rest into one line,
   remembered per browser. Below it,
-  the shared summary, college scouting reports (players in the college database; not shown for pros on the Short Board) and one Staff reports box per staff member (only you can
+  the shared summary (what's added is stamped "[Nov 8, 2026 · Ahan]" where the update starts, and the panel shows who
+  last updated it and when; `public/summary-stamp.js`), college scouting reports (players in the college database; not shown for pros on the Short Board) and one Staff reports box per staff member (only you can
   write in yours; each box also shows, read-only, the reasons that person gave for board moves: every removal and
   Short Board drop-back, and adds or promotions with a written why — these don't count as reports), with big board roles, the NCAA board spot (college players), lists, the Impect link and history alongside. The KPI profile and
   playing time follow the staff reports in the left column (below everything on narrow screens). The analytics tabs cover
