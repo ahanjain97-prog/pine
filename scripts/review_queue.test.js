@@ -98,6 +98,40 @@ test('the lead assigns both scouts: one item and thread they share, each answeri
   assert.throws(() => reviewBoard(db, BOBBY), /review team/);
 });
 
+test('an answered assignment waits in the lead\'s Decisions; his call closes it and anything else open on the player', (t) => {
+  const db = setup(t);
+  const a = createItem(db, RAY, { kind: 'assignment', player_id: 1, note: 'Free agent.' });
+  const decisions = () => reviewBoard(db, RAY).items.filter((i) => i.awaiting_lead || (i.kind === 'sb_review' && i.status === 'open')).map((i) => `${i.kind}:${i.player_id}`);
+  assert.deepEqual(decisions(), [], 'nothing until a scout answers');
+  assert.equal(reviewCount(db, RAY), 0);
+  resolveItem(db, FORD, a, { outcome: 'reviewed', verdict: 'hold', note: 'Low ball wins.' });
+  assert.deepEqual(decisions(), ['assignment:1']);
+  assert.equal(reviewCount(db, RAY), 1);
+  assert.throws(() => resolveItem(db, AHAN, a, { outcome: 'not_sb' }), /Only the review lead decides/);
+  resolveItem(db, RAY, a, { outcome: 'not_sb', note: 'Not for this window.' });
+  assert.equal(db.get('SELECT status FROM review_items WHERE id = ?', a).status, 'not_sb');
+  assert.deepEqual([decisions(), reviewCount(db, RAY), reviewCount(db, AHAN)], [[], 0, 0], 'Ahan no longer owes an answer');
+  assert.throws(() => resolveItem(db, AHAN, a, { outcome: 'reviewed' }), /already been dealt with/);
+
+  // Answered by both (settled as reviewed) and sent up too: one row, and one call settles both.
+  const b = createItem(db, RAY, { kind: 'assignment', player_id: 2 });
+  resolveItem(db, AHAN, b, { outcome: 'reviewed', verdict: 'pass' });
+  resolveItem(db, FORD, b, { outcome: 'declined' });
+  assert.deepEqual(decisions(), ['assignment:2']);
+  const sb = createItem(db, AHAN, { kind: 'sb_review', player_id: 2, note: 'SB him.' });
+  assert.deepEqual([decisions(), reviewCount(db, RAY)], [['sb_review:2'], 1], 'the request stands for the player');
+  resolveItem(db, RAY, sb, { outcome: 'added_sb', role: 'FWD1', note: 'Top of the list.' });
+  assert.deepEqual(db.all('SELECT kind, status FROM review_items WHERE player_id = 2 ORDER BY id').map((r) => `${r.kind}:${r.status}`),
+    ['assignment:added_sb', 'sb_review:added_sb']);
+
+  // Deciding from the assignment does the Short Board move itself.
+  const c = createItem(db, RAY, { kind: 'assignment', player_id: 3 });
+  resolveItem(db, FORD, c, { outcome: 'reviewed', verdict: 'pass' });
+  resolveItem(db, RAY, c, { outcome: 'added_sb', role: 'FWD1', note: 'Ford passed him.' });
+  assert.equal(db.get("SELECT shortlist FROM board_entries WHERE player_id = 3 AND role = 'FWD1'").shortlist, 1);
+  assert.equal(reviewCount(db, RAY), 0);
+});
+
 test('an assignment always goes to every scout, even when an old page names one; all declining settles it as declined', (t) => {
   const db = setup(t);
   const a = createItem(db, RAY, { kind: 'assignment', player_id: 1, to_user: 2 });

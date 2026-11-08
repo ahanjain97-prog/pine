@@ -330,6 +330,10 @@ syncs leave the signing status alone.
     - **Settling:** it settles once everyone has answered, as reviewed if anyone reviewed it, otherwise declined.
     - **Answered early:** a scout who has answered sees the item under History until the others answer.
     - **Withdraw:** the lead can withdraw an assignment.
+    - **Lead's decision:** once either scout has answered, the player waits in the lead's **Decisions** beside the
+      scouts' requests (and counts in his badge): **Add to Short Board** or **Not for now**. His call closes the
+      assignment even if the other scout hasn't answered, and settles any other open request on the player. A
+      player both sent up and answered shows once.
   - **Watch lists:** everyone on the team keeps a private watch list. Players can be added from a PINE search
     or a Transfermarkt link (new players are added to PINE first).
   - **Note thread:** every item keeps one.
@@ -338,8 +342,7 @@ syncs leave the signing status alone.
     review"). That covers the lead's note when assigning; a scout's note when reviewing, declining or sending a
     player up; and the lead's Short Board decision. Thread replies and watch lists stay in the Review tab. The
     copy is the author's to edit or delete; the thread keeps the original.
-  - **Badge:** the nav badge counts what's waiting on you (the lead's open requests, a scout's open
-    assignments).
+  - **Badge:** the nav badge counts what's waiting on you (the lead's Decisions, a scout's open assignments).
   - **Player page:** has Watch / Send to Ray / Assign for review buttons.
   - **Activity:** entries appear there, except watch lists, which are private.
   - **Code:** `src/lib/review_queue.js`, plus tables `review_items`, `review_assignees` (who an assignment is with,

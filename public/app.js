@@ -3767,7 +3767,7 @@ function reviewPlayerHead(p) {
 const rvWhen = (s) => `<span title="${esc(fmtDateTime(s))}">${esc(relTime(s))}</span>`;
 
 // One row per item: the player, where it came from and the latest note, the actions; the note thread folds open.
-function reviewCard(item, actions) {
+function reviewCard(item, actions, always = false) {
   const p = S.byId.get(item.player_id);
   if (!p) return "";
   const settled = item.status !== "open";
@@ -3780,7 +3780,8 @@ function reviewCard(item, actions) {
   const answers = shared ? `<div class="rv-answers">${item.assignees.map((x) =>
     `<span class="rv-answer ${x.status}">${esc(x.user_id === S.me.id ? "You" : x.name)}: ${x.status === "open" ? (settled ? "no answer" : "to review")
       : x.status === "reviewed" ? `reviewed${p.verdicts?.[x.name] ? ` (${esc(cap(p.verdicts[x.name]))})` : ""}` : "declined"}</span>`).join("")}</div>` : "";
-  const by = shared && item.status !== "removed" ? "" : esc(item.resolved_by_name || "");
+  // Who settled it: the lead for a withdrawal or his Short Board call; otherwise the scouts' answers say it.
+  const by = shared && !["removed", "added_sb", "not_sb"].includes(item.status) ? "" : esc(item.resolved_by_name || "");
   const last = item.notes.at(-1);
   return `<article class="rv-row ${settled ? "settled" : ""}" data-item="${item.id}" data-player="${p.id}">
     ${reviewPlayerHead(p)}
@@ -3790,7 +3791,7 @@ function reviewCard(item, actions) {
       ${last ? `<div class="rv-last"><b>${esc(last.user_name)}:</b> ${esc(last.body)}</div>` : `<div class="rv-last muted">No notes</div>`}
       ${answers}
     </div>
-    <div class="rv-actions">${settled ? "" : actions}${verdictDots(p.verdicts)}</div>
+    <div class="rv-actions">${settled && !always ? "" : actions}${verdictDots(p.verdicts)}</div>
     <details class="rv-thread"><summary>${item.notes.length ? `${item.notes.length} note${item.notes.length === 1 ? "" : "s"}` : "Add a note"}</summary>
       ${item.notes.length ? `<ol class="rv-notes">${item.notes.map((n) => `<li><b>${esc(n.user_name)}</b> ${esc(n.body)}<span class="when">${rvWhen(n.created_at)}</span></li>`).join("")}</ol>` : ""}
       ${settled ? "" : `<form class="rv-note-form"><input name="body" maxlength="4000" placeholder="Add a note…" aria-label="Add a note"><button class="btn sm" type="submit">Add</button></form>`}
@@ -3829,19 +3830,22 @@ async function renderReview(main) {
   const open = (i) => i.status === "open";
   const sb = d.items.filter((i) => i.kind === "sb_review"), asg = d.items.filter((i) => i.kind === "assignment");
   const watch = d.items.filter((i) => i.kind === "watch" && open(i));
-  const rows = (list, actions) => list.map((i) => reviewCard(i, actions(i))).join("");
+  const rows = (list, actions, always = false) => list.map((i) => reviewCard(i, actions(i), always)).join("");
   const watchActions = () => [
     ...(role === "lead" ? [`<button type="button" class="btn sm" data-rv-assign="1">${esc(assignLabel())}</button>`] : []),
     role === "scout" ? `<button type="button" class="btn sm" data-rv-send>Send to ${esc(leadName)}</button>` : "",
     `<button type="button" class="btn sm ghost" data-rv-resolve="removed" title="Remove from your watch list">Remove</button>`].join("");
   const myAnswer = (i) => i.assignees?.find((x) => x.user_id === S.me.id)?.status;
+  const lastMove = (i) => [i.created_at, ...(i.assignees || []).map((x) => x.resolved_at)].filter(Boolean).sort().at(-1);
   // Settled items, plus (for a scout) shared assignments they've answered while the other scout hasn't yet.
-  const history = d.items.filter((i) => i.kind !== "watch" && (!open(i) || (role === "scout" && i.kind === "assignment" && myAnswer(i) !== "open")));
+  const history = d.items.filter((i) => i.kind !== "watch" && !i.awaiting_lead && (!open(i) || (role === "scout" && i.kind === "assignment" && myAnswer(i) !== "open")));
   let tabs;
   if (role === "lead") {
     tabs = [
-      { id: "decide", label: "Decisions", list: sb.filter(open), urgent: true, empty: "Nothing waiting for a decision.",
-        html: (l) => rows(l, () => `<button type="button" class="btn sm primary" data-rv-add-sb>Add to Short Board</button><button type="button" class="btn sm" data-rv-resolve="not_sb">Not for now</button>`) },
+      // What the scouts sent up, and his assignments once a scout has answered: newest first, one call each.
+      { id: "decide", label: "Decisions", list: [...sb.filter(open), ...asg.filter((i) => i.awaiting_lead)].sort((a, b) => (lastMove(b) > lastMove(a) ? 1 : -1)),
+        urgent: true, empty: "Nothing waiting for a decision.",
+        html: (l) => rows(l, () => `<button type="button" class="btn sm primary" data-rv-add-sb>Add to Short Board</button><button type="button" class="btn sm" data-rv-resolve="not_sb">Not for now</button>`, true) },
       { id: "watch", label: "Watch list", list: watch, empty: "Your watch list is empty. Add players with the bar above.", html: (l) => rows(l, watchActions) },
       { id: "assigned", label: "Assigned out", list: asg.filter(open), empty: "No reviews out with the scouts.",
         html: (l) => rows(l, () => `<button type="button" class="btn sm ghost" data-rv-resolve="removed">Withdraw</button>`) },
@@ -3866,7 +3870,7 @@ async function renderReview(main) {
   S.review.tab = tab.id;
   main.innerHTML = `<div class="page rv-page">
     <div class="page-h"><h1>Review</h1><span class="muted">${role === "lead"
-      ? "Decide what the scouts send up, assign reviews, and keep your watch list"
+      ? "Decide on what the scouts send up and review for you, assign reviews, and keep your watch list"
       : `What ${esc(leadName)} assigned you, players to send up, and your watch list`}</span></div>
     <section class="panel rv-bar">${reviewAddForm(role)}</section>
     <div class="rv-tabs" role="tablist">${tabs.map((t) => `<button type="button" role="tab" data-rv-tab="${t.id}" aria-selected="${t === tab}" class="${t === tab ? "on" : ""}">

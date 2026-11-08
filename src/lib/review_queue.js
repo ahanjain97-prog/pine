@@ -5,7 +5,8 @@
 //               lead's queue, the Review tab and Activity, as if never sent
 //   assignment  the lead asks the scouts to review a player. It always goes to every scout: one item and note
 //               thread they share, each scout reviewing (optionally with a verdict) or declining on their own
-//               (review_assignees); it settles once every scout has answered
+//               (review_assignees); it settles once every scout has answered. Once anyone has answered, it waits in
+//               the lead's Decisions beside the scouts' requests, and his call (Short Board, or not for now) closes it
 // Every item keeps a short note thread (why it was sent, replies). Players both scouts have passed, and that no one
 // has sent up yet, are suggested to the scouts.
 // Notes that report on the player also go in the author's Staff evaluation on the player page: the lead's note when
@@ -17,7 +18,9 @@ import { addBoardRole, setBoardStar } from "./board_reasons.js";
 
 const KINDS = ["watch", "sb_review", "assignment"];
 const VERDICTS = ["pass", "hold", "fail"];
-const OUTCOMES = { watch: ["removed"], sb_review: ["added_sb", "not_sb", "removed"], assignment: ["reviewed", "declined", "removed"] };
+const OUTCOMES = { watch: ["removed"], sb_review: ["added_sb", "not_sb", "removed"], assignment: ["reviewed", "declined", "removed", "added_sb", "not_sb"] };
+// The lead's Short Board call. On any request or assignment it settles every other open one on the same player.
+const DECISIONS_SB = ["added_sb", "not_sb"];
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 const text = (value, name, required = false) => {
   if (value == null || value === "") { if (required) fail(400, `${name} is required`); return null; }
@@ -164,18 +167,23 @@ export function addNote(db, user, itemId, body) {
 export function resolveItem(db, user, itemId, input) {
   const me = member(db, user), item = itemRow(db, itemId);
   if (!canSee(me, item)) fail(404, "Review item not found");
-  if (item.status !== "open") fail(409, "This has already been dealt with");
-  const outcome = input?.outcome;
+  const outcome = input?.outcome, decision = DECISIONS_SB.includes(outcome);
+  // An assignment both scouts have answered has settled, but still waits for the lead's decision.
+  if (item.status !== "open" && !(item.kind === "assignment" && decision && ["reviewed", "declined"].includes(item.status)))
+    fail(409, "This has already been dealt with");
   if (!OUTCOMES[item.kind].includes(outcome)) fail(400, "Choose a valid outcome");
   const note = text(input.note, "Note", outcome === "added_sb");
   if (item.kind === "watch" && item.from_user !== me.id) fail(403, "Only its owner changes a watch list");
   if (item.kind === "sb_review" && outcome === "removed" && item.from_user !== me.id) fail(403, "Only the scout who sent it withdraws a request");
   if (item.kind === "sb_review" && outcome !== "removed" && me.role !== "lead") fail(403, "Only the review lead decides the Short Board");
-  const mine = item.kind === "assignment" ? item.assignees.find((a) => a.user_id === me.id) : null;
+  const mine = item.kind === "assignment" && !decision && outcome !== "removed" ? item.assignees.find((a) => a.user_id === me.id) : null;
   if (item.kind === "assignment") {
-    if (outcome === "removed" ? me.role !== "lead" : !mine) fail(403, outcome === "removed"
-      ? "Only the review lead withdraws an assignment" : "Only the assigned scouts review this");
-    if (outcome !== "removed" && mine.status !== "open") fail(409, "You've already answered this one");
+    if (decision || outcome === "removed") {
+      if (me.role !== "lead") fail(403, decision ? "Only the review lead decides the Short Board" : "Only the review lead withdraws an assignment");
+    } else {
+      if (!mine) fail(403, "Only the assigned scouts review this");
+      if (mine.status !== "open") fail(409, "You've already answered this one");
+    }
   }
   const verdict = input.verdict ?? null;
   if (verdict != null && (item.kind !== "assignment" || outcome !== "reviewed" || !VERDICTS.includes(verdict))) fail(400, "Verdict must be pass, hold or fail");
@@ -205,6 +213,12 @@ export function resolveItem(db, user, itemId, input) {
     } else {
       db.run("UPDATE review_items SET status = ?, resolved_by = ?, resolved_at = datetime('now') WHERE id = ?", outcome, me.id, item.id);
     }
+    if (decision) {
+      // One call per player: it also settles any other open request, or assignment awaiting him, on the player.
+      db.run(`UPDATE review_items SET status = ?, resolved_by = ?, resolved_at = datetime('now') WHERE player_id = ? AND id <> ?
+        AND ((kind = 'sb_review' AND status = 'open') OR (kind = 'assignment' AND status IN ('open', 'reviewed', 'declined')))`,
+        outcome, me.id, item.player_id, item.id);
+    }
     if (note) {
       const nid = addNoteRow(db, item.id, me.id, note);
       const context = outcome === "removed" ? null : evalContext(outcome, { verdict, role });
@@ -227,7 +241,10 @@ export function reviewBoard(db, user) {
   const notes = rows.length ? db.all(`SELECT n.*, u.name AS user_name FROM review_notes n JOIN users u ON u.id = n.user_id
     WHERE n.item_id IN (${rows.map(() => "?").join(",")}) ORDER BY n.id`, ...rows.map((r) => r.id)) : [];
   const name = (id) => team.find((u) => u.id === id)?.name ?? db.get("SELECT name FROM users WHERE id = ?", id)?.name ?? null;
-  const items = rows.map((r) => ({ ...r, from_name: name(r.from_user),
+  const openSb = new Set(rows.filter((r) => r.kind === "sb_review" && r.status === "open").map((r) => r.player_id));
+  const awaiting = (r) => me.role === "lead" && r.kind === "assignment" && ["open", "reviewed", "declined"].includes(r.status)
+    && r.assignees.some((a) => a.status !== "open") && !openSb.has(r.player_id);
+  const items = rows.map((r) => ({ ...r, awaiting_lead: awaiting(r), from_name: name(r.from_user),
     to_name: r.assignees ? r.assignees.map((a) => a.name).join(" and ") : r.to_user ? name(r.to_user) : null,
     resolved_by_name: r.resolved_by ? name(r.resolved_by) : null, notes: notes.filter((n) => n.item_id === r.id) }));
   // Players every scout has passed, not on the Short Board, and never sent up (or decided) before.
@@ -243,13 +260,26 @@ export function reviewBoard(db, user) {
 export function reviewCount(db, user) {
   const m = user && db.get("SELECT review_role AS role FROM users WHERE id = ?", user.id);
   if (!m?.role) return 0;
-  if (m.role === "lead") return db.get("SELECT count(*) AS n FROM review_items WHERE status = 'open' AND kind = 'sb_review' AND to_user = ?", user.id).n;
+  // The lead: requests waiting on him, plus assignments a scout has answered that he hasn't decided (one per player).
+  if (m.role === "lead") return db.get("SELECT count(*) AS n FROM review_items WHERE status = 'open' AND kind = 'sb_review' AND to_user = ?", user.id).n
+    + db.get(`SELECT count(*) AS n FROM review_items i WHERE i.kind = 'assignment' AND i.status IN ('open', 'reviewed', 'declined')
+        AND (i.status = 'open' OR i.resolved_at >= datetime('now', '-30 days'))
+        AND EXISTS (SELECT 1 FROM review_assignees a WHERE a.item_id = i.id AND a.status <> 'open')
+        AND NOT EXISTS (SELECT 1 FROM review_items s WHERE s.kind = 'sb_review' AND s.status = 'open' AND s.player_id = i.player_id)`).n;
   return db.get(`SELECT count(*) AS n FROM review_assignees a JOIN review_items i ON i.id = a.item_id
     WHERE i.status = 'open' AND a.status = 'open' AND a.user_id = ?`, user.id).n;
 }
 
 export function registerReviewQueue(app, { db }) {
   db.once("review_notes_to_evals_2026_11_08", () => copyReviewNotesToEvals(db));
+  // Before the lead decided assignments, a Short Board call made on a scout's request left the player's assignment
+  // waiting; it takes that call.
+  db.once("assignments_settled_by_sb_call_2026_11_08", () => {
+    for (const s of db.all("SELECT player_id, status, resolved_by, resolved_at FROM review_items WHERE kind = 'sb_review' AND status IN ('added_sb', 'not_sb') ORDER BY resolved_at")) {
+      db.run(`UPDATE review_items SET status = ?, resolved_by = ?, resolved_at = ? WHERE kind = 'assignment' AND player_id = ?
+        AND status IN ('open', 'reviewed', 'declined') AND created_at <= ?`, s.status, s.resolved_by, s.resolved_at, s.player_id, s.resolved_at);
+    }
+  });
   // Ahan withdrew his Short Board request on Lukas Kamrath (asked 2026-11-08, before scouts could withdraw in the app).
   db.once("withdraw_kamrath_sb_2026_11_08", () => {
     const it = db.get(`SELECT i.id, i.from_user FROM review_items i JOIN players p ON p.id = i.player_id JOIN users u ON u.id = i.from_user
