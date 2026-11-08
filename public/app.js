@@ -3288,6 +3288,15 @@ function activityGroup(g) {
   // One marker per report author, yours first.
   const authors = [...new Map(reports.map((a) => [a.user_id, a])).values()].sort((a, b) => (b.user_id === S.me.id) - (a.user_id === S.me.id));
   const people = [...new Set(g.items.map(actor))];
+  // Verdicts lead the header: each person's latest pass / hold / fail on the player, then whatever happened last.
+  const verdictOf = (a) => { try { return JSON.parse(a.detail || "{}").verdict || null; } catch { return null; } };
+  const byPerson = new Map();
+  if (g.player_id) for (const a of g.items) if (a.action === "set_verdict" && !byPerson.has(a.user_id)) byPerson.set(a.user_id, a);
+  const verdicts = [...byPerson.values()].filter(verdictOf);
+  const latestLine = `<b>${esc(actor(latest))}</b> ${g.player_id ? describe(latest, true) : describe(latest)}`;
+  const headline = !verdicts.length || (verdicts.length === 1 && verdicts[0] === latest) ? latestLine
+    : `<span class="act-verdicts">${verdicts.map((a) => `<span><b>${esc(actor(a))}</b> <span class="dchip v-${esc(verdictOf(a))}">${esc(cap(verdictOf(a)))}</span></span>`).join("")}</span>${
+      verdicts.includes(latest) ? "" : `<span class="act-then">${latestLine}</span>`}`;
   const title = g.player_id
     ? `<a href="#/player/${g.player_id}">${esc(p?.name || g.name || "A player")}</a>${p?.club ? `<span class="muted sm">${esc(isNcaa(p) ? p.club.replace(/\s*\([^)]*\)\s*$/, "") : p.club)}</span>` : ""}`
     : `<span>General</span><span class="muted sm">imports, staff and PINE</span>`;
@@ -3295,7 +3304,7 @@ function activityGroup(g) {
     <summary class="act-h">
       ${p ? photo(p) : `<span class="act-ico">${g.player_id ? "?" : "P"}</span>`}
       <span class="act-title"><span class="act-name">${title}</span>
-        <span class="act-latest"><b>${esc(actor(latest))}</b> ${g.player_id ? describe(latest, true) : describe(latest)}</span></span>
+        <span class="act-latest">${headline}</span></span>
       <span class="act-badges">${authors.slice(0, 3).map(reportTag).join("")}${authors.length > 3 ? `<span class="rtag">+${authors.length - 3}</span>` : ""}</span>
       <span class="act-meta"><span><b>${g.items.length}</b> update${g.items.length === 1 ? "" : "s"}</span><span class="muted">${esc(people.slice(0, 3).join(", "))}${people.length > 3 ? ` +${people.length - 3}` : ""} · ${esc(relTime(latest.created_at))}</span></span>
     </summary>
