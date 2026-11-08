@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb } from '../src/db.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { addNote, createItem, resolveItem, reviewBoard, reviewCount } from '../src/lib/review_queue.js';
 
 // openDb seeds Ray (1, lead), Ahan (2, scout), Ford (3, scout), Bobby (4, not on the review team).
@@ -55,11 +58,9 @@ test('scouts send a player up; the lead puts him on the Short Board through the 
 
 test('the lead assigns both scouts: one item and thread they share, each answering on their own', (t) => {
   const db = setup(t);
-  const a = createItem(db, RAY, { kind: 'assignment', player_id: 1, to_users: [2, 3], note: 'Watch his last three games.' });
-  assert.throws(() => createItem(db, RAY, { kind: 'assignment', player_id: 1, to_user: 3 }), /already out for review/);
-  assert.throws(() => createItem(db, RAY, { kind: 'assignment', player_id: 2, to_users: [3, 4] }), /Choose scouts/);
-  assert.throws(() => createItem(db, RAY, { kind: 'assignment', player_id: 2, to_users: [] }), /Choose scouts/);
-  assert.throws(() => createItem(db, AHAN, { kind: 'assignment', player_id: 2, to_user: 3 }), /Only the review lead/);
+  const a = createItem(db, RAY, { kind: 'assignment', player_id: 1, note: 'Watch his last three games.' });
+  assert.throws(() => createItem(db, RAY, { kind: 'assignment', player_id: 1 }), /already out for review/);
+  assert.throws(() => createItem(db, AHAN, { kind: 'assignment', player_id: 2 }), /Only the review lead/);
   for (const scout of [AHAN, FORD]) {
     const [item] = reviewBoard(db, scout).items;
     assert.equal(item.id, a, 'both scouts see the same item');
@@ -80,18 +81,39 @@ test('the lead assigns both scouts: one item and thread they share, each answeri
   assert.throws(() => reviewBoard(db, BOBBY), /review team/);
 });
 
-test('a single scout can be assigned; declining alone settles it as declined; the lead can withdraw', (t) => {
+test('an assignment always goes to every scout, even when an old page names one; all declining settles it as declined', (t) => {
   const db = setup(t);
-  const a = createItem(db, RAY, { kind: 'assignment', player_id: 1, to_user: 3 });
-  assert.equal(reviewBoard(db, AHAN).items.length, 0, 'only the scouts it was given to see it');
-  assert.throws(() => resolveItem(db, AHAN, a, { outcome: 'reviewed' }), /not found/);
+  const a = createItem(db, RAY, { kind: 'assignment', player_id: 1, to_user: 2 });
+  assert.deepEqual(reviewBoard(db, RAY).items[0].assignees.map((x) => x.name), ['Ahan', 'Ford']);
+  assert.equal(db.get('SELECT to_user FROM review_items WHERE id = ?', a).to_user, null);
+  assert.equal(reviewBoard(db, FORD).items.length, 1, 'Ford sees it too');
   resolveItem(db, FORD, a, { outcome: 'declined' });
+  resolveItem(db, AHAN, a, { outcome: 'declined' });
   assert.equal(reviewBoard(db, RAY).items[0].status, 'declined');
-  const b = createItem(db, RAY, { kind: 'assignment', player_id: 2, to_users: [2, 3] });
+  const b = createItem(db, RAY, { kind: 'assignment', player_id: 2 });
   assert.throws(() => resolveItem(db, AHAN, b, { outcome: 'removed' }), /withdraws/);
   resolveItem(db, RAY, b, { outcome: 'removed' });
   assert.deepEqual(statuses(db), ['assignment:declined', 'assignment:removed']);
   assert.equal(reviewCount(db, AHAN), 0, 'a withdrawn assignment waits on no one');
+});
+
+test('open assignments made for one scout get every scout when PINE starts', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'pine-review-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, 'pine.db');
+  let db = openDb(file);
+  for (const id of [1, 2]) db.run('INSERT INTO players(id, name) VALUES (?, ?)', id, `Example ${id}`);
+  // As the old page left them: one scout each; the second already settled.
+  for (const [player, status] of [[1, 'open'], [2, 'reviewed']]) {
+    const id = Number(db.run("INSERT INTO review_items(player_id, kind, from_user, to_user, status) VALUES (?, 'assignment', 1, 2, ?)", player, status).lastInsertRowid);
+    db.run('INSERT INTO review_assignees(item_id, user_id, status) VALUES (?, 2, ?)', id, status);
+  }
+  db.run("DELETE FROM done_migrations WHERE name = 'review_assign_every_scout_2026_11_07'");
+  db.raw.close();
+  db = openDb(file); t.after(() => db.raw.close());
+  assert.deepEqual(db.all(`SELECT i.player_id AS p, i.to_user, group_concat(a.user_id || ':' || a.status) AS who FROM review_items i
+    JOIN review_assignees a ON a.item_id = i.id GROUP BY i.id ORDER BY i.id`).map((r) => ({ ...r })),
+    [{ p: 1, to_user: null, who: '2:open,3:open' }, { p: 2, to_user: 2, who: '2:reviewed' }]);
+  assert.equal(reviewCount(db, FORD), 1);
 });
 
 test('players both scouts passed are suggested until someone sends them up, and never once on the Short Board', (t) => {

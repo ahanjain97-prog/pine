@@ -1239,7 +1239,7 @@ async function renderPlayer(main, idArg) {
           <button type="button" class="btn sm ghost" id="mark-reviewed">Mark reviewed</button>
           ${reviewRole() ? `<button type="button" class="btn sm ghost" data-rv-player="watch">Watch</button>` : ""}
           ${reviewRole() === "scout" ? `<button type="button" class="btn sm ghost" data-rv-player="sb_review">Send to ${esc(reviewLead()?.name || "the lead")}</button>` : ""}
-          ${reviewRole() === "lead" ? `<button type="button" class="btn sm ghost" data-rv-player="assignment">Assign for review</button>` : ""}
+          ${reviewRole() === "lead" ? `<button type="button" class="btn sm ghost" data-rv-player="assignment">${esc(assignLabel())}</button>` : ""}
           ${S.me.is_admin ? `<button type="button" class="btn sm ghost danger" id="del-p">Delete</button>` : ""}
         </div>
       </div>
@@ -3598,7 +3598,7 @@ function reviewAddForm(role) {
     <input id="rv-note" placeholder="Why? (optional)" maxlength="4000" aria-label="Note">
     <div class="rv-add-btns"><button class="btn" type="submit" data-rv-target="watch">Watch</button>
       ${role === "scout" ? `<button class="btn primary" type="submit" data-rv-target="sb_review">Send to ${esc(lead)}</button>` : ""}
-      ${role === "lead" ? `<button class="btn primary" type="submit" data-rv-target="assignment">Assign for review</button>` : ""}</div>
+      ${role === "lead" ? `<button class="btn primary" type="submit" data-rv-target="assignment">${esc(assignLabel())}</button>` : ""}</div>
   </form>`;
 }
 
@@ -3616,7 +3616,7 @@ async function renderReview(main) {
   const watch = d.items.filter((i) => i.kind === "watch" && open(i));
   const rows = (list, actions) => list.map((i) => reviewCard(i, actions(i))).join("");
   const watchActions = () => [
-    ...(role === "lead" ? [`<button type="button" class="btn sm" data-rv-assign="1">Assign for review</button>`] : []),
+    ...(role === "lead" ? [`<button type="button" class="btn sm" data-rv-assign="1">${esc(assignLabel())}</button>`] : []),
     role === "scout" ? `<button type="button" class="btn sm" data-rv-send>Send to ${esc(leadName)}</button>` : "",
     `<button type="button" class="btn sm ghost" data-rv-resolve="removed" title="Remove from your watch list">Remove</button>`].join("");
   const myAnswer = (i) => i.assignees?.find((x) => x.user_id === S.me.id)?.status;
@@ -3683,9 +3683,7 @@ function reviewDialog({ title, player, extra = "", noteLabel = "Note", required 
       const note = $("#rv-d-note", m);
       note.setCustomValidity(required && !note.value.trim() ? "Please write a note." : "");
       if (!note.reportValidity()) return;
-      const form = new FormData(e.target);
-      const out = Object.fromEntries([...form].map(([k, v]) => [k, String(v).trim()]));
-      out.to = form.getAll("to").map(Number);
+      const out = Object.fromEntries([...new FormData(e.target)].map(([k, v]) => [k, String(v).trim()]));
       obs.disconnect(); closeModal(); resolve(out);
     });
     $("select, textarea", m)?.focus();
@@ -3706,19 +3704,17 @@ async function reviewCreate(kind, playerId, extra = {}) {
   toast(kind === "watch" ? "Added to your watch list" : kind === "sb_review" ? `Sent to ${reviewLead()?.name || "the lead"}` : "Assigned");
 }
 
-// Assignments go to every scout unless the lead unticks one; the thread and the item are shared.
-const scoutPicker = () => `<label class="lbl">Assign to</label><div class="rv-pick">${reviewScouts().map((sc) =>
-  `<label><input type="checkbox" name="to" value="${sc.id}" checked> ${esc(sc.name)}</label>`).join("")}</div>`;
+// Assignments always go to every scout (the server sees to that); the item and its thread are shared.
+const assignLabel = () => `Assign to ${reviewScouts().map((s) => s.name).join(" and ") || "the scouts"}`;
 
 async function reviewSendDialog(p, kind, note = "") {
   const lead = reviewLead()?.name || "the lead";
-  const v = await reviewDialog({ player: p.name, note, extra: kind === "assignment" ? scoutPicker() : "",
+  const v = await reviewDialog({ player: p.name, note,
     submit: kind === "watch" ? "Add" : kind === "sb_review" ? `Send to ${lead}` : "Assign",
-    title: kind === "watch" ? "Add to your watch list" : kind === "sb_review" ? `Send to ${lead} for a Short Board decision` : "Assign for review",
+    title: kind === "watch" ? "Add to your watch list" : kind === "sb_review" ? `Send to ${lead} for a Short Board decision` : assignLabel(),
     noteLabel: kind === "assignment" ? "Why are you assigning him?" : kind === "sb_review" ? "Why should he go on the Short Board?" : "What to follow up on" });
   if (!v) return false;
-  if (kind === "assignment" && !v.to.length) { toast("Pick at least one scout"); return false; }
-  await reviewCreate(kind, p.id, { note: v.note || undefined, ...(kind === "assignment" ? { to_users: v.to } : {}) });
+  await reviewCreate(kind, p.id, { note: v.note || undefined });
   return true;
 }
 

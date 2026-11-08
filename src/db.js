@@ -379,6 +379,13 @@ export function openDb(file) {
     db.run("UPDATE users SET review_role = 'lead' WHERE name = 'Ray' AND review_role IS NULL");
     db.run("UPDATE users SET review_role = 'scout' WHERE name IN ('Ahan', 'Ford') AND review_role IS NULL");
   });
+  // Assignments now always go to every scout; open ones made for a single scout get the others added.
+  db.once("review_assign_every_scout_2026_11_07", () => {
+    db.run(`INSERT OR IGNORE INTO review_assignees(item_id, user_id)
+      SELECT i.id, u.id FROM review_items i, users u WHERE i.kind = 'assignment' AND i.status = 'open' AND u.review_role = 'scout'`);
+    db.run(`UPDATE review_items SET to_user = NULL WHERE kind = 'assignment' AND status = 'open'
+      AND (SELECT count(*) FROM review_assignees a WHERE a.item_id = review_items.id) > 1`);
+  });
   return db;
 }
 

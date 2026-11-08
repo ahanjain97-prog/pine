@@ -965,8 +965,6 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
 .rv-note-form input { flex: 1; min-width: 0; }
 #rv-dialog .seg label { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; cursor: pointer; }
 #rv-dialog .seg { margin-bottom: 10px; }
-.rv-pick { display: flex; gap: 14px; margin: 2px 0 12px; }
-.rv-pick label { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; cursor: pointer; }
 .rv-answers { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
 .rv-answer { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
 .rv-answer.reviewed { color: var(--pass); border-color: color-mix(in srgb, var(--pass) 40%, transparent); }

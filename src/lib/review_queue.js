@@ -2,9 +2,9 @@
 //   watch       a member's own follow-up list (players added from the database or a Transfermarkt link)
 //   sb_review   a scout asks the lead whether a player goes on the Short Board: the lead adds him (picking the
 //               role) or says not for now
-//   assignment  the lead asks scouts (both, by default) to review a player: one item and note thread they share,
-//               each scout reviewing (optionally with a verdict) or declining on their own (review_assignees); it
-//               settles once every scout has answered
+//   assignment  the lead asks the scouts to review a player. It always goes to every scout: one item and note
+//               thread they share, each scout reviewing (optionally with a verdict) or declining on their own
+//               (review_assignees); it settles once every scout has answered
 // Every item keeps a short note thread (why it was sent, replies). Players both scouts have passed, and that no one
 // has sent up yet, are suggested to the scouts.
 import { logActivity } from "../db.js";
@@ -76,9 +76,9 @@ export function createItem(db, user, input) {
   let scouts = [];
   if (kind === "assignment") {
     if (me.role !== "lead") fail(403, "Only the review lead assigns players");
-    const ids = Array.isArray(input.to_users) ? input.to_users.map(Number) : input.to_user != null ? [Number(input.to_user)] : [];
-    scouts = [...new Set(ids)].map((id) => team.find((u) => u.id === id && u.role === "scout") || fail(400, "Choose scouts to assign"));
-    if (!scouts.length) fail(400, "Choose scouts to assign");
+    // Every scout, whatever the request names: a page open since before shared assignments still sends one scout.
+    scouts = team.filter((u) => u.role === "scout");
+    if (!scouts.length) fail(400, "No one is set as a review scout");
     if (db.get("SELECT 1 FROM review_items WHERE kind = 'assignment' AND status = 'open' AND player_id = ?", player.id))
       fail(409, `${player.name} is already out for review`);
   }

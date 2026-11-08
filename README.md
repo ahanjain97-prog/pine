@@ -323,8 +323,8 @@ syncs leave the signing status alone.
     - **Add to Short Board:** pick the role and write the reason. It goes through the Big Board's audited moves:
       it adds the role if needed, then promotes him, with the note saved as the board reason.
     - **Not for now.**
-  - **The lead assigns players for review**, with a note. Every scout is ticked by default (the lead can untick
-    one). It's one item with one note thread, shown to every scout on it. Each scout answers for themselves:
+  - **The lead assigns players for review**, with a note. An assignment always goes to every scout ("Assign to Ahan
+    and Ford"). It's one item with one note thread, shown to both. Each scout answers for themselves:
     **reviewed**, optionally with their verdict, or **declined**. The row shows each scout's answer.
     - **Settling:** it settles once everyone has answered, as reviewed if anyone reviewed it, otherwise declined.
     - **Answered early:** a scout who has answered sees the item under History until the others answer.
