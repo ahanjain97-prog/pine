@@ -171,6 +171,16 @@ function hydrate(p) {
   return p;
 }
 
+// The start of what a note or college report said (if it still exists), for Activity and a player's History.
+const ACTIVITY_SNIPPET = `
+  CASE WHEN a.action IN ('added_note', 'edited_note') THEN
+      (SELECT substr(n.body, 1, 220) FROM notes n WHERE n.id = json_extract(a.detail, '$.note_id'))
+    WHEN a.action IN ('added_college_report', 'edited_college_report') THEN
+      (SELECT coalesce(r.grade || ' · ', '') || coalesce(substr(r.body, 1, 200), '') FROM ncaa_reports r WHERE r.id = json_extract(a.detail, '$.report_id'))
+  END AS snippet,
+  CASE WHEN a.action IN ('added_note', 'edited_note') THEN
+      (SELECT n.context FROM notes n WHERE n.id = json_extract(a.detail, '$.note_id')) END AS snippet_context`;
+
 const PLAYER_SELECT = `
   SELECT p.*,
     EXISTS(SELECT 1 FROM long_throw_players lt WHERE lt.impect_id = p.impect_id) AS long_throw_detected,
@@ -440,17 +450,26 @@ app.get("/api/players/:id", (c) => {
   const me = c.get("user");
   const staff = db.all("SELECT id, name, in_evals FROM users ORDER BY sort, id").map((u) => {
     const v = db.get("SELECT verdict, updated_at FROM verdicts WHERE player_id = ? AND user_id = ?", player.id, u.id);
+    const notes = db.all("SELECT id, context, body, created_at, updated_at FROM notes WHERE player_id = ? AND user_id = ? ORDER BY created_at DESC, id DESC", player.id, u.id);
+    // A board reason already in their notes (a Short Board decision made in Review is saved as both) shows once.
+    const same = (t) => String(t || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+    const written = new Set(notes.map((n) => same(n.body)));
     return {
       user_id: u.id,
       name: u.name,
       in_evals: u.in_evals,
       verdict: v?.verdict || null,
       verdict_at: v?.updated_at || null,
-      notes: db.all("SELECT id, context, body, created_at, updated_at FROM notes WHERE player_id = ? AND user_id = ? ORDER BY created_at DESC, id DESC", player.id, u.id),
+      notes,
+      // What they wrote moving the player on or off the boards, shown (read-only) beside their notes: every removal
+      // and Short Board drop-back (an exit reason is required), and adds or promotions with a written why.
+      board_notes: db.all(`SELECT id, role, kind, source, why, exit_reason, note, created_at FROM board_reasons
+        WHERE player_id = ? AND user_id = ? AND (kind IN ('take_off', 'drop_back') OR coalesce(trim(why), '') <> '') ORDER BY created_at DESC, id DESC`, player.id, u.id)
+        .filter((r) => !written.has(same(r.why || r.note))),
     };
-  }).filter((s) => s.in_evals || s.verdict || s.notes.length || s.user_id === me?.id); // staff left out of evaluations
+  }).filter((s) => s.in_evals || s.verdict || s.notes.length || s.board_notes.length || s.user_id === me?.id); // staff left out of reports
   const activity = db.all(
-    `SELECT a.id, a.action, a.detail, a.created_at, u.name AS user FROM activity a LEFT JOIN users u ON u.id = a.user_id
+    `SELECT a.id, a.action, a.detail, a.created_at, u.name AS user, ${ACTIVITY_SNIPPET} FROM activity a LEFT JOIN users u ON u.id = a.user_id
      WHERE a.player_id = ? AND a.hidden = 0 ORDER BY a.id DESC LIMIT 40`, player.id);
   const lists = db.all("SELECT l.id, l.name, l.source FROM list_members m JOIN lists l ON l.id = m.list_id WHERE m.player_id = ?", player.id);
   const decision_by = player.decision_by ? db.get("SELECT name FROM users WHERE id = ?", player.decision_by)?.name : null;
@@ -1300,14 +1319,7 @@ app.post("/api/users", async (c) => {
 app.get("/api/activity", (c) =>
   c.json({
     activity: db.all(
-      `SELECT a.id, a.action, a.detail, a.created_at, a.user_id, u.name AS user, a.player_id, p.name AS player,
-         CASE WHEN a.action IN ('added_note', 'edited_note') THEN
-             (SELECT substr(n.body, 1, 220) FROM notes n WHERE n.id = json_extract(a.detail, '$.note_id'))
-           WHEN a.action IN ('added_college_report', 'edited_college_report') THEN
-             (SELECT coalesce(r.grade || ' · ', '') || coalesce(substr(r.body, 1, 200), '') FROM ncaa_reports r WHERE r.id = json_extract(a.detail, '$.report_id'))
-         END AS snippet,
-         CASE WHEN a.action IN ('added_note', 'edited_note') THEN
-             (SELECT n.context FROM notes n WHERE n.id = json_extract(a.detail, '$.note_id')) END AS snippet_context
+      `SELECT a.id, a.action, a.detail, a.created_at, a.user_id, u.name AS user, a.player_id, p.name AS player, ${ACTIVITY_SNIPPET}
        FROM activity a LEFT JOIN users u ON u.id = a.user_id LEFT JOIN players p ON p.id = a.player_id
        WHERE a.action <> 'signed_in' AND a.hidden = 0 ORDER BY a.id DESC LIMIT ?`, Math.min(Number(c.req.query("limit")) || 60, 1500)),
   })

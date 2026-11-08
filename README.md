@@ -24,7 +24,7 @@ Sign-in is email + password. Nobody signs up: an admin opens **Staff** and click
 person, which opens a Gmail draft to them with the link; press Send. The link opens a page where they choose a password; after
 that they sign in with their email and that password and stay signed in for 180 days on that device. A link works
 once and expires after 7 days; a forgotten password is fixed the same way, with a new link. Any signed-in staff
-member can edit the big board, add players and write in their own evaluation section; admins can also delete
+member can edit the big board, add players and write in their own Staff reports box; admins can also delete
 players and manage the staff list. With `PINE_AUTH=off` (local development) there is no sign-in: pick who you
 are from the name menu in the top bar.
 
@@ -332,7 +332,7 @@ syncs leave the signing status alone.
   - **Watch lists:** everyone on the team keeps a private watch list. Players can be added from a PINE search
     or a Transfermarkt link (new players are added to PINE first).
   - **Note thread:** every item keeps one.
-  - **Staff evaluations:** notes that report on the player are also saved as the author's evaluation note on the
+  - **Staff reports:** notes that report on the player are also saved as the author's note in Staff reports on the
     player page, labelled with what they were (e.g. "Review: reviewed, Hold", "Review: asked Ahan and Ford to
     review"). That covers the lead's note when assigning; a scout's note when reviewing, declining or sending a
     player up; and the lead's Short Board decision. Thread replies and watch lists stay in the Review tab. The
@@ -363,12 +363,13 @@ syncs leave the signing status alone.
   tracking reasons, newest first: date, staff member, role, source or exit reason and written
   explanation. History survives removing a board entry. Adding a player to PINE without a board role offers
   optional Source and Why fields, or **Add without a reason**. Board moves and their reasons
-  also appear in Activity. The header holds Transfermarkt facts, the club decision and the staff verdict tally. Staff evaluations
+  also appear in Activity. **History** lists everything done to the player; a note's entry shows the start of what it said. The header holds Transfermarkt facts, the club decision and the staff verdict tally. Staff reports
   show everyone's box (yours first, then anyone who has weighed in); "Hide empty" folds the rest into one line,
   remembered per browser. Below it,
-  the shared summary, college scouting reports (players in the college database; not shown for pros on the Short Board) and one evaluation section per staff member (only you can
-  write in yours), with big board roles, the NCAA board spot (college players), lists, the Impect link and history alongside. The KPI profile and
-  playing time follow the evaluations in the left column (below everything on narrow screens). The analytics tabs cover
+  the shared summary, college scouting reports (players in the college database; not shown for pros on the Short Board) and one Staff reports box per staff member (only you can
+  write in yours; each box also shows, read-only, the reasons that person gave for board moves: every removal and
+  Short Board drop-back, and adds or promotions with a written why — these don't count as reports), with big board roles, the NCAA board spot (college players), lists, the Impect link and history alongside. The KPI profile and
+  playing time follow the staff reports in the left column (below everything on narrow screens). The analytics tabs cover
   the KPI profile, physical data, pitch maps and player card; one season and position picker drives the three
   Impect tabs (physical data has its own seasons). A tab loads the first time it is opened.
 - **Player card**: a PDF made outside PINE, shown on the player page as a picture that opens the PDF.
@@ -409,8 +410,8 @@ syncs leave the signing status alone.
   quiet **Report edited**. Any player with a report added in the last 7 days carries a ✎ after their name on the
   boards and tables (green when the latest is yours; hover for who and when). Non-player updates (imports, staff,
   PINE) form a General group per day. Filter by player, Reports only, who, and backups (hidden by default).
-- **Staff** (`#/staff`, admins): set each person's sign-in email, add staff, and choose who gets an evaluation
-  section and verdict dot on every player (**Evaluations**; someone unticked still shows where they've written).
+- **Staff** (`#/staff`, admins): set each person's sign-in email, add staff, and choose who gets a Staff reports
+  box and verdict dot on every player (**Reports**; someone unticked still shows where they've written).
 
 ## Data sources
 

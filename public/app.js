@@ -141,7 +141,7 @@ const signedBadge = (p, lg = false) => p.is_signed ? `<span class="signed-badge 
 const verdictChip = (v) => `<span class="dchip ${v ? "v-" + v : ""}">${v ? cap(v) : "No verdict"}</span>`;
 const fact = (label, value, html = false) => (value == null || value === "" ? "" : `<div><dt>${esc(label)}</dt><dd>${html ? value : esc(value)}</dd></div>`);
 function verdictDots(verdicts, wide = false) {
-  // One dot per staff member in evaluations (plus anyone else who has given this player a verdict).
+  // One dot per staff member with a Staff reports box (plus anyone else who has given this player a verdict).
   return `<span class="vdots ${wide ? "wide" : ""}">${S.config.staff.filter((s) => s.in_evals !== 0 || verdicts?.[s.name]).map((s) => {
     const v = verdicts?.[s.name];
     return `<i class="vdot ${v ? "v-" + v : ""}" title="${esc(s.name)}: ${v ? cap(v) : "no verdict"}"></i>`;
@@ -1456,7 +1456,7 @@ async function renderPlayer(main, idArg) {
           <p class="banner err" id="summary-error" role="alert" hidden></p>
         </section>
         ${collegePanel(d)}
-        <section class="panel"><header class="panel-h"><h2>Staff evaluations</h2></header>${evalsHTML(d.staff)}</section>
+        <section class="panel"><header class="panel-h"><h2>Staff reports</h2></header>${evalsHTML(d.staff)}</section>
       </div>
       <div class="p-side">
         ${p.tm_url ? "" : `<section class="panel" id="tm-panel"><header class="panel-h"><h2>Transfermarkt</h2></header><div class="loading sm">Searching Transfermarkt…</div></section>`}
@@ -1532,7 +1532,7 @@ async function loadGatesPanel(root, p) {
         <p><b>Packing and ball wins:</b> the study's MLS NEXT Pro positional percentiles, weighted by match shares across seasons in the 365 days before the projected move. Reference players have at least 5 match shares; each metric needs 10 valid peers. Midfielders share the MID group. These differ from the pooled KPI profile.</p>
         <p><b>Total pro minutes:</b> recorded MLS, MLS NEXT Pro, USL Championship and USL League One minutes before the move. Overseas minutes are excluded. Impect covers match-level minutes; ASA fills historical league-seasons without Impect coverage.</p>
         <p><b>Age:</b> assessed on the projected move date using the exact birthday${d.birthdate ? ` (${esc(fmtDate(d.birthdate))})` : ""}. Goalkeepers have three gates; ball wins does not apply.</p>
-        <p>Rule set: ${esc(d.rule_version)}${d.source_commit ? ` · source ${esc(d.source_commit.slice(0, 8))}` : ""}. Gate results are separate from the club decision and staff evaluations.</p>
+        <p>Rule set: ${esc(d.rule_version)}${d.source_commit ? ` · source ${esc(d.source_commit.slice(0, 8))}` : ""}. Gate results are separate from the club decision and staff reports.</p>
         ${d.sources.length ? `<ul>${d.sources.map((s) => `<li>${esc(s.name)} · fetched ${esc(fmtDateTime(s.fetched_at))}${s.stale ? " · stale" : ""}</li>`).join("")}</ul>` : ""}
       </details></div>`;
   } catch (e) {
@@ -1606,7 +1606,9 @@ function kpiPhase(ph, d) {
 
 // The five latest entries; older ones fold away so History doesn't outgrow the page beside it.
 function historyHTML(activity) {
-  const li = (a) => `<li><span><b>${esc(actor(a))}</b> ${describe(a, true)}</span><span class="when" title="${esc(fmtDateTime(a.created_at))}">${esc(relTime(a.created_at))}</span></li>`;
+  // A note's entry shows the start of what it said, as Activity does.
+  const snip = (a) => (a.snippet ? `<div class="act-snip">${a.snippet_context ? `<b>${esc(a.snippet_context)}</b> · ` : ""}${esc(a.snippet)}${a.snippet.length >= 200 ? "…" : ""}</div>` : "");
+  const li = (a) => `<li><span><span><b>${esc(actor(a))}</b> ${describe(a, true)}</span>${snip(a)}</span><span class="when" title="${esc(fmtDateTime(a.created_at))}">${esc(relTime(a.created_at))}</span></li>`;
   if (!activity.length) return `<ul class="feed"><li class="empty">No history yet.</li></ul>`;
   const rest = activity.slice(5);
   return `<ul class="feed">${activity.slice(0, 5).map(li).join("")}</ul>${rest.length
@@ -1807,7 +1809,7 @@ function rolesPanel(p) {
 // staff who haven't weighed in into one line; the choice is remembered in this browser.
 const hideEmptyEvals = () => { try { return localStorage.getItem("pine.hideEmptyEvals") === "1"; } catch { return false; } };
 function evalsHTML(staff) {
-  const active = staff.filter((s) => s.user_id === S.me.id || s.verdict || s.notes.length)
+  const active = staff.filter((s) => s.user_id === S.me.id || s.verdict || s.notes.length || s.board_notes?.length)
     .sort((a, b) => (b.user_id === S.me.id) - (a.user_id === S.me.id));
   const quiet = staff.filter((s) => !active.includes(s));
   const names = quiet.map((s) => s.name);
@@ -1820,14 +1822,31 @@ function evalsHTML(staff) {
 
 function evalHTML(s) {
   const mine = s.user_id === S.me.id;
+  // Their notes and their board reasons, newest first.
+  const items = [...s.notes.map((n) => ["note", n]), ...(s.board_notes || []).map((r) => ["board", r])]
+    .sort(([, a], [, b]) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
   return `<article class="eval ${mine ? "mine" : ""}">
     <header class="eval-h"><span class="avatar">${esc(s.name[0])}</span><b>${esc(s.name)}</b>${mine ? `<span class="you">You</span>` : ""}${mine ? seg(s.verdict, "verdict") : verdictChip(s.verdict)}</header>
     ${mine ? `<form class="note-form" id="note-form">
       <input name="context" id="nf-ctx" data-keep placeholder="Context, e.g. Live vs Richmond 9/12, video, trial" aria-label="Note context">
       <textarea name="body" id="nf-body" data-keep data-draft data-orig="" rows="3" placeholder="Add your notes on this player…" aria-label="Note"></textarea>
       <div class="row end"><button class="btn sm primary" type="submit">Add note</button></div></form>` : ""}
-    <div class="notes">${s.notes.length ? s.notes.map((n) => noteHTML(n, mine)).join("") : `<p class="empty">${mine ? "No notes from you yet." : `No notes from ${esc(s.name)} yet.`}</p>`}</div>
+    <div class="notes">${items.length ? items.map(([kind, n]) => (kind === "board" ? boardNoteHTML(n) : noteHTML(n, mine))).join("") : `<p class="empty">${mine ? "No notes from you yet." : `No notes from ${esc(s.name)} yet.`}</p>`}</div>
   </article>`;
+}
+
+// A reason written moving the player on or off the boards, from his board history: shown in the author's box, not
+// editable here (the board history keeps it), and not counted as a report.
+function boardNoteHTML(r) {
+  const where = r.role ? ` · ${roleLabel(r.role)}` : "";
+  const what = { take_off: `Removed from the Big Board${where}`, drop_back: `Taken off the Short Board${where}`, add: `Added to the Big Board${where}`,
+    promote: `Put on the Short Board${where}`, track: "Added to PINE" }[r.kind] || "Board";
+  const body = [r.exit_reason && `<b>${esc(r.exit_reason)}</b>`, r.why && esc(r.why), r.note && esc(r.note)].filter(Boolean).join(" · ");
+  return `<div class="note board-note" title="From the board history">
+    <div class="note-ctx">${esc(what)}${r.source ? ` · ${esc(r.source)}` : ""}</div>
+    ${body ? `<div class="note-body">${body}</div>` : ""}
+    <div class="note-meta"><span title="${esc(fmtDateTime(r.created_at))}">${esc(relTime(r.created_at))}</span></div>
+  </div>`;
 }
 
 function noteHTML(n, mine) {
@@ -1922,7 +1941,7 @@ function wireSummary(root, p) {
   });
 }
 
-// The KPI and playing-time panels sit under the evaluations, beside the sidebar, so a tall sidebar leaves no gap
+// The KPI and playing-time panels sit under the staff reports, beside the sidebar, so a tall sidebar leaves no gap
 // above them; when the sidebar is the shorter column they span the full width instead. Re-checked whenever either
 // column changes height (the Impect, Transfermarkt and history panels load after the page).
 function fitPlayerGrid(root) {
@@ -3582,15 +3601,15 @@ async function renderStaff(main) {
   if (!S.me.is_admin) { location.hash = "#/board"; return; }
   const { users } = await api("GET", "/api/users");
   main.innerHTML = `<div class="page" style="max-width:1000px">
-    <div class="page-h"><div><h1>Staff</h1><div class="sub">Everyone ticked under <b>Evaluations</b> gets their own evaluation section and verdict dot on every player (anyone unticked still shows where they've written something). To let someone sign in, or to reset a forgotten password,
+    <div class="page-h"><div><h1>Staff</h1><div class="sub">Everyone ticked under <b>Reports</b> gets their own box in Staff reports and a verdict dot on every player (anyone unticked still shows where they've written something). To let someone sign in, or to reset a forgotten password,
       click <b>Email sign-in link</b>: a Gmail draft opens, addressed to them with their link, and you press Send. They open the link, choose a password, and from then on sign in with their email and that password.
       A link works once and expires after 7 days.</div></div></div>
-    <div class="table-wrap"><table class="grid"><thead><tr><th>Name</th><th>Sign-in email</th><th>Sign-in</th><th>Admin</th><th>Evaluations</th><th title="Who has the Review tab: the lead decides the Short Board and assigns reviews; scouts send players up">Review</th><th></th></tr></thead><tbody>
+    <div class="table-wrap"><table class="grid"><thead><tr><th>Name</th><th>Sign-in email</th><th>Sign-in</th><th>Admin</th><th>Reports</th><th title="Who has the Review tab: the lead decides the Short Board and assigns reviews; scouts send players up">Review</th><th></th></tr></thead><tbody>
       ${users.map((u) => `<tr data-uid="${u.id}" data-has-password="${u.has_password ? 1 : 0}" style="cursor:default"><td><b>${esc(u.name)}</b></td>
         <td><input type="email" value="${esc(u.email || "")}" placeholder="Add an email to let ${esc(u.name)} sign in" style="width:260px" aria-label="${esc(u.name)} email"></td>
         <td>${signInStatus(u)}</td>
         <td><input type="checkbox" name="is_admin" ${u.is_admin ? "checked" : ""} ${u.id === S.me.id ? "disabled" : ""} aria-label="${esc(u.name)} is admin"></td>
-        <td><input type="checkbox" name="in_evals" ${u.in_evals ? "checked" : ""} aria-label="${esc(u.name)} has an evaluation section"></td>
+        <td><input type="checkbox" name="in_evals" ${u.in_evals ? "checked" : ""} aria-label="${esc(u.name)} has a Staff reports box"></td>
         <td><select name="review_role" aria-label="${esc(u.name)} review role">${[["", "—"], ["lead", "Lead"], ["scout", "Scout"]].map(([v, l]) =>
           `<option value="${v}" ${(u.review_role || "") === v ? "selected" : ""}>${l}</option>`).join("")}</select></td>
         <td class="staff-actions"><button type="button" class="btn sm" data-save-user>Save</button>
