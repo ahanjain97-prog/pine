@@ -997,6 +997,9 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
 .rv-empty { margin: 0; padding: 28px 0; text-align: center; color: var(--muted); font-size: 13.5px; }
 .rv-row { display: grid; grid-template-columns: minmax(200px, 280px) minmax(0, 1fr) auto; gap: 6px 18px; align-items: center; padding: 12px 0; }
 .rv-row + .rv-row { border-top: 1px solid var(--line); }
+.rv-sub { margin: 14px 0 2px; font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-2); }
+.rv-sub .muted { font-weight: 600; }
+.rv-row + .rv-sub { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
 .rv-row.settled .rv-player, .rv-row.settled .rv-info { opacity: .78; }
 .rv-player { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .rv-who { min-width: 0; }

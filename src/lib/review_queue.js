@@ -242,7 +242,9 @@ export function reviewBoard(db, user) {
     WHERE n.item_id IN (${rows.map(() => "?").join(",")}) ORDER BY n.id`, ...rows.map((r) => r.id)) : [];
   const name = (id) => team.find((u) => u.id === id)?.name ?? db.get("SELECT name FROM users WHERE id = ?", id)?.name ?? null;
   const openSb = new Set(rows.filter((r) => r.kind === "sb_review" && r.status === "open").map((r) => r.player_id));
-  const awaiting = (r) => me.role === "lead" && r.kind === "assignment" && ["open", "reviewed", "declined"].includes(r.status)
+  // An assignment a scout has answered, waiting for the lead's Short Board call: in his Decisions, and in the
+  // scouts' Ready for the lead once they've answered it.
+  const awaiting = (r) => r.kind === "assignment" && ["open", "reviewed", "declined"].includes(r.status)
     && r.assignees.some((a) => a.status !== "open") && !openSb.has(r.player_id);
   const items = rows.map((r) => ({ ...r, awaiting_lead: awaiting(r), from_name: name(r.from_user),
     to_name: r.assignees ? r.assignees.map((a) => a.name).join(" and ") : r.to_user ? name(r.to_user) : null,

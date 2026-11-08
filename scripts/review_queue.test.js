@@ -106,10 +106,12 @@ test('an answered assignment waits in the lead\'s Decisions; his call closes it 
   assert.equal(reviewCount(db, RAY), 0);
   resolveItem(db, FORD, a, { outcome: 'reviewed', verdict: 'hold', note: 'Low ball wins.' });
   assert.deepEqual(decisions(), ['assignment:1']);
+  assert.equal(reviewBoard(db, FORD).items.find((i) => i.id === a).awaiting_lead, true, 'Ford sees it waiting on Ray (Ready for Ray)');
   assert.equal(reviewCount(db, RAY), 1);
   assert.throws(() => resolveItem(db, AHAN, a, { outcome: 'not_sb' }), /Only the review lead decides/);
   resolveItem(db, RAY, a, { outcome: 'not_sb', note: 'Not for this window.' });
   assert.equal(db.get('SELECT status FROM review_items WHERE id = ?', a).status, 'not_sb');
+  assert.equal(reviewBoard(db, FORD).items.find((i) => i.id === a).awaiting_lead, false, 'decided: off Ready, into History');
   assert.deepEqual([decisions(), reviewCount(db, RAY), reviewCount(db, AHAN)], [[], 0, 0], 'Ahan no longer owes an answer');
   assert.throws(() => resolveItem(db, AHAN, a, { outcome: 'reviewed' }), /already been dealt with/);
 

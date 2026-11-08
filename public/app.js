@@ -3775,7 +3775,8 @@ const rvWhen = (s) => `<span title="${esc(fmtDateTime(s))}">${esc(relTime(s))}</
 function reviewCard(item, actions, always = false) {
   const p = S.byId.get(item.player_id);
   if (!p) return "";
-  const settled = item.status !== "open";
+  // An assignment both scouts answered is settled for them but still waits on the lead: it reads as open until he decides.
+  const settled = item.status !== "open" && !item.awaiting_lead;
   const [label, tone] = settled ? RV_STATUS[item.status] || [item.status, ""] : [];
   const others = (item.assignees || []).filter((x) => x.user_id !== S.me.id).map((x) => x.name);
   const route = item.kind === "sb_review" ? `From ${esc(item.from_name)}` : item.kind === "assignment"
@@ -3859,11 +3860,16 @@ async function renderReview(main) {
   } else {
     const sent = new Set(sb.map((i) => i.player_id));
     const ready = d.suggestions.filter((id) => !sent.has(id)).map((id) => S.byId.get(id)).filter(Boolean);
+    // Assignments you've answered that now wait for the lead's Short Board call.
+    const withLead = asg.filter((i) => i.awaiting_lead && myAnswer(i) !== "open").sort((a, b) => (lastMove(b) > lastMove(a) ? 1 : -1));
+    const heading = (t, n) => `<h3 class="rv-sub">${esc(t)} <span class="muted">${n}</span></h3>`;
     tabs = [
       { id: "assigned", label: "Assigned to you", list: asg.filter((i) => open(i) && myAnswer(i) === "open"), urgent: true, empty: `Nothing from ${leadName} to review.`,
         html: (l) => rows(l, () => `<button type="button" class="btn sm primary" data-rv-review>Review</button><button type="button" class="btn sm" data-rv-resolve="declined">Decline</button>`) },
-      { id: "ready", label: `Ready for ${leadName}`, list: ready, empty: `No players ${reviewScouts().map((x) => x.name).join(" and ")} have both passed are waiting.`,
-        html: (l) => l.map(reviewSuggestion).join("") },
+      { id: "ready", label: `Ready for ${leadName}`, list: [...withLead, ...ready],
+        empty: `Nothing waiting on ${leadName}: no reviews back with him, and no players ${reviewScouts().map((x) => x.name).join(" and ")} have both passed to send.`,
+        html: () => `${withLead.length ? `${heading(`Reviewed, waiting on ${leadName}'s Short Board decision`, withLead.length)}${rows(withLead, () => "", true)}` : ""}${
+          ready.length ? `${heading(`Both passed, not sent to ${leadName} yet`, ready.length)}${ready.map(reviewSuggestion).join("")}` : ""}` },
       { id: "sent", label: `Sent to ${leadName}`, list: sb.filter(open), empty: `Nothing waiting with ${leadName}.`,
         html: (l) => rows(l, (i) => (i.from_user === S.me.id ? `<button type="button" class="btn sm ghost" data-rv-resolve="removed" data-rv-withdraw title="Take this request back: it leaves ${esc(leadName)}'s queue and Activity">Withdraw</button>` : "")) },
       { id: "watch", label: "Watch list", list: watch, empty: "Your watch list is empty. Add players with the bar above.", html: (l) => rows(l, watchActions) },

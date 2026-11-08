@@ -319,7 +319,8 @@ syncs leave the signing status alone.
   Staff page (Review column: Lead / Scout); it starts with Ray as lead and Ahan and Ford as scouts.
   - **Scouts send players up** to the lead for a Short Board decision, with a note. The scout who sent one can
     **Withdraw** it while it waits (under "Sent to Ray"): it leaves the lead's queue, the Review tab and Activity. Players both scouts have
-    passed are suggested under "Ready for Ray" until someone sends them.
+    passed are suggested under "Ready for Ray" until someone sends them. That tab also lists the lead's assignments
+    you've answered that wait for his Short Board decision.
   - **The lead decides** on each request:
     - **Add to Short Board:** pick the role and write the reason. It goes through the Big Board's audited moves:
       it adds the role if needed, then promotes him, with the note saved as the board reason.
