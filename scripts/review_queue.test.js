@@ -221,6 +221,33 @@ test('editing the Staff reports copy of a Review note updates the thread, marked
   syncReviewNote(db, null, 'ignored'); // an ordinary note has no Review original
 });
 
+test('the lead can put a reviewed player on the Big Board, or move him up it, instead of the Short Board', (t) => {
+  const db = setup(t);
+  for (const id of [1, 2, 3]) db.run("INSERT INTO board_entries(player_id, role, rank) VALUES (?, 'FWD1', ?)", id, id - 1);
+  // Player 4: not on the board. Added at #2 of FWD1, with the reason recorded like any Big Board add.
+  const a = createItem(db, RAY, { kind: 'assignment', player_id: 4 });
+  resolveItem(db, FORD, a, { outcome: 'reviewed', verdict: 'hold' });
+  assert.throws(() => resolveItem(db, RAY, a, { outcome: 'added_bb', role: 'FWD1' }), /Note is required/);
+  assert.throws(() => resolveItem(db, AHAN, a, { outcome: 'added_bb', role: 'FWD1', note: 'x' }), /Only the review lead/);
+  resolveItem(db, RAY, a, { outcome: 'added_bb', role: 'FWD1', index: 1, note: 'Depth behind our top two.' });
+  const order = () => db.all("SELECT player_id FROM board_entries WHERE role = 'FWD1' ORDER BY rank").map((r) => r.player_id);
+  assert.deepEqual(order(), [1, 4, 2, 3]);
+  assert.equal(db.get("SELECT shortlist FROM board_entries WHERE player_id = 4").shortlist, 0, 'not starred');
+  assert.equal(db.get("SELECT why FROM board_reasons WHERE player_id = 4 AND kind = 'add'").why, 'Depth behind our top two.');
+  assert.equal(db.get('SELECT status FROM review_items WHERE id = ?', a).status, 'added_bb');
+  assert.equal(db.get('SELECT context FROM notes WHERE player_id = 4 AND user_id = 1').context, 'Review: added to the Big Board (FWD Complete, #2)');
+
+  // Player 3, already on FWD1 at #4: a request moves him to the top.
+  const sb = createItem(db, AHAN, { kind: 'sb_review', player_id: 3, note: 'Better than his spot.' });
+  assert.throws(() => resolveItem(db, RAY, sb, { outcome: 'added_bb', role: 'FWD1', note: 'x' }), /already on the Big Board in that role/);
+  assert.throws(() => resolveItem(db, RAY, sb, { outcome: 'moved_bb', role: 'FWD1' }), /Choose a rank/);
+  assert.throws(() => resolveItem(db, RAY, sb, { outcome: 'moved_bb', role: 'FWD2', index: 0 }), /isn't on the Big Board in that role/);
+  resolveItem(db, RAY, sb, { outcome: 'moved_bb', role: 'FWD1', index: 0 });
+  assert.deepEqual(order(), [3, 1, 4, 2]);
+  assert.equal(db.get('SELECT status FROM review_items WHERE id = ?', sb).status, 'moved_bb');
+  assert.equal(reviewCount(db, RAY), 0);
+});
+
 test('notes need text and visibility', (t) => {
   const db = setup(t);
   const id = createItem(db, AHAN, { kind: 'sb_review', player_id: 1 });

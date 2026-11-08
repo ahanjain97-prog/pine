@@ -6,7 +6,8 @@
 //   assignment  the lead asks the scouts to review a player. It always goes to every scout: one item and note
 //               thread they share, each scout reviewing (optionally with a verdict) or declining on their own
 //               (review_assignees); it settles once every scout has answered. Once anyone has answered, it waits in
-//               the lead's Decisions beside the scouts' requests, and his call (Short Board, or not for now) closes it
+//               the lead's Decisions beside the scouts' requests, and his call closes it: Short Board, Big Board (add
+//               him, or move him if he's already on it), or not for now
 // Every item keeps a short note thread (why it was sent, replies). Players both scouts have passed, and that no one
 // has sent up yet, are suggested to the scouts.
 // Notes that report on the player also go in the author's Staff evaluation on the player page: the lead's note when
@@ -14,13 +15,15 @@
 // Thread replies and watch lists stay in the Review tab.
 import { logActivity } from "../db.js";
 import { ROLES } from "../roles.js";
-import { addBoardRole, setBoardStar } from "./board_reasons.js";
+import { addBoardRole, moveBoardCard, setBoardStar } from "./board_reasons.js";
+import { spotIn } from "./board.js";
 
 const KINDS = ["watch", "sb_review", "assignment"];
 const VERDICTS = ["pass", "hold", "fail"];
-const OUTCOMES = { watch: ["removed"], sb_review: ["added_sb", "not_sb", "removed"], assignment: ["reviewed", "declined", "removed", "added_sb", "not_sb"] };
-// The lead's Short Board call. On any request or assignment it settles every other open one on the same player.
-const DECISIONS_SB = ["added_sb", "not_sb"];
+// The lead's call on a player: Short Board, Big Board (add, or move up/down if he's on it), or not for now. On any
+// request or assignment it settles every other open one on the same player.
+const DECISIONS_SB = ["added_sb", "added_bb", "moved_bb", "not_sb"];
+const OUTCOMES = { watch: ["removed"], sb_review: [...DECISIONS_SB, "removed"], assignment: ["reviewed", "declined", "removed", ...DECISIONS_SB] };
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 const text = (value, name, required = false) => {
   if (value == null || value === "") { if (required) fail(400, `${name} is required`); return null; }
@@ -64,7 +67,7 @@ function addNoteRow(db, itemId, userId, body) {
 }
 
 // What the copied note was, shown as its context in the evaluation.
-function evalContext(action, { to, verdict, role } = {}) {
+function evalContext(action, { to, verdict, role, spot } = {}) {
   const r = role && ROLES[role];
   return {
     assignment: `Review: asked ${to || "the scouts"} to review`,
@@ -72,6 +75,8 @@ function evalContext(action, { to, verdict, role } = {}) {
     reviewed: `Review: reviewed${verdict ? `, ${verdict[0].toUpperCase()}${verdict.slice(1)}` : ""}`,
     declined: "Review: declined to review",
     added_sb: `Review: put on the Short Board${r ? ` (${r.position} ${r.label})` : ""}`,
+    added_bb: `Review: added to the Big Board${r ? ` (${r.position} ${r.label}${spot != null ? `, #${spot + 1}` : ""})` : ""}`,
+    moved_bb: `Review: moved on the Big Board${r ? ` (${r.position} ${r.label}${spot != null ? `, to #${spot + 1}` : ""})` : ""}`,
     not_sb: "Review: not for the Short Board for now",
   }[action];
 }
@@ -177,7 +182,7 @@ export function resolveItem(db, user, itemId, input) {
   if (item.status !== "open" && !(item.kind === "assignment" && decision && ["reviewed", "declined"].includes(item.status)))
     fail(409, "This has already been dealt with");
   if (!OUTCOMES[item.kind].includes(outcome)) fail(400, "Choose a valid outcome");
-  const note = text(input.note, "Note", outcome === "added_sb");
+  const note = text(input.note, "Note", outcome === "added_sb" || outcome === "added_bb");
   if (item.kind === "watch" && item.from_user !== me.id) fail(403, "Only its owner changes a watch list");
   if (item.kind === "sb_review" && outcome === "removed" && item.from_user !== me.id) fail(403, "Only the scout who sent it withdraws a request");
   if (item.kind === "sb_review" && outcome !== "removed" && me.role !== "lead") fail(403, "Only the review lead decides the Short Board");
@@ -193,7 +198,15 @@ export function resolveItem(db, user, itemId, input) {
   const verdict = input.verdict ?? null;
   if (verdict != null && (item.kind !== "assignment" || outcome !== "reviewed" || !VERDICTS.includes(verdict))) fail(400, "Verdict must be pass, hold or fail");
   const role = input.role ?? null;
-  if (outcome === "added_sb" && (typeof role !== "string" || !Object.hasOwn(ROLES, role))) fail(400, "Choose the Big Board role");
+  if (["added_sb", "added_bb", "moved_bb"].includes(outcome) && (typeof role !== "string" || !Object.hasOwn(ROLES, role))) fail(400, "Choose the Big Board role");
+  // Where in the role (0 = top); adding without one puts him at the bottom.
+  const index = input.index == null || input.index === "" ? null : Number(input.index);
+  if (index != null && !(Number.isInteger(index) && index >= 0)) fail(400, "Choose a rank in the role");
+  const onRole = role && db.get("SELECT 1 FROM board_entries WHERE player_id = ? AND role = ?", item.player_id, role);
+  if (outcome === "added_bb" && onRole) fail(409, "He's already on the Big Board in that role: move him instead");
+  if (outcome === "moved_bb" && !onRole) fail(400, "He isn't on the Big Board in that role");
+  if (outcome === "moved_bb" && index == null) fail(400, "Choose a rank in the role");
+  let spot = null;
 
   return db.tx(() => {
     if (outcome === "added_sb") {
@@ -202,6 +215,12 @@ export function resolveItem(db, user, itemId, input) {
         addBoardRole(db, item.player_id, role, { source: "Referral: Staff", why: note }, me.id);
       setBoardStar(db, item.player_id, role, true, { why: note }, me.id);
     }
+    if (outcome === "added_bb") {
+      addBoardRole(db, item.player_id, role, { source: "Referral: Staff", why: note }, me.id);
+      if (index != null) moveBoardCard(db, item.player_id, { from_role: role, to_role: role, index }, me.id);
+      spot = spotIn(db, item.player_id, role);
+    }
+    if (outcome === "moved_bb") spot = moveBoardCard(db, item.player_id, { from_role: role, to_role: role, index }, me.id);
     if (verdict) {
       db.run(`INSERT INTO verdicts(player_id, user_id, verdict) VALUES (?,?,?)
         ON CONFLICT(player_id, user_id) DO UPDATE SET verdict = excluded.verdict, updated_at = datetime('now')`, item.player_id, me.id, verdict);
@@ -226,10 +245,10 @@ export function resolveItem(db, user, itemId, input) {
     }
     if (note) {
       const nid = addNoteRow(db, item.id, me.id, note);
-      const context = outcome === "removed" ? null : evalContext(outcome, { verdict, role });
+      const context = outcome === "removed" ? null : evalContext(outcome, { verdict, role, spot });
       if (context) addEvalNote(db, { playerId: item.player_id, userId: me.id, reviewNoteId: nid, body: note, context });
     }
-    logActivity(db, me.id, item.player_id, "review_resolved", { kind: item.kind, outcome, role, verdict, note });
+    logActivity(db, me.id, item.player_id, "review_resolved", { kind: item.kind, outcome, role, verdict, note, ...(spot != null ? { spot } : {}) });
     if (item.kind === "watch") hideLast(db);
     if (item.kind === "sb_review" && outcome === "removed") withdrawTraces(db, item);
   });

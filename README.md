@@ -332,7 +332,8 @@ syncs leave the signing status alone.
     - **Answered early:** a scout who has answered sees the item under History until the others answer.
     - **Withdraw:** the lead can withdraw an assignment.
     - **Lead's decision:** once either scout has answered, the player waits in the lead's **Decisions** beside the
-      scouts' requests (and counts in his badge): **Add to Short Board** or **Not for now**. His call closes the
+      scouts' requests (and counts in his badge): **Add to Big Board** (role, optional rank, reason) or **Move on Big
+      Board** if he's already on it (role, new rank), **Add to Short Board**, or **Not for now**. His call closes the
       assignment even if the other scout hasn't answered, and settles any other open request on the player. A
       player both sent up and answered shows once.
   - **Watch lists:** everyone on the team keeps a private watch list. Players can be added from a PINE search

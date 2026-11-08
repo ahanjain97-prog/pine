@@ -3420,6 +3420,8 @@ function describeMove(a, onPlayerPage = false) {
     case "review_assignment": return `asked ${esc(d.to || "a scout")} to review ${who}`;
     case "review_resolved": return {
       added_sb: `put ${who} on the Short Board from review${d.role ? ` (${esc(roleLabel(d.role))})` : ""}`,
+      added_bb: `added ${who} to the Big Board from review${d.role ? ` (${esc(roleLabel(d.role))}${d.spot != null ? `, #${d.spot + 1}` : ""})` : ""}`,
+      moved_bb: `moved ${who} on the Big Board from review${d.role ? ` (${esc(roleLabel(d.role))}${d.spot != null ? `, to #${d.spot + 1}` : ""})` : ""}`,
       not_sb: `decided ${who} isn't for the Short Board for now`,
       reviewed: `reviewed ${who}${d.verdict ? ` ${chip(d.verdict)}` : ""}`,
       declined: `declined to review ${who}`,
@@ -3759,7 +3761,8 @@ function setReviewBadge(n) {
   b.textContent = n || "";
 }
 
-const RV_STATUS = { added_sb: ["On the Short Board", "pass"], not_sb: ["Not for the Short Board", "fail"], reviewed: ["Reviewed", "pass"],
+const RV_STATUS = { added_sb: ["On the Short Board", "pass"], added_bb: ["Added to the Big Board", "pass"], moved_bb: ["Moved on the Big Board", "pass"],
+  not_sb: ["Not for the Short Board", "fail"], reviewed: ["Reviewed", "pass"],
   declined: ["Declined", "hold"], removed: ["Withdrawn", ""] };
 
 function reviewPlayerHead(p) {
@@ -3786,8 +3789,8 @@ function reviewCard(item, actions, always = false) {
   const answers = shared ? `<div class="rv-answers">${item.assignees.map((x) =>
     `<span class="rv-answer ${x.status}">${esc(x.user_id === S.me.id ? "You" : x.name)}: ${x.status === "open" ? (settled ? "no answer" : "to review")
       : x.status === "reviewed" ? `reviewed${p.verdicts?.[x.name] ? ` (${esc(cap(p.verdicts[x.name]))})` : ""}` : "declined"}</span>`).join("")}</div>` : "";
-  // Who settled it: the lead for a withdrawal or his Short Board call; otherwise the scouts' answers say it.
-  const by = shared && !["removed", "added_sb", "not_sb"].includes(item.status) ? "" : esc(item.resolved_by_name || "");
+  // Who settled it: the lead for a withdrawal or his Short Board / Big Board call; otherwise the scouts' answers say it.
+  const by = shared && !["removed", "added_sb", "added_bb", "moved_bb", "not_sb"].includes(item.status) ? "" : esc(item.resolved_by_name || "");
   const last = item.notes.at(-1);
   return `<article class="rv-row ${settled ? "settled" : ""}" data-item="${item.id}" data-player="${p.id}">
     ${reviewPlayerHead(p)}
@@ -3851,7 +3854,7 @@ async function renderReview(main) {
       // What the scouts sent up, and his assignments once a scout has answered: newest first, one call each.
       { id: "decide", label: "Decisions", list: [...sb.filter(open), ...asg.filter((i) => i.awaiting_lead)].sort((a, b) => (lastMove(b) > lastMove(a) ? 1 : -1)),
         urgent: true, empty: "Nothing waiting for a decision.",
-        html: (l) => rows(l, () => `<button type="button" class="btn sm primary" data-rv-add-sb>Add to Short Board</button><button type="button" class="btn sm" data-rv-resolve="not_sb">Not for now</button>`, true) },
+        html: (l) => rows(l, (i) => decisionActions(S.byId.get(i.player_id)), true) },
       { id: "watch", label: "Watch list", list: watch, empty: "Your watch list is empty. Add players with the bar above.", html: (l) => rows(l, watchActions) },
       { id: "assigned", label: "Assigned out", list: asg.filter(open), empty: "No reviews out with the scouts.",
         html: (l) => rows(l, () => `<button type="button" class="btn sm ghost" data-rv-resolve="removed">Withdraw</button>`) },
@@ -3920,6 +3923,23 @@ function reviewDialog({ title, player, extra = "", noteLabel = "Note", required 
     $("select, textarea", m)?.focus();
   });
 }
+
+// The lead's choices on a player waiting in Decisions: the Big Board (add him, or move him if he's on it), the Short
+// Board, or not for now.
+const decisionActions = (p) => `${p?.roles.length
+  ? `<button type="button" class="btn sm" data-rv-move-bb title="Change where he sits in one of his Big Board roles">Move on Big Board</button>`
+  : `<button type="button" class="btn sm" data-rv-add-bb title="Put him on the Big Board without starring him">Add to Big Board</button>`}<button type="button" class="btn sm primary" data-rv-add-sb>Add to Short Board</button><button type="button" class="btn sm" data-rv-resolve="not_sb">Not for now</button>`;
+const roleSize = (role) => S.players.filter((x) => x.roles.some((r) => r.role === role)).length;
+// Rank fields for the Big Board dialogs. Ranks are 1-based on screen, 0-based on the server.
+const rankField = (label, hint, required) => `<label class="lbl" for="rv-d-rank">${label} ${required ? "*" : ""}</label>
+  <input id="rv-d-rank" name="rank" type="number" min="1" step="1" ${required ? "required" : ""} placeholder="${esc(hint)}">`;
+const bbAddFields = (p) => `<label class="lbl" for="rv-d-role">Big Board role *</label><select id="rv-d-role" name="role" required>
+    <option value="">Choose a role…</option>${S.config.positions.map((pos) => `<optgroup label="${esc(pos.code)} · ${esc(pos.label)}">${pos.roles.map(([c]) =>
+      `<option value="${esc(c)}">${esc(roleLabel(c))} (${roleSize(c)} on it)</option>`).join("")}</optgroup>`).join("")}</select>
+  ${rankField("Rank in the role", "Bottom if blank", false)}`;
+const bbMoveFields = (p) => `<label class="lbl" for="rv-d-role">Role *</label><select id="rv-d-role" name="role" required>
+    ${[...p.roles].sort((a, b) => a.rank - b.rank).map((r) => `<option value="${esc(r.role)}">${esc(roleLabel(r.role))}: now #${rankIn(p, r.role) + 1} of ${roleSize(r.role)}</option>`).join("")}</select>
+  ${rankField("Move him to rank", "1 is the top", true)}`;
 
 const roleOptions = (p) => {
   const mine = p.roles.map((r) => r.role);
@@ -4036,6 +4056,18 @@ function wireReview(root, d) {
         if (await reviewSendDialog(p, "sb_review")) await afterMutation();
       } else if (t.dataset.rvAssign) {
         if (await reviewSendDialog(p, "assignment")) await afterMutation();
+      } else if (t.matches("[data-rv-add-bb]")) {
+        const v = await reviewDialog({ title: "Add to the Big Board", player: p.name, extra: bbAddFields(p), noteLabel: "Why (saved as the board reason)", required: true, submit: "Add to Big Board" });
+        if (!v) return;
+        await resolve({ outcome: "added_bb", role: v.role, index: v.rank ? Number(v.rank) - 1 : undefined, note: v.note });
+        toast(`${p.name} is on the Big Board`);
+        await afterMutation();
+      } else if (t.matches("[data-rv-move-bb]")) {
+        const v = await reviewDialog({ title: "Move on the Big Board", player: p.name, extra: bbMoveFields(p), noteLabel: "Why", submit: "Move" });
+        if (!v) return;
+        await resolve({ outcome: "moved_bb", role: v.role, index: Number(v.rank) - 1, note: v.note || undefined });
+        toast(`${p.name} moved to #${v.rank} in ${roleShort(v.role)}`);
+        await afterMutation();
       } else if (t.matches("[data-rv-add-sb]")) {
         const v = await reviewDialog({ title: "Add to the Short Board", player: p.name, extra: roleOptions(p), noteLabel: "Why (saved as the board reason)", required: true, submit: "Add to Short Board" });
         if (!v) return;

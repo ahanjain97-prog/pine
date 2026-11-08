@@ -232,7 +232,7 @@ CREATE TABLE IF NOT EXISTS review_items(
   kind TEXT NOT NULL CHECK (kind IN ('watch','sb_review','assignment')),
   from_user INTEGER NOT NULL REFERENCES users(id),
   to_user INTEGER REFERENCES users(id),
-  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','added_sb','not_sb','reviewed','declined','removed')),
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','added_sb','not_sb','added_bb','moved_bb','reviewed','declined','removed')),
   resolved_by INTEGER REFERENCES users(id),
   resolved_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -300,6 +300,32 @@ export function openDb(file) {
     raw.exec("ALTER TABLE notes ADD COLUMN review_note_id INTEGER REFERENCES review_notes(id) ON DELETE SET NULL");
   }
   raw.exec("CREATE UNIQUE INDEX IF NOT EXISTS notes_review_note ON notes(review_note_id) WHERE review_note_id IS NOT NULL");
+  // The lead's Big Board calls (added_bb, moved_bb) joined review_items.status. SQLite can't change a CHECK, so an older
+  // table is rebuilt once: foreign keys off (dropping it must not cascade to its notes and assignees), copy, swap.
+  if (!(raw.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'review_items'").get()?.sql || "").includes("'added_bb'")) {
+    raw.exec("PRAGMA foreign_keys=OFF");
+    try {
+      raw.exec(`BEGIN;
+        CREATE TABLE review_items_new(
+  id INTEGER PRIMARY KEY,
+  player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('watch','sb_review','assignment')),
+  from_user INTEGER NOT NULL REFERENCES users(id),
+  to_user INTEGER REFERENCES users(id),
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','added_sb','not_sb','added_bb','moved_bb','reviewed','declined','removed')),
+  resolved_by INTEGER REFERENCES users(id),
+  resolved_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT INTO review_items_new(id, player_id, kind, from_user, to_user, status, resolved_by, resolved_at, created_at)
+          SELECT id, player_id, kind, from_user, to_user, status, resolved_by, resolved_at, created_at FROM review_items;
+        DROP TABLE review_items;
+        ALTER TABLE review_items_new RENAME TO review_items;
+        CREATE INDEX IF NOT EXISTS review_items_status ON review_items(status, kind, to_user);
+        COMMIT;`);
+    } catch (e) { try { raw.exec("ROLLBACK"); } catch {} throw e; } finally { raw.exec("PRAGMA foreign_keys=ON"); }
+    if (raw.prepare("PRAGMA foreign_key_check").all().length) throw new Error("review_items rebuild broke a foreign key");
+  }
   // A Review note edited through its Staff reports copy (src/lib/review_queue.js syncReviewNote).
   if (!raw.prepare("PRAGMA table_info(review_notes)").all().some((c) => c.name === "updated_at")) {
     raw.exec("ALTER TABLE review_notes ADD COLUMN updated_at TEXT");
