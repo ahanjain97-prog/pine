@@ -384,6 +384,16 @@ export function openDb(file) {
     db.run("UPDATE users SET review_role = 'lead' WHERE name = 'Ray' AND review_role IS NULL");
     db.run("UPDATE users SET review_role = 'scout' WHERE name IN ('Ahan', 'Ford') AND review_role IS NULL");
   });
+  // "Out of our range" became an exit reason; removals saved before it as "Unwilling to play in League One" with
+  // the note "Out of range" move to it (in the board history and the Activity entry), and the note goes.
+  db.once("exit_reason_out_of_range_2026_11_08", () => {
+    const outOfRange = (col) => `lower(trim(${col}, ' .')) = 'out of range'`;
+    db.run(`UPDATE board_reasons SET exit_reason = 'Out of our range', note = NULL
+      WHERE kind = 'take_off' AND exit_reason = 'Unwilling to play in League One' AND ${outOfRange("note")}`);
+    db.run(`UPDATE activity SET detail = json_set(detail, '$.reason.exit_reason', 'Out of our range', '$.reason.note', NULL)
+      WHERE action = 'removed_role' AND json_extract(detail, '$.reason.exit_reason') = 'Unwilling to play in League One'
+        AND ${outOfRange("json_extract(detail, '$.reason.note')")}`);
+  });
   // Assignments now always go to every scout; open ones made for a single scout get the others added.
   db.once("review_assign_every_scout_2026_11_07", () => {
     db.run(`INSERT OR IGNORE INTO review_assignees(item_id, user_id)

@@ -174,3 +174,23 @@ test('source menu values are validated without allowing inherited object keys as
   }
   assert.equal(db.get('SELECT count(*) n FROM board_entries').n,0);
 });
+
+test('removals noted "Out of range" under League One move to the Out of our range exit reason once', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'pine-exit-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, 'pine.db');
+  let db = openDb(file);
+  for (const id of [1, 2, 3]) db.run('INSERT INTO players(id, name) VALUES (?, ?)', id, `Example ${id}`);
+  for (const [id, note] of [[1, 'Out of range...'], [2, 'out of range'], [3, 'MLS starter']]) {
+    db.run("INSERT INTO board_reasons(player_id, role, kind, exit_reason, note, user_id) VALUES (?, 'FWD1', 'take_off', 'Unwilling to play in League One', ?, 2)", id, note);
+    db.run("INSERT INTO activity(user_id, player_id, action, detail) VALUES (2, ?, 'removed_role', ?)", id,
+      JSON.stringify({ role: 'FWD1', was_shortlisted: false, reason: { source: null, why: null, exit_reason: 'Unwilling to play in League One', note } }));
+  }
+  db.run("DELETE FROM done_migrations WHERE name = 'exit_reason_out_of_range_2026_11_08'");
+  db.raw.close();
+  db = openDb(file); t.after(() => db.raw.close());
+  assert.ok(BOARD_EXIT_REASONS.includes('Out of our range'));
+  assert.deepEqual(db.all('SELECT player_id AS p, exit_reason AS e, note AS n FROM board_reasons ORDER BY player_id').map((r) => ({ ...r })), [
+    { p: 1, e: 'Out of our range', n: null }, { p: 2, e: 'Out of our range', n: null }, { p: 3, e: 'Unwilling to play in League One', n: 'MLS starter' }]);
+  assert.deepEqual(db.all("SELECT detail FROM activity WHERE action = 'removed_role' ORDER BY player_id").map((r) => JSON.parse(r.detail).reason).map((r) => `${r.exit_reason}|${r.note}`),
+    ['Out of our range|null', 'Out of our range|null', 'Unwilling to play in League One|MLS starter']);
+});

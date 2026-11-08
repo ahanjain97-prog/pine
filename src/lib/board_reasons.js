@@ -6,7 +6,7 @@ export const BOARD_SOURCES = {
   Search: ['Data screen', 'Video', 'NCAA database', 'Live', 'Other scouting'],
   Referral: ['Staff', 'Agent', 'Contact'],
 };
-export const BOARD_EXIT_REASONS = ['Not good enough on film', 'Data review', 'Too expensive', 'Unwilling to play in League One', 'Re-signed', 'Signed elsewhere', 'Role filled', 'No longer a need', 'Other'];
+export const BOARD_EXIT_REASONS = ['Not good enough on film', 'Data review', 'Too expensive', 'Out of our range', 'Unwilling to play in League One', 'Re-signed', 'Signed elsewhere', 'Role filled', 'No longer a need', 'Other'];
 const sources = Object.entries(BOARD_SOURCES).flatMap(([group, values]) => values.map((v) => `${group}: ${v}`));
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 const text = (value, name) => {
