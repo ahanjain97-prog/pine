@@ -1,7 +1,8 @@
 // The Review tab, for the review team (users.review_role): the lead decides the Short Board, scouts send players up.
 //   watch       a member's own follow-up list (players added from the database or a Transfermarkt link)
 //   sb_review   a scout asks the lead whether a player goes on the Short Board: the lead adds him (picking the
-//               role) or says not for now
+//               role) or says not for now. The scout who sent it can withdraw it while it waits: it leaves the
+//               lead's queue, the Review tab and Activity, as if never sent
 //   assignment  the lead asks the scouts to review a player. It always goes to every scout: one item and note
 //               thread they share, each scout reviewing (optionally with a verdict) or declining on their own
 //               (review_assignees); it settles once every scout has answered
@@ -16,7 +17,7 @@ import { addBoardRole, setBoardStar } from "./board_reasons.js";
 
 const KINDS = ["watch", "sb_review", "assignment"];
 const VERDICTS = ["pass", "hold", "fail"];
-const OUTCOMES = { watch: ["removed"], sb_review: ["added_sb", "not_sb"], assignment: ["reviewed", "declined", "removed"] };
+const OUTCOMES = { watch: ["removed"], sb_review: ["added_sb", "not_sb", "removed"], assignment: ["reviewed", "declined", "removed"] };
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 const text = (value, name, required = false) => {
   if (value == null || value === "") { if (required) fail(400, `${name} is required`); return null; }
@@ -137,10 +138,21 @@ export function createItem(db, user, input) {
       if (kind !== "watch") addEvalNote(db, { playerId: player.id, userId: me.id, reviewNoteId: nid, body: note,
         context: evalContext(kind, { to: to?.name ?? scouts.map((x) => x.name).join(" and ") }) });
     }
-    logActivity(db, me.id, player.id, `review_${kind}`, { to: to?.name ?? (scouts.map((x) => x.name).join(" and ") || null), note });
+    logActivity(db, me.id, player.id, `review_${kind}`, { to: to?.name ?? (scouts.map((x) => x.name).join(" and ") || null), note, item: id });
     if (kind === "watch") hideLast(db);
     return id;
   });
+}
+
+// A withdrawn Short Board request: its Activity entries are hidden (the send, and the withdrawal just logged) and the
+// copy of its note in the sender's Staff reports goes, since it would say he was sent to the lead. The item and its
+// thread stay in the database.
+function withdrawTraces(db, item) {
+  hideLast(db);
+  db.run(`UPDATE activity SET hidden = 1 WHERE action = 'review_sb_review' AND player_id = ? AND user_id = ?
+    AND (json_extract(detail, '$.item') = ? OR (json_extract(detail, '$.item') IS NULL
+      AND abs(julianday(created_at) - julianday(?)) * 86400 <= 2))`, item.player_id, item.from_user, item.id, item.created_at);
+  db.run("DELETE FROM notes WHERE review_note_id IN (SELECT id FROM review_notes WHERE item_id = ? AND user_id = ?)", item.id, item.from_user);
 }
 
 export function addNote(db, user, itemId, body) {
@@ -157,7 +169,8 @@ export function resolveItem(db, user, itemId, input) {
   if (!OUTCOMES[item.kind].includes(outcome)) fail(400, "Choose a valid outcome");
   const note = text(input.note, "Note", outcome === "added_sb");
   if (item.kind === "watch" && item.from_user !== me.id) fail(403, "Only its owner changes a watch list");
-  if (item.kind === "sb_review" && me.role !== "lead") fail(403, "Only the review lead decides the Short Board");
+  if (item.kind === "sb_review" && outcome === "removed" && item.from_user !== me.id) fail(403, "Only the scout who sent it withdraws a request");
+  if (item.kind === "sb_review" && outcome !== "removed" && me.role !== "lead") fail(403, "Only the review lead decides the Short Board");
   const mine = item.kind === "assignment" ? item.assignees.find((a) => a.user_id === me.id) : null;
   if (item.kind === "assignment") {
     if (outcome === "removed" ? me.role !== "lead" : !mine) fail(403, outcome === "removed"
@@ -199,6 +212,7 @@ export function resolveItem(db, user, itemId, input) {
     }
     logActivity(db, me.id, item.player_id, "review_resolved", { kind: item.kind, outcome, role, verdict, note });
     if (item.kind === "watch") hideLast(db);
+    if (item.kind === "sb_review" && outcome === "removed") withdrawTraces(db, item);
   });
 }
 
@@ -208,7 +222,8 @@ export function reviewBoard(db, user) {
   const team = reviewTeam(db);
   const rows = db.all(`SELECT * FROM review_items
     WHERE status = 'open' OR resolved_at >= datetime('now', '-30 days') ORDER BY created_at DESC, id DESC`)
-    .map((i) => (i.kind === "assignment" ? { ...i, assignees: assigneesOf(db, i.id) } : i)).filter((i) => canSee(me, i));
+    .map((i) => (i.kind === "assignment" ? { ...i, assignees: assigneesOf(db, i.id) } : i))
+    .filter((i) => canSee(me, i) && !(i.kind === "sb_review" && i.status === "removed")); // withdrawn requests are gone
   const notes = rows.length ? db.all(`SELECT n.*, u.name AS user_name FROM review_notes n JOIN users u ON u.id = n.user_id
     WHERE n.item_id IN (${rows.map(() => "?").join(",")}) ORDER BY n.id`, ...rows.map((r) => r.id)) : [];
   const name = (id) => team.find((u) => u.id === id)?.name ?? db.get("SELECT name FROM users WHERE id = ?", id)?.name ?? null;
@@ -235,6 +250,12 @@ export function reviewCount(db, user) {
 
 export function registerReviewQueue(app, { db }) {
   db.once("review_notes_to_evals_2026_11_08", () => copyReviewNotesToEvals(db));
+  // Ahan withdrew his Short Board request on Lukas Kamrath (asked 2026-11-08, before scouts could withdraw in the app).
+  db.once("withdraw_kamrath_sb_2026_11_08", () => {
+    const it = db.get(`SELECT i.id, i.from_user FROM review_items i JOIN players p ON p.id = i.player_id JOIN users u ON u.id = i.from_user
+      WHERE i.kind = 'sb_review' AND i.status = 'open' AND p.name = 'Lukas Kamrath' AND u.name = 'Ahan'`);
+    if (it) resolveItem(db, { id: it.from_user }, it.id, { outcome: "removed" });
+  });
   const actor = (c) => c.get("user") || fail(401, "Not signed in");
   app.get("/api/review", (c) => c.json(reviewBoard(db, actor(c))));
   app.post("/api/review/items", async (c) => {

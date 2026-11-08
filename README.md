@@ -317,7 +317,8 @@ syncs leave the signing status alone.
   `PUT /api/players/:id/agent` route remains.
 - **Review** (`#/review`, between Big Board and Short Board): for the review team only. Admins set it on the
   Staff page (Review column: Lead / Scout); it starts with Ray as lead and Ahan and Ford as scouts.
-  - **Scouts send players up** to the lead for a Short Board decision, with a note. Players both scouts have
+  - **Scouts send players up** to the lead for a Short Board decision, with a note. The scout who sent one can
+    **Withdraw** it while it waits (under "Sent to Ray"): it leaves the lead's queue, the Review tab and Activity. Players both scouts have
     passed are suggested under "Ready for Ray" until someone sends them.
   - **The lead decides** on each request:
     - **Add to Short Board:** pick the role and write the reason. It goes through the Big Board's audited moves:

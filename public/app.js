@@ -3855,7 +3855,8 @@ async function renderReview(main) {
         html: (l) => rows(l, () => `<button type="button" class="btn sm primary" data-rv-review>Review</button><button type="button" class="btn sm" data-rv-resolve="declined">Decline</button>`) },
       { id: "ready", label: `Ready for ${leadName}`, list: ready, empty: `No players ${reviewScouts().map((x) => x.name).join(" and ")} have both passed are waiting.`,
         html: (l) => l.map(reviewSuggestion).join("") },
-      { id: "sent", label: `Sent to ${leadName}`, list: sb.filter(open), empty: `Nothing waiting with ${leadName}.`, html: (l) => rows(l, () => "") },
+      { id: "sent", label: `Sent to ${leadName}`, list: sb.filter(open), empty: `Nothing waiting with ${leadName}.`,
+        html: (l) => rows(l, (i) => (i.from_user === S.me.id ? `<button type="button" class="btn sm ghost" data-rv-resolve="removed" data-rv-withdraw title="Take this request back: it leaves ${esc(leadName)}'s queue and Activity">Withdraw</button>` : "")) },
       { id: "watch", label: "Watch list", list: watch, empty: "Your watch list is empty. Add players with the bar above.", html: (l) => rows(l, watchActions) },
       { id: "history", label: "History", list: history, empty: "Nothing settled in the last 30 days.", html: (l) => rows(l, () => "") },
     ];
@@ -4036,6 +4037,14 @@ function wireReview(root, d) {
         await afterMutation();
       } else if (t.dataset.rvResolve) {
         const outcome = t.dataset.rvResolve;
+        if (t.matches("[data-rv-withdraw]")) {
+          // Withdrawing a request leaves no trace for others, so no note: just confirm.
+          if (!confirm(`Withdraw your request on ${p.name}? It leaves ${reviewLead()?.name || "the lead"}'s queue and Activity.`)) return;
+          await resolve({ outcome });
+          toast("Request withdrawn");
+          await afterMutation();
+          return;
+        }
         const titles = { not_sb: "Not for the Short Board for now", declined: "Decline this review", removed: card.querySelector("[data-rv-assign], [data-rv-send]") ? "Remove from your watch list" : "Withdraw this assignment" };
         const v = await reviewDialog({ title: titles[outcome], player: p.name, noteLabel: outcome === "removed" ? "Note" : "Why?", submit: "Confirm" });
         if (!v) return;

@@ -56,6 +56,23 @@ test('scouts send a player up; the lead puts him on the Short Board through the 
   assert.deepEqual(statuses(db), ['sb_review:added_sb', 'sb_review:not_sb']);
 });
 
+test('the scout who sent a request can withdraw it: gone from the queue, the Review tab, Activity and Staff reports', (t) => {
+  const db = setup(t);
+  const id = createItem(db, AHAN, { kind: 'sb_review', player_id: 2, note: 'Second thoughts coming.' });
+  assert.equal(db.get('SELECT count(*) AS n FROM notes WHERE player_id = 2').n, 1, 'the send note was copied to his Staff reports');
+  assert.equal(reviewCount(db, RAY), 1);
+  assert.throws(() => resolveItem(db, FORD, id, { outcome: 'removed' }), /Only the scout who sent it/);
+  assert.throws(() => resolveItem(db, RAY, id, { outcome: 'removed' }), /Only the scout who sent it/);
+  resolveItem(db, AHAN, id, { outcome: 'removed' });
+  assert.equal(reviewCount(db, RAY), 0);
+  for (const who of [RAY, AHAN, FORD]) assert.equal(reviewBoard(db, who).items.length, 0);
+  assert.deepEqual(db.all("SELECT action, hidden FROM activity WHERE action LIKE 'review_%' ORDER BY id").map((r) => `${r.action}:${r.hidden}`),
+    ['review_sb_review:1', 'review_resolved:1']);
+  assert.equal(db.get('SELECT count(*) AS n FROM notes WHERE player_id = 2').n, 0);
+  assert.throws(() => resolveItem(db, AHAN, id, { outcome: 'removed' }), /already been dealt with/);
+  createItem(db, FORD, { kind: 'sb_review', player_id: 2 }); // the player can be sent again
+});
+
 test('the lead assigns both scouts: one item and thread they share, each answering on their own', (t) => {
   const db = setup(t);
   const a = createItem(db, RAY, { kind: 'assignment', player_id: 1, note: 'Watch his last three games.' });
