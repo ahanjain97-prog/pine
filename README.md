@@ -353,7 +353,7 @@ syncs leave the signing status alone.
   also appear in Activity. The header holds Transfermarkt facts, the club decision and the staff verdict tally. Staff evaluations
   show everyone's box (yours first, then anyone who has weighed in); "Hide empty" folds the rest into one line,
   remembered per browser. Below it,
-  the shared summary, college scouting reports (players in the college database) and one evaluation section per staff member (only you can
+  the shared summary, college scouting reports (players in the college database; not shown for pros on the Short Board) and one evaluation section per staff member (only you can
   write in yours), with big board roles, the NCAA board spot (college players), lists, the Impect link and history alongside. The KPI profile and
   playing time follow the evaluations in the left column (below everything on narrow screens). The analytics tabs cover
   the KPI profile, physical data, pitch maps and player card; one season and position picker drives the three

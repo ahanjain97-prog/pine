@@ -3142,6 +3142,8 @@ async function openProspect(key) {
 function collegePanel(d) {
   const x = d.college, p = d.player;
   if (!x && !isNcaa(p)) return "";
+  // A pro on the Short Board is judged as a pro: reports from his college days aren't shown (they stay on the NCAA side).
+  if (!isNcaa(p) && (p.roles || []).some((r) => r.shortlist)) return "";
   const school = x ? (x.origin === "pine" ? x.school || "" : null) : (p.club || "").replace(/\s*\([^)]*\)\s*$/, "");
   return `<section class="panel college" id="college-panel">
     <header class="panel-h"><h2>College scouting</h2>${x ? `${gradeBadge(x.grade, "lg")}<span class="muted sm">${x.reports.length} report${x.reports.length === 1 ? "" : "s"}</span>` : ""}
