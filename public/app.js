@@ -18,7 +18,7 @@ const GRP_NAME = { CB: "centre backs", FB: "full backs", MID: "defensive & centr
 const S = {
   me: null, config: null, players: [], byId: new Map(), version: 0, pollTimer: null, dragging: null,
   board: { decision: "all", q: "", league: "" },
-  table: { q: "", decision: "all", position: "", league: "", changedBy: new Set(), addedBy: new Set(), sort: "updated_at", dir: -1 },
+  table: null, // the Database tab's filters, loaded from this browser on first use (dbState)
   impect: { iteration: "", q: "" },
 };
 
@@ -1053,120 +1053,297 @@ function openTmConflicts(playerId, conflicts) {
 }
 
 /* ---------- database table ---------- */
+// Where the players off the boards live, so it's built for finding people: quick views by board status, labelled
+// filters (position group, age, league, roster, contract, value, verdicts, exit reason…), removable chips for
+// what's on, and sorting on every column with blanks last. The filters and sort are remembered in this browser.
+
+// Transfermarkt's and hand-typed positions ("Centre-Back", "Right Center Back", "CB") into one group each; a
+// player with no recognisable position falls back to his Big Board role.
+const POS_GROUPS = [
+  ["GK", "GK", /goal|keeper|^gk$/],
+  ["CB", "CB", /cent(re|er)[- ]?back|^[lr]?cb$|^defender$/],
+  ["FB", "FB", /\bback\b|wing[- ]?back|^[lr]w?b$/],
+  ["AM", "AM", /attacking|^c?am$|second striker/],
+  ["MID", "DM/CM", /defensive|central mid|^midfield(er)?$|^c?dm$|^cm$/],
+  ["W", "W", /wing|(left|right) mid|^[lr][wm]$/],
+  ["ST", "ST", /forward|striker|^attack$|^fwd$|^st$|^cf$/],
+];
+const ROLE_POS_GROUP = { GK: "GK", LCB: "CB", RCB: "CB", LB: "FB", RB: "FB", CDM: "MID", CM: "MID", AM: "AM", LW: "W", RW: "W", FWD: "ST" };
+function posGroup(p) {
+  const s = String(p.position || "").trim().toLowerCase();
+  const hit = s && POS_GROUPS.find(([, , re]) => re.test(s));
+  if (hit) return hit[0];
+  const role = p.roles?.[0] && roleInfo(p.roles[0].role);
+  return (role && ROLE_POS_GROUP[role.position]) || null;
+}
+const posGroupLabel = (g) => POS_GROUPS.find(([k]) => k === g)?.[1] || "";
+// League names are typed several ways; one name each for filtering and sorting (college conferences count as NCAA).
+const LEAGUE_ALIASES = { USLC: "USL Championship", USL1: "USL League One", "MLS NP": "MLS Next Pro", MLSNP: "MLS Next Pro" };
+const leagueName = (p) => (isNcaa(p) ? "NCAA" : LEAGUE_ALIASES[(p.league || "").trim()] || (p.league || "").trim());
+
+const DB_VIEWS = [
+  ["all", "Everyone", () => true],
+  ["off", "Off the boards", (p) => !p.roles.length && !p.ncaa_board],
+  ["removed", "Removed from the Big Board", (p) => !p.roles.length && Boolean(p.last_exit)],
+  ["bb", "Big Board", (p) => p.roles.length > 0],
+  ["sb", "Short Board", (p) => p.roles.some((r) => r.shortlist)],
+  ["ncaa", "NCAA board", (p) => Boolean(p.ncaa_board)],
+  ["signed", "Signed", (p) => p.is_signed],
+];
+const thisYear = () => new Date().getFullYear();
+const DB_CONTRACT = [
+  ["y0", () => `Ends by Dec ${thisYear()}`, (d) => d && d <= `${thisYear()}-12-31`],
+  ["y1", () => `Ends by Dec ${thisYear() + 1}`, (d) => d && d <= `${thisYear() + 1}-12-31`],
+  ["none", () => "No contract date", (d) => !d],
+];
+const DB_VALUE = [
+  ["100", "Up to €100k", (v) => v != null && v <= 1e5], ["250", "Up to €250k", (v) => v != null && v <= 2.5e5],
+  ["500", "Up to €500k", (v) => v != null && v <= 5e5], ["1000", "Up to €1m", (v) => v != null && v <= 1e6],
+  ["none", "No value listed", (v) => v == null],
+];
+const DB_VERDICT = [
+  ["pass", "Someone passed", (p) => Object.values(p.verdicts || {}).includes("pass")],
+  ["hold", "Someone held", (p) => Object.values(p.verdicts || {}).includes("hold")],
+  ["fail", "Someone failed", (p) => Object.values(p.verdicts || {}).includes("fail")],
+  ["none", "No verdicts yet", (p) => !Object.keys(p.verdicts || {}).length],
+  ["notme", "No verdict from me", (p) => !(p.verdicts || {})[S.me.name]],
+];
+const DB_ROSTER = [["", "Any"], ["domestic", "DOM"], ["international", "INTL"], ["unknown", "?"]];
+const DB_DEFAULTS = { view: "all", q: "", pos: [], ageMin: "", ageMax: "", leagues: [], roster: "", contract: "", value: "", verdict: "",
+  decision: "all", foot: "", heightMin: "", exit: "", boardPos: "", reports: "", addedBy: [], changedBy: [], sort: "updated_at", dir: -1, more: false };
+const DB_KEY = "pine.database.v2";
+const dbState = () => (S.table ||= (() => { try { return { ...DB_DEFAULTS, ...JSON.parse(localStorage.getItem(DB_KEY) || "{}") }; } catch { return { ...DB_DEFAULTS }; } })());
+const saveDbState = () => { try { localStorage.setItem(DB_KEY, JSON.stringify(S.table)); } catch {} };
+
+const STATUS_RANK = (p) => (p.roles.some((r) => r.shortlist) ? 0 : p.roles.length ? 1 : p.ncaa_board ? 2 : p.last_exit ? 3 : 4);
+// Each column's sort key; null sorts last whichever way the column runs.
 const COLS = [
   { k: "name", l: "Player", sort: (p) => p.name.toLowerCase() },
-  { k: "age", l: "Age", sort: (p) => p.age ?? 999 },
-  { k: "board", l: "Board", sort: (p) => p.roles.map((r) => r.role).join(",") || "~" },
-  { k: "club", l: "Club", sort: (p) => (p.club || "~").toLowerCase() },
-  { k: "league", l: "League", sort: (p) => (p.league || "~").toLowerCase() },
-  { k: "contract_expires", l: "Contract", sort: (p) => p.contract_expires || "9999" },
-  { k: "market_value_eur", l: "Value", sort: (p) => p.market_value_eur ?? -1 },
-  { k: "decision", l: "Decision", sort: (p) => ({ pass: 0, hold: 1, fail: 2 })[p.decision] ?? 3 },
-  { k: "verdicts", l: "Staff", sort: (p) => -Object.values(p.verdicts || {}).filter((v) => v === "pass").length },
-  { k: "note_count", l: "Notes", sort: (p) => p.note_count },
-  { k: "updated_at", l: "Updated", sort: (p) => p.updated_at },
+  { k: "pos", l: "Pos", sort: (p) => { const i = POS_GROUPS.findIndex(([g]) => g === posGroup(p)); return i < 0 ? null : i; } },
+  { k: "age", l: "Age", sort: (p) => p.age ?? null },
+  { k: "height_cm", l: "Ht", sort: (p) => p.height_cm ?? null, desc: true },
+  { k: "club", l: "Club", sort: (p) => (p.club ? p.club.toLowerCase() : null) },
+  { k: "league", l: "League", sort: (p) => leagueName(p).toLowerCase() || null },
+  { k: "board", l: "Board", sort: (p) => STATUS_RANK(p) * 1000 + (p.roles[0]?.rank ?? 999) },
+  { k: "contract_expires", l: "Contract", sort: (p) => p.contract_expires || null },
+  { k: "market_value_eur", l: "Value", sort: (p) => p.market_value_eur ?? null, desc: true },
+  { k: "decision", l: "Decision", sort: (p) => ({ pass: 0, hold: 1, fail: 2 })[p.decision] ?? null },
+  { k: "verdicts", l: "Staff", sort: (p) => { const v = Object.values(p.verdicts || {}); return v.length ? -(v.filter((x) => x === "pass").length * 100 + v.filter((x) => x === "hold").length) : null; } },
+  { k: "reports", l: "Reports", sort: (p) => p.last_report?.at || null, desc: true },
+  { k: "updated_at", l: "Updated", sort: (p) => p.updated_at || null, desc: true },
 ];
 
+// Everything but the view tab, so each tab can show how many players it holds under the other filters.
+function dbMatches(p, f) {
+  const age = p.age, h = p.height_cm, d = p.contract_expires ? String(p.contract_expires).slice(0, 10) : null;
+  const roster = rosterStatus(p) || "unknown";
+  return textMatch(f.q, p.name, p.club, p.league, leagueName(p), p.position, (p.citizenship || []).join(" "), p.agent)
+    && (!f.pos.length || f.pos.includes(posGroup(p)))
+    && (f.ageMin === "" || (age != null && age >= Number(f.ageMin))) && (f.ageMax === "" || (age != null && age <= Number(f.ageMax)))
+    && (!f.leagues.length || f.leagues.includes(leagueName(p)))
+    && (!f.roster || roster === f.roster)
+    && (!f.contract || DB_CONTRACT.find(([k]) => k === f.contract)?.[2](d))
+    && (!f.value || DB_VALUE.find(([k]) => k === f.value)?.[2](p.market_value_eur ?? null))
+    && (!f.verdict || DB_VERDICT.find(([k]) => k === f.verdict)?.[2](p))
+    && matchDecision(p, f.decision)
+    && (!f.foot || p.foot === f.foot)
+    && (f.heightMin === "" || (h != null && h >= Number(f.heightMin)))
+    && (!f.exit || (!p.roles.length && p.last_exit?.exit_reason === f.exit))
+    && (!f.boardPos || (f.boardPos === "none" ? !p.roles.length : p.roles.some((r) => roleInfo(r.role)?.position === f.boardPos)))
+    && (!f.reports || (f.reports === "yes" ? p.note_count > 0 || p.last_report : !p.note_count && !p.last_report))
+    && (!f.changedBy.length || (p.changed_by || []).some((id) => f.changedBy.includes(Number(id))))
+    && (!f.addedBy.length || f.addedBy.includes(Number(p.created_by)));
+}
 function tableFiltered() {
-  const f = S.table;
+  const f = dbState();
+  const view = (DB_VIEWS.find(([k]) => k === f.view) || DB_VIEWS[0])[2];
   const col = COLS.find((c) => c.k === f.sort) || COLS[0];
-  return S.players
-    .filter((p) => matchText(p, f.q) && matchDecision(p, f.decision) && (!f.league || p.league === f.league)
-      && (!f.changedBy.size || (p.changed_by || []).some((id) => f.changedBy.has(Number(id))))
-      && (!f.addedBy.size || f.addedBy.has(Number(p.created_by)))
-      && (!f.position || (f.position === "none" ? !p.roles.length : p.roles.some((r) => roleInfo(r.role)?.position === f.position))))
-    .sort((a, b) => { const x = col.sort(a), y = col.sort(b); return (x < y ? -1 : x > y ? 1 : 0) * f.dir; });
+  const name = (p) => p.name.toLowerCase();
+  return S.players.filter((p) => view(p) && dbMatches(p, f)).map((p) => [p, col.sort(p)]).sort(([a, x], [b, y]) => {
+    if (x == null || y == null) return x == null && y == null ? name(a).localeCompare(name(b)) : x == null ? 1 : -1;
+    return (x < y ? -1 : x > y ? 1 : 0) * f.dir || name(a).localeCompare(name(b));
+  }).map(([p]) => p);
 }
 
+// The filters that are on, as chips that each clear their own filter.
+function dbActiveChips(f) {
+  const staff = (ids) => S.config.staff.filter((s) => ids.includes(s.id)).map((s) => s.name).join(", ");
+  const few = (list, one) => (list.length <= 2 ? list.join(", ") : `${list.length} ${one}`);
+  return [
+    f.q && ["q", `“${f.q}”`],
+    f.pos.length && ["pos", `Position: ${f.pos.map(posGroupLabel).join(", ")}`],
+    (f.ageMin !== "" || f.ageMax !== "") && ["age", f.ageMin !== "" && f.ageMax !== "" ? `Age ${f.ageMin}–${f.ageMax}` : f.ageMin !== "" ? `Age ${f.ageMin}+` : `Age up to ${f.ageMax}`],
+    f.leagues.length && ["leagues", `League: ${few(f.leagues, "leagues")}`],
+    f.roster && ["roster", { domestic: "Domestic", international: "International", unknown: "Roster status unknown" }[f.roster]],
+    f.contract && ["contract", DB_CONTRACT.find(([k]) => k === f.contract)?.[1]()],
+    f.value && ["value", DB_VALUE.find(([k]) => k === f.value)?.[1]],
+    f.verdict && ["verdict", DB_VERDICT.find(([k]) => k === f.verdict)?.[1]],
+    f.decision !== "all" && ["decision", `Decision: ${f.decision === "none" ? "Undecided" : cap(f.decision)}`],
+    f.foot && ["foot", `${cap(f.foot)} foot`],
+    f.heightMin !== "" && ["heightMin", `${f.heightMin} cm+`],
+    f.exit && ["exit", `Removed: ${f.exit}`],
+    f.boardPos && ["boardPos", f.boardPos === "none" ? "Not on the Big Board" : `Big Board: ${f.boardPos}`],
+    f.reports && ["reports", f.reports === "yes" ? "Has reports" : "No reports"],
+    f.addedBy.length && ["addedBy", `Added by ${staff(f.addedBy)}`],
+    f.changedBy.length && ["changedBy", `Changed by ${staff(f.changedBy)}`],
+  ].filter(Boolean);
+}
+const DB_CLEAR = { age: ["ageMin", "ageMax"] };
+
 function renderTable(main) {
-  const f = S.table;
-  const decs = [["all", "Any decision"], ["pass", "Pass"], ["hold", "Hold"], ["fail", "Fail"], ["none", "Undecided"]];
-  const coachFilterLabel = (label, selected) => {
-    const names = S.config.staff.filter((s) => selected.has(s.id)).map((s) => s.name);
-    return names.length ? `${label}: ${names.length <= 2 ? names.join(" + ") : `${names.length} coaches`}` : label;
-  };
-  const coachFilter = (id, label, selected) => {
-    const display = coachFilterLabel(label, selected);
-    return `<details class="coach-filter" id="${id}" data-label="${label}">
-      <summary title="${esc(display)}"><span>${esc(display)}</span></summary>
+  const f = dbState();
+  const opt = (v, l, cur) => `<option value="${esc(v)}" ${String(cur) === String(v) ? "selected" : ""}>${esc(l)}</option>`;
+  const field = (label, control, cls = "") => `<div class="db-f ${cls}"><span class="db-l">${label}</span>${control}</div>`;
+  // A dropdown of checkboxes (leagues, staff), the selection kept in an array on f.
+  const pick = (id, key, label, options) => {
+    const sel = f[key];
+    const shown = sel.length ? (sel.length <= 2 ? options.filter((o) => sel.includes(o.v)).map((o) => o.short || o.l).join(", ") : `${sel.length} selected`) : label;
+    return `<details class="coach-filter db-pick" id="${id}" data-key="${key}">
+      <summary title="${esc(shown)}"><span>${esc(shown)}</span></summary>
       <div class="coach-filter-menu">
-        <div class="coach-filter-h"><b>${label}</b><button type="button" class="btn link sm" data-clear ${selected.size ? "" : "disabled"}>Clear</button></div>
-        ${S.config.staff.map((s) => `<label><input type="checkbox" value="${s.id}" aria-label="${label}: ${esc(s.name)}" ${selected.has(s.id) ? "checked" : ""}> <span>${esc(s.name)}</span></label>`).join("")}
-      </div>
-    </details>`;
+        <div class="coach-filter-h"><b>${esc(label)}</b><button type="button" class="btn link sm" data-clear ${sel.length ? "" : "disabled"}>Clear</button></div>
+        ${options.map((o) => `<label><input type="checkbox" value="${esc(o.v)}" ${sel.includes(o.v) ? "checked" : ""}> <span>${esc(o.l)}</span>${o.n != null ? `<span class="muted sm db-n">${o.n}</span>` : ""}</label>`).join("")}
+      </div></details>`;
   };
-  main.innerHTML = `<div class="page">
-    <div class="page-h">
-      <div><h1>Database</h1><div class="sub" id="t-count"></div></div>
-      <div class="spacer"></div>
-      <div class="filters">
-        <input id="tf-q" type="search" placeholder="Search name, club, nationality…" value="${esc(f.q)}" aria-label="Search">
-        <select id="tf-dec" aria-label="Decision">${decs.map(([k, l]) => `<option value="${k}" ${f.decision === k ? "selected" : ""}>${l}</option>`).join("")}</select>
-        <select id="tf-pos" aria-label="Board position"><option value="">Any board position</option><option value="none" ${f.position === "none" ? "selected" : ""}>Not on board</option>${S.config.positions.map((p) => `<option value="${p.code}" ${f.position === p.code ? "selected" : ""}>${p.code} · ${esc(p.label)}</option>`).join("")}</select>
-        <select id="tf-league" aria-label="League"><option value="">All leagues</option>${leaguesOf().map((l) => `<option value="${esc(l)}" ${f.league === l ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
-        ${coachFilter("tf-changed-by", "Changed by", f.changedBy)}
-        ${coachFilter("tf-added-by", "Added by", f.addedBy)}
-        <button type="button" class="btn" id="t-csv">Export CSV</button>
+  const leagueCounts = new Map();
+  for (const p of S.players) { const l = leagueName(p); if (l) leagueCounts.set(l, (leagueCounts.get(l) || 0) + 1); }
+  const leagues = [...leagueCounts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([l, n]) => ({ v: l, l, n }));
+  const staffOpts = S.config.staff.map((s) => ({ v: s.id, l: s.name }));
+  const decs = [["all", "Any"], ["pass", "Pass"], ["hold", "Hold"], ["fail", "Fail"], ["none", "Undecided"]];
+
+  main.innerHTML = `<div class="page db-page">
+    <div class="page-h"><div><h1>Database</h1><div class="sub" id="t-count"></div></div><div class="spacer"></div>
+      <button type="button" class="btn" id="t-csv" title="Download the players shown, with these filters and this order">Export CSV</button></div>
+    <div class="db-views" role="tablist" id="t-views"></div>
+    <section class="panel db-filters">
+      <input id="tf-q" class="db-q" type="search" placeholder="Search name, club, league, nationality or agent…" value="${esc(f.q)}" aria-label="Search players">
+      <div class="db-grid">
+        ${field("Position", `<div class="db-chips" id="tf-pos">${POS_GROUPS.map(([g, l]) => `<button type="button" data-pos="${g}" class="${f.pos.includes(g) ? "on" : ""}" aria-pressed="${f.pos.includes(g)}">${l}</button>`).join("")}</div>`, "wide")}
+        ${field("Age", `<div class="db-range"><input type="number" id="tf-age-min" min="14" max="45" placeholder="Min" value="${esc(f.ageMin)}" aria-label="Minimum age"><span>–</span><input type="number" id="tf-age-max" min="14" max="45" placeholder="Max" value="${esc(f.ageMax)}" aria-label="Maximum age"></div>`)}
+        ${field("League", pick("tf-leagues", "leagues", "All leagues", leagues))}
+        ${field("Roster", `<div class="seg" id="tf-roster">${DB_ROSTER.map(([k, l]) => `<button type="button" data-v="${k}" class="${f.roster === k ? "on" : ""}" title="${k ? { domestic: "Domestic", international: "International", unknown: "Not known yet" }[k] : "Anyone"}">${l}</button>`).join("")}</div>`)}
+        ${field("Contract", `<select id="tf-contract" aria-label="Contract"><option value="">Any</option>${DB_CONTRACT.map(([k, l]) => opt(k, l(), f.contract)).join("")}</select>`)}
+        ${field("Value", `<select id="tf-value" aria-label="Market value"><option value="">Any</option>${DB_VALUE.map(([k, l]) => opt(k, l, f.value)).join("")}</select>`)}
+        ${field("Staff verdicts", `<select id="tf-verdict" aria-label="Staff verdicts"><option value="">Any</option>${DB_VERDICT.map(([k, l]) => opt(k, l, f.verdict)).join("")}</select>`)}
+        ${field("Club decision", `<select id="tf-dec" aria-label="Club decision">${decs.map(([k, l]) => opt(k, l, f.decision)).join("")}</select>`)}
+        <div class="db-more" ${f.more ? "" : "hidden"}>
+          ${field("Foot", `<select id="tf-foot" aria-label="Foot"><option value="">Any</option>${["left", "right", "both"].map((k) => opt(k, cap(k), f.foot)).join("")}</select>`)}
+          ${field("Min height", `<input type="number" id="tf-height" min="150" max="210" placeholder="cm" value="${esc(f.heightMin)}" aria-label="Minimum height in cm">`)}
+          ${field("Removed for", `<select id="tf-exit" aria-label="Exit reason"><option value="">Any reason</option>${S.config.board_reasons.exit_reasons.map((r) => opt(r, r, f.exit)).join("")}</select>`)}
+          ${field("Big Board role", `<select id="tf-board" aria-label="Big Board position"><option value="">Any</option>${opt("none", "Not on the Big Board", f.boardPos)}${S.config.positions.map((p) => opt(p.code, `${p.code} · ${p.label}`, f.boardPos)).join("")}</select>`)}
+          ${field("Reports", `<select id="tf-reports" aria-label="Reports"><option value="">Any</option>${opt("yes", "Has reports", f.reports)}${opt("no", "No reports yet", f.reports)}</select>`)}
+          ${field("Added by", pick("tf-added-by", "addedBy", "Anyone", staffOpts))}
+          ${field("Changed by", pick("tf-changed-by", "changedBy", "Anyone", staffOpts))}
+        </div>
       </div>
-    </div>
-    <div class="table-wrap"><table class="grid">
-      <thead><tr>${COLS.map((c) => `<th data-sort="${c.k}" class="${f.sort === c.k ? "sorted" + (f.dir > 0 ? " asc" : "") : ""}">${c.l}</th>`).join("")}</tr></thead>
+      <div class="db-foot"><button type="button" class="btn link sm" id="tf-more">${f.more ? "Fewer filters" : "More filters"}</button>
+        <div class="db-active" id="tf-active"></div></div>
+    </section>
+    <div class="table-wrap db-table"><table class="grid">
+      <thead><tr>${COLS.map((c) => `<th data-sort="${c.k}" class="${f.sort === c.k ? "sorted" + (f.dir > 0 ? " asc" : "") : ""}" aria-sort="${f.sort === c.k ? (f.dir > 0 ? "ascending" : "descending") : "none"}">${c.l}</th>`).join("")}</tr></thead>
       <tbody id="t-body"></tbody>
     </table></div>
   </div>`;
   const root = main.firstElementChild;
-  const draw = () => {
-    const list = tableFiltered();
-    $("#t-count", root).textContent = `${list.length} of ${S.players.length} players`;
-    $("#t-body", root).innerHTML = list.map((p) => `<tr class="${p.is_signed ? "is-signed" : ""}" data-href="#/player/${p.id}">
-      <td class="name">${photo(p)}<div>${nameWithMark(p)}<div class="csub">${esc(p.position || "")} ${l2Badge(p.l2)}</div></div></td>
+  const exitTitle = (x) => [`Removed from ${roleLabel(x.role)}`, S.config.staff.find((s) => s.id === x.by)?.name, fmtDate(x.at), x.note && `Note: ${x.note}`].filter(Boolean).join(" · ");
+  const row = (p) => {
+    const g = posGroup(p), roster = rosterStatus(p);
+    // College clubs carry the school in brackets; the team name is enough here (the full name shows on hover).
+    const club = p.club && isNcaa(p) ? p.club.replace(/\s*\([^)]*\)\s*$/, "") : p.club || "";
+    return `<tr class="${p.is_signed ? "is-signed" : ""}" data-href="#/player/${p.id}">
+      <td class="name"><div class="db-name">${photo(p)}<div>${nameWithMark(p)}<div class="csub">${esc(p.position || "")}${p.foot ? ` · ${esc(cap(p.foot))}` : ""}
+        ${roster ? `<span class="roster ${roster === "domestic" ? "dom" : "intl"}">${roster === "domestic" ? "DOM" : "INTL"}</span>` : ""}${l2Badge(p.l2)}</div></div></div></td>
+      <td>${g ? `<span class="db-pos">${esc(posGroupLabel(g))}</span>` : ""}</td>
       <td>${p.age ?? ""}</td>
-      <td>${p.roles.map((r) => `<span class="chip" title="${esc(roleLabel(r.role))}, rank ${r.rank + 1}">${esc(roleShort(r.role))} <b>${r.rank + 1}</b></span>`).join("")}${p.ncaa_board
-        ? `<span class="chip ncaa-chip" title="NCAA board, ${esc(p.ncaa_board.position)} rank ${p.ncaa_board.rank + 1}">NCAA ${esc(p.ncaa_board.position)} <b>${p.ncaa_board.rank + 1}</b></span>` : ""}</td>
-      <td>${esc(p.club || "")}</td>
-      <td>${esc(p.league || "")}</td>
-      <td class="${contractSoon(p.contract_expires) ? "warn" : ""}">${fmtDate(p.contract_expires)}</td>
+      <td>${p.height_cm ?? ""}</td>
+      <td class="db-clip" title="${esc(p.club || "")}">${esc(club)}</td>
+      <td class="db-clip" title="${esc(p.league || "")}">${esc(leagueName(p))}</td>
+      <td class="db-board">${p.roles.map((r) => `<span class="chip ${r.shortlist ? "sb-chip" : ""}" title="${esc(roleLabel(r.role))}, rank ${r.rank + 1}${r.shortlist ? " · Short Board" : ""}">${r.shortlist ? "★ " : ""}${esc(roleShort(r.role))} <b>${r.rank + 1}</b></span>`).join("")}${p.ncaa_board
+        ? `<span class="chip ncaa-chip" title="NCAA board, ${esc(p.ncaa_board.position)} rank ${p.ncaa_board.rank + 1}">NCAA ${esc(p.ncaa_board.position)} <b>${p.ncaa_board.rank + 1}</b></span>` : ""}${!p.roles.length && p.last_exit
+        ? `<span class="db-exit" title="${esc(exitTitle(p.last_exit))}">Removed · ${esc(p.last_exit.exit_reason || "")}</span>` : ""}</td>
+      <td class="${contractSoon(p.contract_expires) ? "warn" : ""}" title="${esc(fmtDate(p.contract_expires))}">${esc(toDate(p.contract_expires)?.toLocaleDateString("en-US", { month: "short", year: "numeric" }) || "")}</td>
       <td>${esc(p.market_value_display || "")}</td>
-      <td>${decisionChip(p.decision)}</td>
-      <td>${verdictDots(p.verdicts, true)}</td>
-      <td>${p.note_count || ""}</td>
+      <td>${p.decision ? decisionChip(p.decision) : ""}</td>
+      <td>${verdictDots(p.verdicts)}</td>
+      <td>${p.note_count ? `<b>${p.note_count}</b>` : ""}${p.last_report ? `<span class="muted"> ${p.note_count ? "· " : ""}${esc(relTime(p.last_report.at))}</span>` : ""}</td>
       <td class="muted">${relTime(p.updated_at)}</td>
-    </tr>`).join("") || `<tr><td colspan="${COLS.length}" class="empty-state">${S.players.length ? "No players match these filters." : "No players yet. Click “+ Add player” and paste a Transfermarkt link."}</td></tr>`;
+    </tr>`;
+  };
+  const draw = () => {
+    saveDbState();
+    const list = tableFiltered();
+    const others = S.players.filter((p) => dbMatches(p, f));
+    $("#t-views", root).innerHTML = DB_VIEWS.map(([k, l, test]) => `<button type="button" role="tab" data-view="${k}" aria-selected="${f.view === k}" class="${f.view === k ? "on" : ""}">${esc(l)}<span class="db-vn">${others.filter(test).length}</span></button>`).join("");
+    const col = COLS.find((c) => c.k === f.sort) || COLS[0];
+    $("#t-count", root).textContent = `${list.length} of ${S.players.length} players · sorted by ${col.l.toLowerCase()} ${f.dir > 0 ? "↑" : "↓"}`;
+    const chips = dbActiveChips(f);
+    $("#tf-active", root).innerHTML = chips.length ? `${chips.map(([k, l]) => `<button type="button" class="db-chip" data-clear-key="${k}" title="Remove this filter">${esc(l)}<span aria-hidden="true">×</span></button>`).join("")}<button type="button" class="btn link sm" id="tf-clear">Clear all</button>` : `<span class="muted sm">No filters on</span>`;
+    $("#t-body", root).innerHTML = list.map(row).join("") || `<tr><td colspan="${COLS.length}" class="empty-state">${S.players.length ? "No players match. Remove a filter above, or try another tab." : "No players yet. Click “+ Add player” and paste a Transfermarkt link."}</td></tr>`;
   };
   draw();
-  $("#tf-q", root).addEventListener("input", (e) => { f.q = e.target.value; draw(); });
-  $("#tf-dec", root).addEventListener("change", (e) => { f.decision = e.target.value; draw(); });
-  $("#tf-pos", root).addEventListener("change", (e) => { f.position = e.target.value; draw(); });
-  $("#tf-league", root).addEventListener("change", (e) => { f.league = e.target.value; draw(); });
-  const wireCoachFilter = (id, selected) => {
-    const filter = $(`#${id}`, root);
+
+  const set = (key, value) => { f[key] = value; draw(); };
+  $("#tf-q", root).addEventListener("input", (e) => set("q", e.target.value));
+  for (const [id, key] of [["tf-age-min", "ageMin"], ["tf-age-max", "ageMax"], ["tf-height", "heightMin"]]) $(`#${id}`, root).addEventListener("input", (e) => set(key, e.target.value.trim()));
+  for (const [id, key] of [["tf-contract", "contract"], ["tf-value", "value"], ["tf-verdict", "verdict"], ["tf-dec", "decision"], ["tf-foot", "foot"], ["tf-exit", "exit"], ["tf-board", "boardPos"], ["tf-reports", "reports"]])
+    $(`#${id}`, root).addEventListener("change", (e) => set(key, e.target.value));
+  $("#tf-pos", root).addEventListener("click", (e) => {
+    const b = e.target.closest("[data-pos]");
+    if (!b) return;
+    const on = !f.pos.includes(b.dataset.pos);
+    f.pos = on ? [...f.pos, b.dataset.pos] : f.pos.filter((x) => x !== b.dataset.pos);
+    b.classList.toggle("on", on); b.setAttribute("aria-pressed", on);
+    draw();
+  });
+  $("#tf-roster", root).addEventListener("click", (e) => {
+    const b = e.target.closest("[data-v]");
+    if (!b) return;
+    $$("#tf-roster button", root).forEach((x) => x.classList.toggle("on", x === b));
+    set("roster", b.dataset.v);
+  });
+  for (const pickEl of $$(".db-pick", root)) {
+    const key = pickEl.dataset.key, numeric = key !== "leagues";
     const update = () => {
-      const display = coachFilterLabel(filter.dataset.label, selected);
-      $("summary span", filter).textContent = display;
-      $("summary", filter).title = display;
-      $("[data-clear]", filter).disabled = !selected.size;
+      const labels = $$("input:checked", pickEl).map((i) => i.closest("label").querySelector("span").textContent);
+      const shown = labels.length ? (labels.length <= 2 ? labels.join(", ") : `${labels.length} selected`) : key === "leagues" ? "All leagues" : "Anyone";
+      $("summary span", pickEl).textContent = shown;
+      $("summary", pickEl).title = shown;
+      $("[data-clear]", pickEl).disabled = !labels.length;
       draw();
     };
-    filter.addEventListener("change", (e) => {
+    pickEl.addEventListener("change", (e) => {
       const input = e.target.closest("input[type=checkbox]");
       if (!input) return;
-      const userId = Number(input.value);
-      if (input.checked) selected.add(userId); else selected.delete(userId);
+      const v = numeric ? Number(input.value) : input.value;
+      f[key] = input.checked ? [...f[key], v] : f[key].filter((x) => x !== v);
       update();
     });
-    $("[data-clear]", filter).addEventListener("click", () => {
-      selected.clear();
-      $$("input[type=checkbox]", filter).forEach((input) => (input.checked = false));
-      update();
-    });
-  };
-  wireCoachFilter("tf-changed-by", f.changedBy);
-  wireCoachFilter("tf-added-by", f.addedBy);
+    $("[data-clear]", pickEl).addEventListener("click", () => { f[key] = []; $$("input", pickEl).forEach((i) => (i.checked = false)); update(); });
+  }
+  $("#tf-more", root).addEventListener("click", (e) => {
+    f.more = !f.more;
+    $(".db-more", root).hidden = !f.more;
+    e.target.textContent = f.more ? "Fewer filters" : "More filters";
+    saveDbState();
+  });
+  // Clearing redraws the page so every control shows its reset value; the search box keeps focus if it was in it.
+  $("#tf-active", root).addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-clear-key]");
+    if (!chip && !e.target.closest("#tf-clear")) return;
+    const keys = chip ? DB_CLEAR[chip.dataset.clearKey] || [chip.dataset.clearKey] : Object.keys(DB_DEFAULTS).filter((k) => !["view", "sort", "dir", "more"].includes(k));
+    for (const k of keys) f[k] = structuredClone(DB_DEFAULTS[k]);
+    saveDbState();
+    renderTable(main);
+  });
+  $("#t-views", root).addEventListener("click", (e) => { const b = e.target.closest("[data-view]"); if (b) set("view", b.dataset.view); });
   $("thead", root).addEventListener("click", (e) => {
     const th = e.target.closest("th[data-sort]");
     if (!th) return;
-    if (f.sort === th.dataset.sort) f.dir *= -1; else { f.sort = th.dataset.sort; f.dir = ["updated_at", "note_count", "market_value_eur"].includes(f.sort) ? -1 : 1; }
-    $$("th", root).forEach((x) => { x.className = x.dataset.sort === f.sort ? "sorted" + (f.dir > 0 ? " asc" : "") : ""; });
+    if (f.sort === th.dataset.sort) f.dir *= -1; else { f.sort = th.dataset.sort; f.dir = COLS.find((c) => c.k === f.sort)?.desc ? -1 : 1; }
+    $$("th", root).forEach((x) => {
+      x.className = x.dataset.sort === f.sort ? "sorted" + (f.dir > 0 ? " asc" : "") : "";
+      x.setAttribute("aria-sort", x.dataset.sort === f.sort ? (f.dir > 0 ? "ascending" : "descending") : "none");
+    });
     draw();
   });
   $("#t-body", root).addEventListener("click", (e) => { const tr = e.target.closest("tr[data-href]"); if (tr) location.hash = tr.dataset.href; });
@@ -1174,9 +1351,13 @@ function renderTable(main) {
 }
 
 function exportCsv(list) {
-  const cols = ["name", "age", "birthdate", "position", "club", "league", "contract_expires", "market_value_display", "decision", "roles", "verdicts", "note_count", "tm_url"];
-  const val = (p, k) => k === "roles" ? p.roles.map((r) => `${roleShort(r.role)} rank ${r.rank + 1}`).join("; ")
-    : k === "verdicts" ? Object.entries(p.verdicts || {}).map(([n, v]) => `${n}: ${v}`).join("; ") : p[k] ?? "";
+  const cols = ["name", "age", "birthdate", "position", "position_group", "foot", "height_cm", "roster", "club", "league", "contract_expires", "market_value_display",
+    "decision", "roles", "removed", "verdicts", "note_count", "last_report", "agent", "tm_url"];
+  const val = (p, k) => k === "roles" ? p.roles.map((r) => `${roleShort(r.role)} rank ${r.rank + 1}${r.shortlist ? " (Short Board)" : ""}`).join("; ")
+    : k === "verdicts" ? Object.entries(p.verdicts || {}).map(([n, v]) => `${n}: ${v}`).join("; ")
+    : k === "position_group" ? posGroupLabel(posGroup(p)) : k === "roster" ? rosterStatus(p) || "" : k === "league" ? leagueName(p)
+    : k === "removed" ? (!p.roles.length && p.last_exit ? `${p.last_exit.exit_reason || ""}${p.last_exit.note ? ` (${p.last_exit.note})` : ""}` : "")
+    : k === "last_report" ? (p.last_report?.at || "").slice(0, 10) : p[k] ?? "";
   const csv = [cols.join(","), ...list.map((p) => cols.map((k) => `"${String(val(p, k)).replace(/"/g, '""')}"`).join(","))].join("\n");
   const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([csv], { type: "text/csv" })), download: `pine-players-${new Date().toISOString().slice(0, 10)}.csv` });
   document.body.appendChild(a);

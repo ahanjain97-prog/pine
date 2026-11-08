@@ -345,7 +345,20 @@ syncs leave the signing status alone.
     and each answer) and `review_notes`.
 - **Reload prompt:** a tab left open across a deploy shows **PINE was updated · reload**. `/api/changes`
   reports the front end's asset version.
-- **Database** (`#/players`): sortable and filterable table of everyone, with CSV export.
+- **Database** (`#/players`): everyone in PINE, including the players off the boards. The filters and sort are remembered
+  per browser.
+  - **Quick views:** Everyone, Off the boards, Removed from the Big Board (showing the last exit reason), Big Board, Short Board,
+    NCAA board and Signed. Each shows its count under the other filters.
+  - **Search:** name, club, league, nationality or agent.
+  - **Filters:** position group, age range, leagues, domestic/international, contract end, market value, staff
+    verdicts and club decision.
+  - **More filters:** foot, minimum height, exit reason, Big Board role, reports, added by and changed by.
+  - **Position groups:** GK, CB, FB, DM/CM, AM, W and ST, built from the player's listed position (any spelling), else
+    his Big Board role.
+  - **League names:** typed variants count as one (USLC = USL Championship; college conferences = NCAA).
+  - **Active filters** show as chips; each one removes its filter, and Clear all resets them.
+  - **Sorting:** every column sorts (blanks always last).
+  - **CSV export:** the rows shown, in that order, with position group, roster status, exit reason and last report.
 - **Player page**: **Board history** lists recorded adds, promotions, drop-backs, removals and optional
   tracking reasons, newest first: date, staff member, role, source or exit reason and written
   explanation. History survives removing a board entry. Adding a player to PINE without a board role offers

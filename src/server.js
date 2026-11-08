@@ -163,6 +163,8 @@ function hydrate(p) {
   if ("roles_json" in p) { p.roles = JSON.parse(p.roles_json || "[]").sort((a, b) => a.role.localeCompare(b.role)); delete p.roles_json; }
   if ("verdicts_json" in p) { p.verdicts = JSON.parse(p.verdicts_json || "{}"); delete p.verdicts_json; }
   if ("ncaa_json" in p) { p.ncaa_board = p.ncaa_json ? JSON.parse(p.ncaa_json) : null; delete p.ncaa_json; }
+  // The last time they were taken off the Big Board, and why (the Database shows it for players no longer on it).
+  if ("last_exit_json" in p) { p.last_exit = p.last_exit_json ? JSON.parse(p.last_exit_json) : null; delete p.last_exit_json; }
   // The latest report anyone wrote on them (a staff note or a PINE college report): drives the "new report" mark.
   if ("last_report_json" in p) { p.last_report = p.last_report_json ? JSON.parse(p.last_report_json) : null; delete p.last_report_json; }
   if ("l2_json" in p) { p.l2 = JSON.parse(p.l2_json || "[]").sort((a, b) => b.year - a.year); delete p.l2_json; }
@@ -185,6 +187,8 @@ const PLAYER_SELECT = `
           WHERE np.player_id = p.id AND r.origin = 'pine' AND r.created_at IS NOT NULL
       ) x ORDER BY x.at DESC LIMIT 1) AS last_report_json,
     (SELECT json_object('position', nb.position, 'rank', nb.rank) FROM ncaa_board nb WHERE nb.player_id = p.id) AS ncaa_json,
+    (SELECT json_object('role', r.role, 'exit_reason', r.exit_reason, 'note', r.note, 'at', r.created_at, 'by', r.user_id)
+      FROM board_reasons r WHERE r.player_id = p.id AND r.kind = 'take_off' ORDER BY r.id DESC LIMIT 1) AS last_exit_json,
     (SELECT np.grade FROM ncaa_prospects np WHERE np.player_id = p.id ORDER BY np.year DESC LIMIT 1) AS college_grade,
     (SELECT json_group_array(json_object('year', l.year, 'tier', l.tier, 'position', l.position, 'club', l.club, 'status', l.status))
       FROM l2_prospects l WHERE l.player_id = p.id) AS l2_json,

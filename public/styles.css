@@ -404,6 +404,58 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 13px; }
 .grid .warn, .warn { color: var(--hold); font-weight: 600; }
 .grid td .chip { margin-right: 3px; }
 
+/* ---------- database ---------- */
+.db-views { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 12px; }
+.db-views button { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-2);
+  border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.db-views button:hover { color: var(--ink); border-color: var(--accent); }
+.db-views button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.db-vn { min-width: 20px; padding: 0 6px; border-radius: 9px; background: var(--surface-2); color: var(--muted); font-size: 11px; font-weight: 700; text-align: center; }
+.db-views button.on .db-vn { background: color-mix(in srgb, var(--accent-ink) 22%, transparent); color: var(--accent-ink); }
+.db-filters { margin-bottom: 14px; }
+.db-q { width: 100%; font-size: 15px; padding: 10px 12px; margin-bottom: 12px; }
+.db-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px 14px; align-items: end; }
+.db-more { display: contents; }
+.db-more[hidden] { display: none; }
+.db-f { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.db-f.wide { grid-column: span 2; }
+.db-l { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.db-f select, .db-f > input { width: 100%; }
+.db-range { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.db-range input { width: 100%; min-width: 0; }
+.db-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.db-chips button { border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-2); border-radius: 8px; padding: 6px 10px;
+  font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.db-chips button:hover { border-color: var(--accent); color: var(--ink); }
+.db-chips button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.db-f .seg { align-self: flex-start; }
+.db-pick > summary { width: 100%; }
+.db-pick .coach-filter-menu { left: 0; right: auto; max-height: 340px; overflow: auto; }
+.db-n { margin-left: auto; padding-left: 10px; }
+.db-foot { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.db-active { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.db-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ink); border-radius: 999px; padding: 3px 10px;
+  font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.db-chip span { color: var(--muted); font-size: 14px; line-height: 1; }
+.db-chip:hover span { color: var(--ink); }
+.db-table { max-height: calc(100vh - 120px); overflow: auto; }
+.db-pos { font-size: 12px; font-weight: 700; color: var(--ink-2); }
+.grid td.db-clip { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+.db-table .grid th, .db-table .grid td { padding-left: 8px; padding-right: 8px; }
+.grid td.db-board { white-space: normal; min-width: 140px; max-width: 200px; }
+.grid td.db-board .chip, .grid td.db-board .db-exit { margin: 1px 3px 1px 0; }
+.db-table .grid td.name { display: table-cell; }
+.db-name { display: flex; align-items: center; gap: 9px; }
+/* The player column stays put when the table scrolls sideways. */
+.db-table .grid th:first-child, .db-table .grid td:first-child { position: sticky; left: 0; z-index: 1; background: var(--surface); }
+.db-table .grid th:first-child { z-index: 3; background: var(--surface-2); }
+.db-table .grid th { z-index: 2; }
+.db-table .grid tbody tr:hover td:first-child { background: var(--surface-2); }
+.db-exit { display: inline-block; max-width: 210px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; font-size: 12px; color: var(--muted); border: 1px dashed var(--line-2); border-radius: 999px; padding: 1px 9px; }
+.grid .chip.sb-chip { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+@media (max-width: 640px) { .db-f.wide { grid-column: auto; } .db-table { max-height: none; } }
+
 /* ---------- player page ---------- */
 .back { display: inline-block; margin-bottom: 10px; font-size: 13px; font-weight: 600; background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; }
 .p-head { display: grid; grid-template-columns: auto 1fr auto; gap: 20px; align-items: start; }
