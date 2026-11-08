@@ -368,7 +368,7 @@ function renderShell() {
     <a class="brand" href="#/board"><img class="club-crest" src="/hop-crest.png?v=1" alt="Portland Hearts of Pine" width="31" height="36"><span class="brand-divider" aria-hidden="true"></span>${LOGO}<span class="wordmark">PINE</span><span class="tagline">Player Identification Network Evaluation</span></a>
     <nav class="nav" id="nav">
       <a href="#/board" data-v="board">Big Board</a>
-      ${reviewRole() ? `<a href="#/review" data-v="review">Review<span class="nav-badge" id="review-badge" hidden></span></a>` : ""}
+      ${reviewRole() ? `<a href="#/review" data-v="review">Review<span class="nav-badge" id="review-badge" ${S.reviewOpen ? "" : "hidden"}>${S.reviewOpen || ""}</span></a>` : ""}
       <a href="#/short-board" data-v="short-board">Short Board</a>
       <a href="#/ncaa" data-v="ncaa">NCAA</a>
       <a href="#/players" data-v="players">Database</a>
@@ -3488,6 +3488,8 @@ async function boot() {
   await render();
   clearInterval(S.pollTimer);
   S.pollTimer = setInterval(poll, 15000);
+  // Checks pause while the tab is in the background; coming back checks at once, so the Review count is current.
+  if (!S.visibilityWired) { S.visibilityWired = true; document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); }); }
 }
 
 // hashchange alone isn't enough: stepping back or forward between /p/7 and a #/view changes the
@@ -3534,7 +3536,9 @@ const reviewLead = () => S.config.review_team?.find((u) => u.role === "lead") ||
 const reviewScouts = () => (S.config.review_team || []).filter((u) => u.role === "scout");
 const TM_LINK = /transfermarkt\.[a-z.]+\/.+\/spieler\/\d+/i;
 
+// The count is kept so the nav shows it however it's drawn: boot fetches it before the nav exists.
 function setReviewBadge(n) {
+  S.reviewOpen = n || 0;
   const b = $("#review-badge");
   if (!b) return;
   b.hidden = !n;
