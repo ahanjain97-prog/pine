@@ -1,3 +1,4 @@
+import { renderAnalysis } from "./analysis.js";
 import { loadPlayingTimePanel } from "./playing-time.js";
 
 // PINE front end: single page, no build step.
@@ -374,6 +375,7 @@ function renderShell() {
       <a href="#/ncaa" data-v="ncaa">NCAA</a>
       <a href="#/players" data-v="players">Database</a>
       <a href="#/impect" data-v="impect">Impect</a>
+      <a href="#/analysis" data-v="analysis">Analysis</a>
       <a href="#/activity" data-v="activity">Activity</a>
       ${S.me.is_admin ? `<a href="#/staff" data-v="staff">Staff</a>` : ""}
     </nav>
@@ -450,8 +452,12 @@ async function render() {
   if (!S.me) return;
   const { view, arg } = route();
   $$("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.v === view || (view === "player" && a.dataset.v === "players")));
+  if (view === 'analysis') {
+    const link = $('#nav [data-v="analysis"]'), nav = $('#nav');
+    if (link && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = link.offsetLeft - nav.offsetLeft - (nav.clientWidth - link.offsetWidth) / 2;
+  }
   $("#upd").hidden = !S.staleNotified; // the reload prompt stays up until they reload
-  const views = { board: renderBoard, review: renderReview, "short-board": renderShortBoard, ncaa: renderNcaa, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
+  const views = { analysis: (main, arg) => renderAnalysis(main, arg, { api, setTitle }), board: renderBoard, review: renderReview, "short-board": renderShortBoard, ncaa: renderNcaa, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
   // Pitch maps had their own tab for a day; its links now open the player's page, where the maps live.
   if (view === "maps") { location.hash = arg ? `#/player/${arg}` : "#/players"; return; }
   if (!views[view]) { location.hash = "#/board"; return; }
@@ -459,7 +465,7 @@ async function render() {
   const want = canonicalUrl({ view, arg });
   if (location.pathname + location.hash !== want) history.replaceState(null, "", want);
   // The player view retitles itself once the profile loads.
-  setTitle({ board: "Big Board", ncaa: "NCAA", players: "Database", impect: "Impect", activity: "Activity", staff: "Staff" }[view]);
+  setTitle({ analysis: "Analysis", board: "Big Board", ncaa: "NCAA", players: "Database", impect: "Impect", activity: "Activity", staff: "Staff" }[view]);
   await views[view]($("#main"), arg);
 }
 
