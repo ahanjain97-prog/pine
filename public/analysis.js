@@ -6,6 +6,7 @@ const fmt = date => new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US', { 
 const normalize = value => value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
 const due = report => report.review_after < new Date().toLocaleDateString('en-CA');
 const path = report => `#/analysis/${report.slug}`;
+const isVisual = report => report.documents.length > 0 && report.documents.every(file => file.format === 'png');
 const filePath = (report, file) => `/api/analysis/${encodeURIComponent(report.slug)}/files/${encodeURIComponent(file.id)}`;
 
 export function filterReports(reports, { q = '', topic = '', sort = 'curated' } = {}) {
@@ -51,7 +52,7 @@ export async function renderAnalysis(main, arg, { api, setTitle }) {
       host.querySelector('#al-count').textContent = `${selected.length} report${selected.length === 1 ? '' : 's'}${state.topic ? ` in ${state.topic}` : ''}${state.q.trim() ? ` matching “${state.q.trim()}”` : ''}`;
       const card = r => `<article class="al-card"><div class="al-card-top"><span class="al-topic-label">${esc(r.topic)}</span><div class="al-statuses">${statusHTML(r)}</div></div>
         <h3><a href="${path(r)}">${esc(r.title)}</a></h3><p>${esc(r.summary)}</p><div class="al-tags">${r.tags.slice(0, 3).map(t => `<span>${esc(t)}</span>`).join('')}</div>
-        <footer><span>Updated ${fmt(r.updated)}</span><a href="${path(r)}" aria-label="Read brief: ${esc(r.title)}">${r.read_minutes} min brief <span aria-hidden="true">→</span></a></footer></article>`;
+        <footer><span>Updated ${fmt(r.updated)}</span><a href="${path(r)}" aria-label="${isVisual(r) ? 'View visual' : 'Read brief'}: ${esc(r.title)}">${isVisual(r) ? 'View visual' : `${r.read_minutes} min brief`} <span aria-hidden="true">→</span></a></footer></article>`;
       const grouped = state.sort === 'curated' && !state.topic;
       host.querySelector('#al-reports').innerHTML = !selected.length ? `<div class="al-empty"><h2>${reports.length ? 'No matching reports' : 'The library is being prepared'}</h2>
         <p>${reports.length ? 'Try a different phrase or browse all topics.' : 'Curated reports will appear here once the first publication is uploaded.'}</p>${reports.length ? '<button class="btn" id="al-clear" type="button">Clear filters</button>' : ''}</div>`
@@ -76,6 +77,14 @@ export async function renderAnalysis(main, arg, { api, setTitle }) {
 }
 
 function renderReport(host, r) {
+  if (isVisual(r)) {
+    host.classList.add('al-report-page');
+    host.innerHTML = `<a href="#/analysis" class="al-back">← All analysis</a>
+      <header class="al-report-heading"><h1>${esc(r.title)}</h1></header>
+      ${r.documents.map(d => `<figure class="al-figure"><a href="${filePath(r, d)}" target="_blank" rel="noopener" aria-label="Open ${esc(d.label)} at full size"><img src="${filePath(r, d)}" alt="${esc(d.label)}"></a><figcaption><a href="${filePath(r, d)}?download=1">Download visual (PNG)</a> · Open the image for full size.</figcaption></figure>`).join('')}
+      <details class="al-section al-limits"><summary>Coverage & source</summary><p>${esc(r.coverage)}</p><p>${esc(r.limitations)}</p><p>Reviewed ${fmt(r.reviewed)} · Next review by ${fmt(r.review_after)}</p><a href="/api/analysis/${r.slug}/files/source">Source notes</a></details>`;
+    return;
+  }
   const pdfs = r.documents.filter(d => d.format === 'pdf');
   host.classList.add('al-report-page');
   host.innerHTML = `<a href="#/analysis" class="al-back">← All analysis</a>
