@@ -208,11 +208,11 @@ Minute share divides recorded player minutes by actual match duration across the
 
 ## What's where
 
-**Big Board**, **Short Board**, **NCAA** and **Activity** have their own top-bar
-tabs. **Operations** opens Review (for the review team), Database, Impect,
-Analysis and Staff (for admins). It stays highlighted on those pages and on
-player profiles, and shows the review team's pending-review count. Click a link
-to go directly to that page; click away or press Escape to close the dropdown.
+**Big Board**, **Review** (for the review team), **Short Board**, **NCAA** and
+**Activity** have their own top-bar tabs. Review shows its pending-review count.
+**Operations** opens Database, Impect, Analysis and Staff (for admins). It stays
+highlighted on those pages and on player profiles. Click a link to go directly
+to that page; click away or press Escape to close the dropdown.
 
 Official signings have a magenta frame and **✓ Signed** badge on the player page, Big Board,
 Short Board, NCAA board, player list and search results. Any signed-in staff member can use

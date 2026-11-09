@@ -370,12 +370,12 @@ function renderShell() {
     <a class="brand" href="#/board"><img class="club-crest" src="/hop-crest.png?v=1" alt="Portland Hearts of Pine" width="31" height="36"><span class="brand-divider" aria-hidden="true"></span>${LOGO}<span class="wordmark">PINE</span><span class="tagline">Player Identification Network Evaluation</span></a>
     <nav class="nav" id="nav">
       <a href="#/board" data-v="board">Big Board</a>
+      ${reviewRole() ? `<a href="#/review" data-v="review">Review<span class="nav-badge" id="review-badge" ${S.reviewOpen ? "" : "hidden"}>${S.reviewOpen || ""}</span></a>` : ""}
       <a href="#/short-board" data-v="short-board">Short Board</a>
       <a href="#/ncaa" data-v="ncaa">NCAA</a>
       <a href="#/activity" data-v="activity">Activity</a>
-      <button class="nav-trigger" id="operations-trigger" type="button" popovertarget="operations-menu" aria-controls="operations-menu" aria-expanded="false">Operations${reviewRole() ? `<span class="nav-badge" id="operations-review-badge" title="Reviews waiting on you" ${S.reviewOpen ? "" : "hidden"}>${S.reviewOpen || ""}</span>` : ""}<span class="nav-caret" aria-hidden="true">▾</span></button>
+      <button class="nav-trigger" id="operations-trigger" type="button" popovertarget="operations-menu" aria-controls="operations-menu" aria-expanded="false">Operations<span class="nav-caret" aria-hidden="true">▾</span></button>
       <div class="nav-menu" id="operations-menu" popover role="group" aria-label="Operations">
-        ${reviewRole() ? `<a href="#/review" data-v="review">Review<span class="nav-badge" id="review-badge" ${S.reviewOpen ? "" : "hidden"}>${S.reviewOpen || ""}</span></a>` : ""}
         <a href="#/players" data-v="players">Database</a>
         <a href="#/impect" data-v="impect">Impect</a>
         <a href="#/analysis" data-v="analysis">Analysis</a>
@@ -480,7 +480,7 @@ async function render() {
     if (a.dataset.v === view) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   });
-  const inOperations = ["review", "players", "player", "impect", "analysis", "staff"].includes(view);
+  const inOperations = ["players", "player", "impect", "analysis", "staff"].includes(view);
   $("#operations-trigger").classList.toggle("on", inOperations);
   const link = $("#nav > .on"), nav = $("#nav");
   if (link && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = link.offsetLeft - nav.offsetLeft - (nav.clientWidth - link.offsetWidth) / 2;
@@ -3791,10 +3791,10 @@ const TM_LINK = /transfermarkt\.[a-z.]+\/.+\/spieler\/\d+/i;
 // The count is kept so the nav shows it however it's drawn: boot fetches it before the nav exists.
 function setReviewBadge(n) {
   S.reviewOpen = n || 0;
-  $$("#review-badge, #operations-review-badge").forEach((b) => {
-    b.hidden = !n;
-    b.textContent = n || "";
-  });
+  const b = $("#review-badge");
+  if (!b) return;
+  b.hidden = !n;
+  b.textContent = n || "";
 }
 
 const RV_STATUS = { added_sb: ["On the Short Board", "pass"], added_bb: ["Added to the Big Board", "pass"], moved_bb: ["Moved on the Big Board", "pass"],

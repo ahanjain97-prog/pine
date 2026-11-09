@@ -115,7 +115,6 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .nav-trigger { display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; cursor: pointer; }
 .nav-caret { font-size: 10px; }
 .nav-trigger[aria-expanded="true"] .nav-caret { transform: rotate(180deg); }
-.nav-trigger .nav-badge { margin-left: 0; }
 .nav > a:hover, .nav-trigger:hover { color: #fff; background: rgba(255, 255, 255, .08); }
 .nav > a.on, .nav-trigger.on, .nav-trigger[aria-expanded="true"] { color: #fff; background: rgba(255, 255, 255, .16); }
 .nav > a:focus-visible, .nav-trigger:focus-visible { outline-color: #fff; }
