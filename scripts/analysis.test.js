@@ -13,7 +13,7 @@ import { buildPublication } from './sync-analysis.mjs';
 import { demoPublication } from './fixtures/analysis-demo.mjs';
 
 test('curated publication rejects invalid provenance, dates, duplicate IDs and file tampering', () => {
-  assert.equal(validateAnalysis(demoPublication()).reports.length, 6);
+  assert.equal(validateAnalysis(demoPublication()).reports.length, 9);
   for (const edit of [
     x => { x.reports[0].source.sha256 = '0'.repeat(64); },
     x => { x.reports[0].source.ref = 'main'; },
@@ -44,7 +44,7 @@ test('publication is atomic, survives restart, excludes file bodies in listing a
   const list = await app.request('/api/analysis');
   assert.match(list.headers.get('cache-control'), /private, no-store/);
   const metadata = await list.json();
-  assert.equal(metadata.reports.length, 6);
+  assert.equal(metadata.reports.length, 9);
   assert.equal(metadata.reports[0].source.text, undefined);
   assert.equal(metadata.reports[0].documents[0].data, undefined);
   const attachment = await app.request('/api/analysis/cpl-scouting/files/report?download=1');
@@ -57,7 +57,7 @@ test('publication is atomic, survives restart, excludes file bodies in listing a
   assert.equal((await upload(invalid)).status, 400);
   assert.equal((await upload(snapshot)).status, 409);
   db.raw.close(); open();
-  assert.equal((await (await app.request('/api/analysis')).json()).reports.length, 6);
+  assert.equal((await (await app.request('/api/analysis')).json()).reports.length, 9);
   const withdrawn = { schema_version: 1, generated_at: new Date(Date.now() + 100).toISOString(), reports: [] };
   assert.equal((await upload(withdrawn)).status, 200);
   assert.equal((await app.request('/api/analysis/cpl-scouting')).status, 404);
@@ -67,10 +67,10 @@ test('publication is atomic, survives restart, excludes file bodies in listing a
 test('search supports multiple terms, accents, brief text, topic filters and independent sorting', () => {
   const reports = demoPublication().reports;
   assert.equal(filterReports(reports, { q: 'CPL opportunity' }).length, 1);
-  assert.equal(filterReports(reports, { q: 'demonstrátion', topic: 'Team performance' }).length, 2);
+  assert.equal(filterReports(reports, { q: 'demonstrátion', topic: 'Team performance' }).length, 4);
   assert.equal(filterReports(reports, { q: 'no such finding' }).length, 0);
-  assert.equal(filterReports(reports, { sort: 'newest' })[0].slug, 'mlsnp-graduation');
-  assert.equal(filterReports(reports, { sort: 'title' })[0].slug, 'age-curves');
+  assert.equal(filterReports(reports, { sort: 'newest' })[0].slug, 'coaching-positional-profiles');
+  assert.equal(filterReports(reports, { sort: 'title' })[0].slug, 'season-review-2026');
   assert.equal(reports[0].slug, 'cpl-scouting', 'sorting does not mutate catalog order');
 });
 

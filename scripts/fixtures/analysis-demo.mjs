@@ -21,6 +21,9 @@ export function demoPublication() {
     ['what-wins-usl', 'What makes USL teams successful?', 'Team performance', 'Analysis', ['Team building', 'Chance creation', 'Box protection']],
     ['long-throws', 'Long throws: threat, repeatability, and pitch fit', 'Team performance', 'Analysis', ['Set pieces', 'Long throws', 'Pitch geometry']],
     ['age-curves', 'Age curves: evaluating veteran trajectories', 'Player development', 'Reference', ['Age & development', 'Veterans', 'Projection limits']],
+    ['season-review-2026', '2026 season review: where the points went', 'Team performance', 'Analysis', ['Season review', 'Hearts of Pine', 'Team performance']],
+    ['coaching-positional-profiles', 'Coaching profiles and scouting metrics', 'Scouting & recruitment', 'Reference', ['Positional fit', 'Staff requirements', 'Scouting reference']],
+    ['team-physical-success', 'Physical makeup and success in USL League One', 'Team performance', 'Exploratory', ['Physical performance', 'Wide defending', 'Team building']],
   ];
   return { schema_version: 1, generated_at: new Date().toISOString(), reports: titles.map(([slug, title, topic, status, tags], i) => {
     const text = `# ${title}\n\nFictional demonstration source for interface review. No club analysis or private findings.\n`;
@@ -32,7 +35,10 @@ export function demoPublication() {
         'Demonstration: a staff brief connecting team-building questions to repeatable processes and the full study.',
         'Demonstration: a guide to reading throw-in rankings, opportunity, and pitch geometry alongside the sample.',
         'Demonstration: a methodological reference for reading player trajectories with uncertainty kept visible.',
-      ][i], updated: ['2026-09-27', '2026-09-04', '2026-10-20', '2026-10-03', '2026-09-06', '2026-07-08'][i],
+        'Demonstration: a season-review brief linking the staff deck to the questions to explore in the evidence.',
+        'Demonstration: a positional reference connecting staff requirements, metric definitions, and example profiles.',
+        'Demonstration: an exploratory physical-performance study with coverage and interpretation limits kept visible.',
+      ][i], updated: ['2026-09-27', '2026-09-04', '2026-10-20', '2026-10-03', '2026-09-06', '2026-07-08', '2026-10-27', '2026-11-04', '2026-10-23'][i],
       reviewed: '2026-11-09', review_after: '2027-01-15', read_minutes: 4,
       coverage: 'Fictional demonstration cohort, 2025-2026. No real player or club findings are shown.',
       takeaways: ['This is demonstration content for reviewing the interface.', 'Use a short staff brief to understand the question, then open the original analysis for the evidence.', 'Coverage, uncertainty and review dates stay visible alongside every conclusion.'],

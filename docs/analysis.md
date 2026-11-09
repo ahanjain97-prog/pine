@@ -7,8 +7,8 @@ limitations, editorial review dates, source provenance and downloads. PDFs open
 from authenticated endpoints; staff do not need access to the source repository.
 
 The initial selection and real content are reviewed in a companion PR in the
-private Hearts of PINE repository. It includes the five requested topics and
-one additional recent study, MLS NEXT Pro graduation. The three topic groups are
+private Hearts of PINE repository. It includes nine reports: the five requested topics, MLS NEXT Pro graduation,
+the 2026 season review, coaching positional profiles, and physical makeup. The three topic groups are
 Scouting & recruitment, Team performance, and Player development. Older or
 superseded reports and unfinished research do not automatically enter the library.
 
@@ -32,6 +32,10 @@ do not open the read endpoints, and staff sessions cannot publish. Reads use
 `Cache-Control: private, no-store`. Markdown downloads are plain-text attachments;
 brief content is escaped text, never raw HTML. There are no static report URLs.
 
+Exploratory research carries an explicit amber **Exploratory** label on its card
+and brief. Coaching requirements are a reference; proposed metric weights remain
+unapproved in the accompanying proposal.
+
 A missing initial publication produces a clear empty state. Withdrawn or unknown
 report links produce a not-found state. Failures offer a retry and do not insert
 late responses into a different page. Publication dates distinguish the report's
@@ -42,7 +46,8 @@ due** rather than silently pretending a study was refreshed.
 
 1. Merge the private catalog PR and deploy this PINE PR.
 2. On the analysis host, fetch the private repository including its source
-   branches. The initial CPL report is pinned from its separate review branch;
+   branches. The CPL, season-review, coaching-profile and physical-study sources are pinned
+   from separate review branches;
    the private guide records the exact prerequisite.
 3. Validate a publication locally, writing only to a private location:
 

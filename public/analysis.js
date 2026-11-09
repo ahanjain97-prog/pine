@@ -18,7 +18,7 @@ export function filterReports(reports, { q = '', topic = '', sort = 'curated' } 
   return selected;
 }
 
-const statusHTML = r => `${r.status !== 'Analysis' ? `<span class="al-status ${r.status === 'Preliminary' ? 'preliminary' : ''}">${esc(r.status)}</span>` : ''}${due(r) ? '<span class="al-status preliminary">Review due</span>' : ''}`;
+const statusHTML = r => `${r.status !== 'Analysis' ? `<span class="al-status ${['Preliminary', 'Exploratory'].includes(r.status) ? 'preliminary' : ''}">${esc(r.status)}</span>` : ''}${due(r) ? '<span class="al-status preliminary">Review due</span>' : ''}`;
 
 export async function renderAnalysis(main, arg, { api, setTitle }) {
   main.innerHTML = '<div class="page al-page"><p class="loading">Loading analysis…</p></div>';

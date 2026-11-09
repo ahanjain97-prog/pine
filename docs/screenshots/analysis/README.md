@@ -3,7 +3,7 @@
 Every screenshot uses `node scripts/preview-analysis.mjs`: a disposable database
 with fictional report findings and a sample PDF. No private report body, player
 information, staff notes, board rankings, or production address appears here.
-Report titles identify the proposed collection; substantive findings are reviewed
+The nine demonstration report titles identify the proposed collection; substantive findings are reviewed
 only in the companion private Hearts of PINE catalog PR.
 
 | View | Light | Dark |

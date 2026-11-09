@@ -22,7 +22,7 @@ export function validateAnalysis(input) {
   for (const r of input.reports) {
     if (!exact(r, ['slug', 'title', 'topic', 'summary', 'updated', 'reviewed', 'review_after', 'coverage', 'status', 'read_minutes', 'tags', 'takeaways', 'limitations', 'sections', 'source', 'documents']) ||
         !text(r.slug, 80) || !slug.test(r.slug) || ids.has(r.slug) || !text(r.title, 160) || !ANALYSIS_TOPICS.includes(r.topic) ||
-        !text(r.summary, 600) || !['Analysis', 'Reference', 'Preliminary'].includes(r.status) || !text(r.coverage, 600) ||
+        !text(r.summary, 600) || !['Analysis', 'Reference', 'Preliminary', 'Exploratory'].includes(r.status) || !text(r.coverage, 600) ||
         ![r.updated, r.reviewed, r.review_after].every(validDate) || r.review_after < r.reviewed || r.updated > r.reviewed ||
         r.reviewed > new Date().toISOString().slice(0, 10) || !Number.isInteger(r.read_minutes) || r.read_minutes < 1 || r.read_minutes > 120 ||
         !strings(r.tags, 12) || !strings(r.takeaways, 8) || !r.takeaways.length || !text(r.limitations) ||
