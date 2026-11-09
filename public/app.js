@@ -373,11 +373,14 @@ function renderShell() {
       ${reviewRole() ? `<a href="#/review" data-v="review">Review<span class="nav-badge" id="review-badge" ${S.reviewOpen ? "" : "hidden"}>${S.reviewOpen || ""}</span></a>` : ""}
       <a href="#/short-board" data-v="short-board">Short Board</a>
       <a href="#/ncaa" data-v="ncaa">NCAA</a>
-      <a href="#/players" data-v="players">Database</a>
       <a href="#/impect" data-v="impect">Impect</a>
       <a href="#/analysis" data-v="analysis">Analysis</a>
-      <a href="#/activity" data-v="activity">Activity</a>
-      ${S.me.is_admin ? `<a href="#/staff" data-v="staff">Staff</a>` : ""}
+      <button class="operations-trigger" id="operations-trigger" type="button" popovertarget="operations-menu" aria-controls="operations-menu" aria-expanded="false">Operations<span aria-hidden="true">▾</span></button>
+      <div class="operations-menu" id="operations-menu" popover role="group" aria-label="Operations">
+        <a href="#/players" data-v="players">Database</a>
+        <a href="#/activity" data-v="activity">Activity</a>
+        ${S.me.is_admin ? `<a href="#/staff" data-v="staff">Staff</a>` : ""}
+      </div>
     </nav>
     <div class="top-r">
       <div class="gsearch"><input id="gs" type="search" placeholder="Find a player  ( / )" autocomplete="off" aria-label="Find a player"><div class="gs-res" id="gs-res" hidden></div></div>
@@ -408,7 +411,22 @@ function renderShell() {
     } catch (err) { oops(err); }
   });
   $("#upd button").addEventListener("click", () => { $("#upd").hidden = true; refresh(); });
+  wireOperationsNav();
   wireGlobalSearch();
+}
+
+function wireOperationsNav() {
+  const trigger = $("#operations-trigger"), menu = $("#operations-menu");
+  // The native popover sits above the scrolling phone nav, with click-away and Escape dismissal.
+  menu.addEventListener("beforetoggle", (e) => {
+    trigger.setAttribute("aria-expanded", String(e.newState === "open"));
+    if (e.newState !== "open") return;
+    const rect = trigger.getBoundingClientRect(), width = Math.min(200, innerWidth - 24);
+    menu.style.left = `${Math.max(12, Math.min(rect.left, innerWidth - width - 12))}px`;
+    menu.style.top = `${rect.bottom + 8}px`;
+  });
+  menu.addEventListener("click", (e) => { if (e.target.closest("a")) menu.hidePopover(); });
+  $("#nav").addEventListener("scroll", () => menu.hidePopover());
 }
 
 function wireGlobalSearch() {
@@ -451,9 +469,15 @@ const canonicalUrl = ({ view, arg }) => (view === "player" ? `/p/${arg}` : arg ?
 async function render() {
   if (!S.me) return;
   const { view, arg } = route();
-  $$("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.v === view || (view === "player" && a.dataset.v === "players")));
-  if (view === 'analysis') {
-    const link = $('#nav [data-v="analysis"]'), nav = $('#nav');
+  $$("#nav a").forEach((a) => {
+    a.classList.toggle("on", a.dataset.v === view || (view === "player" && a.dataset.v === "players"));
+    if (a.dataset.v === view) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  });
+  const inOperations = ["players", "player", "activity", "staff"].includes(view);
+  $("#operations-trigger").classList.toggle("on", inOperations);
+  if (view === 'analysis' || inOperations) {
+    const link = inOperations ? $('#operations-trigger') : $('#nav [data-v="analysis"]'), nav = $('#nav');
     if (link && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = link.offsetLeft - nav.offsetLeft - (nav.clientWidth - link.offsetWidth) / 2;
   }
   $("#upd").hidden = !S.staleNotified; // the reload prompt stays up until they reload
@@ -3719,11 +3743,13 @@ async function boot() {
 // so canonicalising the URL in render() can't loop back in here.
 const onNavigate = () => {
   if (welcomeToken()) return showWelcome(welcomeToken());
+  $("#operations-menu")?.hidePopover();
   closeModal();
   render().then(() => scrollTo(0, 0));
 };
 window.addEventListener("hashchange", onNavigate);
 window.addEventListener("popstate", onNavigate);
+window.addEventListener("resize", () => $("#operations-menu")?.hidePopover());
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && $("#modal")) closeModal();
   if (e.key === "/" && S.me && !e.target.matches("input, textarea, select") && !$("#modal") && !$("#board-reason-modal")) { e.preventDefault(); $("#gs")?.focus(); }
