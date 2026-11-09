@@ -208,9 +208,11 @@ Minute share divides recorded player minutes by actual match duration across the
 
 ## What's where
 
-**Operations** in the top bar opens Database, Activity and (for admins) Staff.
-It stays highlighted on those pages and on player profiles. Click a link to go
-directly to that page; click away or press Escape to close the dropdown.
+**Boards** in the top bar opens Big Board, Short Board and NCAA, and stays
+highlighted on those pages. **Operations** opens Database, Activity and (for
+admins) Staff, and stays highlighted on those pages and on player profiles.
+Click a link to go directly to that page; click away or press Escape to close
+either dropdown.
 
 Official signings have a magenta frame and **✓ Signed** badge on the player page, Big Board,
 Short Board, NCAA board, player list and search results. Any signed-in staff member can use
