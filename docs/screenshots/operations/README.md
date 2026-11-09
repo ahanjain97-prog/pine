@@ -1,7 +1,7 @@
 # Boards and Operations navigation
 
 The top bar groups Big Board, Short Board and NCAA under Boards, and Database,
-Activity and Staff under Operations. Staff is visible only to admins. Each menu
+Impect, Activity and Staff under Operations. Staff is visible only to admins. Each menu
 stays selected on its pages, with the current destination highlighted inside it.
 Operations also stays selected on player profiles. Opening either menu closes
 the other.
@@ -27,6 +27,8 @@ nav scrolls or the viewport resizes, and non-admin Staff visibility and access.
 Boards checks also covered all three destinations, the NCAA database view,
 legacy Short Board links, returning via browser Back, the separate Review tab,
 and mutual dismissal when switching between Boards and Operations.
+Impect checks covered dropdown navigation, direct links, active Operations and
+Impect highlighting, browser Back, and availability for non-admin staff.
 No JavaScript errors or horizontal document overflow occurred in these checks.
 
 Automated checks: `npm run check`, `npm test` (204 passing), and

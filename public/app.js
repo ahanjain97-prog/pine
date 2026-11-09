@@ -376,11 +376,11 @@ function renderShell() {
         <a href="#/ncaa" data-v="ncaa">NCAA</a>
       </div>
       ${reviewRole() ? `<a href="#/review" data-v="review">Review<span class="nav-badge" id="review-badge" ${S.reviewOpen ? "" : "hidden"}>${S.reviewOpen || ""}</span></a>` : ""}
-      <a href="#/impect" data-v="impect">Impect</a>
       <a href="#/analysis" data-v="analysis">Analysis</a>
       <button class="nav-trigger" id="operations-trigger" type="button" popovertarget="operations-menu" aria-controls="operations-menu" aria-expanded="false">Operations<span aria-hidden="true">▾</span></button>
       <div class="nav-menu" id="operations-menu" popover role="group" aria-label="Operations">
         <a href="#/players" data-v="players">Database</a>
+        <a href="#/impect" data-v="impect">Impect</a>
         <a href="#/activity" data-v="activity">Activity</a>
         ${S.me.is_admin ? `<a href="#/staff" data-v="staff">Staff</a>` : ""}
       </div>
@@ -483,7 +483,7 @@ async function render() {
     if (a.dataset.v === view) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   });
-  const inOperations = ["players", "player", "activity", "staff"].includes(view);
+  const inOperations = ["players", "player", "impect", "activity", "staff"].includes(view);
   $("#operations-trigger").classList.toggle("on", inOperations);
   $("#boards-trigger").classList.toggle("on", ["board", "short-board", "ncaa"].includes(view));
   const link = $("#nav > .on"), nav = $("#nav");

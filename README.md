@@ -209,7 +209,7 @@ Minute share divides recorded player minutes by actual match duration across the
 ## What's where
 
 **Boards** in the top bar opens Big Board, Short Board and NCAA, and stays
-highlighted on those pages. **Operations** opens Database, Activity and (for
+highlighted on those pages. **Operations** opens Database, Impect, Activity and (for
 admins) Staff, and stays highlighted on those pages and on player profiles.
 Click a link to go directly to that page; click away or press Escape to close
 either dropdown.
