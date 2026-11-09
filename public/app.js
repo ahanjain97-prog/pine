@@ -370,7 +370,7 @@ function renderShell() {
     <a class="brand" href="#/board"><img class="club-crest" src="/hop-crest.png?v=1" alt="Portland Hearts of Pine" width="31" height="36"><span class="brand-divider" aria-hidden="true"></span>${LOGO}<span class="wordmark">PINE</span><span class="tagline">Player Identification Network Evaluation</span></a>
     <nav class="nav" id="nav">
       <a href="#/board" data-v="board">Big Board</a>
-      ${reviewRole() ? `<a href="#/review" data-v="review">Review<span class="nav-badge" id="review-badge" ${S.reviewOpen ? "" : "hidden"}>${S.reviewOpen || ""}</span></a>` : ""}
+      ${reviewRole() ? `<a href="#/war-room" data-v="war-room">War Room<span class="nav-badge" id="review-badge" ${S.reviewOpen ? "" : "hidden"}>${S.reviewOpen || ""}</span></a>` : ""}
       <a href="#/short-board" data-v="short-board">Short Board</a>
       <a href="#/ncaa" data-v="ncaa">NCAA</a>
       <a href="#/activity" data-v="activity">Activity</a>
@@ -464,7 +464,8 @@ function route() {
   const hash = location.hash.replace(/^#\/?/, "");
   if (hash) {
     const [view, arg] = hash.split("/");
-    return { view: view === "shortlist" ? "short-board" : view, arg }; // the tab's old address
+    // Tabs' old addresses: the Short Board was "shortlist", the War Room was "review".
+    return { view: view === "shortlist" ? "short-board" : view === "review" ? "war-room" : view, arg };
   }
   const shared = location.pathname.match(/^\/p\/(\d+)/);
   return shared ? { view: "player", arg: shared[1] } : { view: "board", arg: undefined };
@@ -485,7 +486,7 @@ async function render() {
   const link = $("#nav > .on"), nav = $("#nav");
   if (link && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = link.offsetLeft - nav.offsetLeft - (nav.clientWidth - link.offsetWidth) / 2;
   $("#upd").hidden = !S.staleNotified; // the reload prompt stays up until they reload
-  const views = { analysis: (main, arg) => renderAnalysis(main, arg, { api, setTitle }), board: renderBoard, review: renderReview, "short-board": renderShortBoard, ncaa: renderNcaa, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
+  const views = { analysis: (main, arg) => renderAnalysis(main, arg, { api, setTitle }), board: renderBoard, "war-room": renderReview, "short-board": renderShortBoard, ncaa: renderNcaa, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
   // Pitch maps had their own tab for a day; its links now open the player's page, where the maps live.
   if (view === "maps") { location.hash = arg ? `#/player/${arg}` : "#/players"; return; }
   if (!views[view]) { location.hash = "#/board"; return; }
@@ -3645,13 +3646,13 @@ async function renderStaff(main) {
     <div class="page-h"><div><h1>Staff</h1><div class="sub">Everyone ticked under <b>Reports</b> gets their own box in Staff reports and a verdict dot on every player (anyone unticked still shows where they've written something). To let someone sign in, or to reset a forgotten password,
       click <b>Email sign-in link</b>: a Gmail draft opens, addressed to them with their link, and you press Send. They open the link, choose a password, and from then on sign in with their email and that password.
       A link works once and expires after 7 days.</div></div></div>
-    <div class="table-wrap"><table class="grid"><thead><tr><th>Name</th><th>Sign-in email</th><th>Sign-in</th><th>Admin</th><th>Reports</th><th title="Who has the Review tab: the lead decides the Short Board and assigns reviews; scouts send players up">Review</th><th></th></tr></thead><tbody>
+    <div class="table-wrap"><table class="grid"><thead><tr><th>Name</th><th>Sign-in email</th><th>Sign-in</th><th>Admin</th><th>Reports</th><th title="Who has the War Room: the lead decides the Short Board and assigns reviews; scouts send players up">War Room</th><th></th></tr></thead><tbody>
       ${users.map((u) => `<tr data-uid="${u.id}" data-has-password="${u.has_password ? 1 : 0}" style="cursor:default"><td><b>${esc(u.name)}</b></td>
         <td><input type="email" value="${esc(u.email || "")}" placeholder="Add an email to let ${esc(u.name)} sign in" style="width:260px" aria-label="${esc(u.name)} email"></td>
         <td>${signInStatus(u)}</td>
         <td><input type="checkbox" name="is_admin" ${u.is_admin ? "checked" : ""} ${u.id === S.me.id ? "disabled" : ""} aria-label="${esc(u.name)} is admin"></td>
         <td><input type="checkbox" name="in_evals" ${u.in_evals ? "checked" : ""} aria-label="${esc(u.name)} has a Staff reports box"></td>
-        <td><select name="review_role" aria-label="${esc(u.name)} review role">${[["", "—"], ["lead", "Lead"], ["scout", "Scout"]].map(([v, l]) =>
+        <td><select name="review_role" aria-label="${esc(u.name)} War Room role">${[["", "—"], ["lead", "Lead"], ["scout", "Scout"]].map(([v, l]) =>
           `<option value="${v}" ${(u.review_role || "") === v ? "selected" : ""}>${l}</option>`).join("")}</select></td>
         <td class="staff-actions"><button type="button" class="btn sm" data-save-user>Save</button>
           <button type="button" class="btn sm primary" data-link-user>${u.has_password ? "Email new link" : "Email sign-in link"}</button></td></tr>`).join("")}
@@ -3676,7 +3677,7 @@ async function renderStaff(main) {
       if (saveBtn) {
         await api("PATCH", `/api/users/${tr.dataset.uid}`, { email: $("input[type=email]", tr).value, is_admin: $("input[name=is_admin]", tr).checked,
           in_evals: $("input[name=in_evals]", tr).checked, review_role: $("select[name=review_role]", tr).value || null });
-        S.config = await api("GET", "/api/config"); // the Review tab follows the team
+        S.config = await api("GET", "/api/config"); // the War Room follows the team
         renderShell(); await render();
         toast("Staff member saved");
         return;
@@ -3738,7 +3739,7 @@ async function boot() {
   await render();
   clearInterval(S.pollTimer);
   S.pollTimer = setInterval(poll, 15000);
-  // Checks pause while the tab is in the background; coming back checks at once, so the Review count is current.
+  // Checks pause while the tab is in the background; coming back checks at once, so the War Room count is current.
   if (!S.visibilityWired) { S.visibilityWired = true; document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); }); }
 }
 
@@ -3868,8 +3869,8 @@ S.review = { tab: null };
 
 async function renderReview(main) {
   const role = reviewRole();
-  setTitle("Review");
-  if (!role) { main.innerHTML = `<div class="page"><p class="empty">The Review tab is for the review team (set on the Staff page).</p></div>`; return; }
+  setTitle("War Room");
+  if (!role) { main.innerHTML = `<div class="page"><p class="empty">The War Room is for the review team (set on the Staff page).</p></div>`; return; }
   if (!main.querySelector(".rv-page")) main.innerHTML = `<div class="page"><div class="loading">Loading…</div></div>`;
   const d = await api("GET", "/api/review");
   const lead = reviewLead(), leadName = lead?.name || "the lead";
@@ -3928,7 +3929,7 @@ async function renderReview(main) {
   const tab = tabs.find((t) => t.id === S.review.tab) || tabs.find((t) => t.urgent && t.list.length) || tabs.find((t) => t.list.length) || tabs[0];
   S.review.tab = tab.id;
   main.innerHTML = `<div class="page rv-page">
-    <div class="page-h"><h1>Review</h1><span class="muted">${role === "lead"
+    <div class="page-h"><h1>War Room</h1><span class="muted">${role === "lead"
       ? "Decide on what the scouts send up and review for you, assign reviews, and keep your watch list"
       : `What ${esc(leadName)} assigned you, players to send up, and your watch list`}</span></div>
     <section class="panel rv-bar">${reviewAddForm(role)}</section>

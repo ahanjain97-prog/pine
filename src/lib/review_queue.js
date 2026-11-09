@@ -1,4 +1,5 @@
-// The Review tab, for the review team (users.review_role): the lead decides the Short Board, scouts send players up.
+// The War Room tab (#/war-room; code and tables keep the name "review"), for the review team (users.review_role): the
+// lead decides the Short Board, scouts send players up.
 //   watch       a member's own follow-up list (players added from the database or a Transfermarkt link)
 //   sb_review   a scout asks the lead whether a player goes on the Short Board: the lead adds him (picking the
 //               role) or says not for now. The scout who sent it can withdraw it while it waits: it leaves the
@@ -39,7 +40,7 @@ export const reviewTeam = (db) =>
 
 function member(db, user) {
   const m = user && db.get("SELECT id, name, review_role AS role FROM users WHERE id = ?", user.id);
-  if (!m?.role) fail(403, "The Review tab is for the review team");
+  if (!m?.role) fail(403, "The War Room is for the review team");
   return m;
 }
 

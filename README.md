@@ -321,10 +321,10 @@ syncs leave the signing status alone.
 - **Agent**: the player page header shows Transfermarkt's agent line. The editable Agent panel was removed
   from the player page sidebar (2026-11); records already saved stay in `agent_info` and the
   `PUT /api/players/:id/agent` route remains.
-- **Review** (`#/review`, between Big Board and Short Board): for the review team only. Admins set it on the
-  Staff page (Review column: Lead / Scout); it starts with Ray as lead and Ahan and Ford as scouts.
+- **War Room** (`#/war-room`; old `#/review` links still work; between Big Board and Short Board): for the review
+  team only. Admins set it on the Staff page (War Room column: Lead / Scout); it starts with Ray as lead and Ahan and Ford as scouts.
   - **Scouts send players up** to the lead for a Short Board decision, with a note. The scout who sent one can
-    **Withdraw** it while it waits (under "Sent to Ray"): it leaves the lead's queue, the Review tab and Activity. Players both scouts have
+    **Withdraw** it while it waits (under "Sent to Ray"): it leaves the lead's queue, the War Room and Activity. Players both scouts have
     passed are suggested under "Ready for Ray" until someone sends them. That tab also lists the lead's assignments
     you've answered that wait for his Short Board decision.
   - **The lead decides** on each request:
@@ -350,7 +350,7 @@ syncs leave the signing status alone.
   - **Staff reports:** notes that report on the player are also saved as the author's note in Staff reports on the
     player page, labelled with what they were (e.g. "Review: reviewed, Hold", "Review: asked Ahan and Ford to
     review"). That covers the lead's note when assigning; a scout's note when reviewing, declining or sending a
-    player up; and the lead's Short Board decision. Thread replies and watch lists stay in the Review tab. The
+    player up; and the lead's Short Board decision. Thread replies and watch lists stay in the War Room. The
     copy is the author's to edit or delete; the thread keeps the original.
   - **Badge:** the nav badge counts what's waiting on you (the lead's Decisions, a scout's open assignments).
   - **Player page:** has Watch / Send to Ray / Assign for review buttons.
