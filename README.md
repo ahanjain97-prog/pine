@@ -329,9 +329,11 @@ syncs leave the signing status alone.
     and Ford"). It's one item with one note thread, shown to both. Each scout answers for themselves:
     **reviewed**, optionally with their verdict, or **declined**. The row shows each scout's answer.
     - **Settling:** it settles once everyone has answered, as reviewed if anyone reviewed it, otherwise declined.
-    - **Answered early:** a scout who has answered sees the item under History until the others answer.
+    - **Answered early:** a scout who has answered sees the item under **Waiting on Ford** (the other scout) until
+      they answer, with a **Nudge** button. A nudge puts it at the top of their "Assigned to you", marked "nudged by
+      Ahan"; once every 12 hours at most. The lead can nudge from Assigned out too.
     - **Withdraw:** the lead can withdraw an assignment.
-    - **Lead's decision:** once either scout has answered, the player waits in the lead's **Decisions** beside the
+    - **Lead's decision:** once both scouts have answered, the player waits in the lead's **Decisions** beside the
       scouts' requests (and counts in his badge): **Add to Big Board** (role, optional rank, reason) or **Move on Big
       Board** if he's already on it (role, new rank), **Add to Short Board**, or **Not for now**. His call closes the
       assignment even if the other scout hasn't answered, and settles any other open request on the player. A

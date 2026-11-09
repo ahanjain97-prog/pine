@@ -326,6 +326,11 @@ export function openDb(file) {
     } catch (e) { try { raw.exec("ROLLBACK"); } catch {} throw e; } finally { raw.exec("PRAGMA foreign_keys=ON"); }
     if (raw.prepare("PRAGMA foreign_key_check").all().length) throw new Error("review_items rebuild broke a foreign key");
   }
+  // A nudge to a scout who hasn't answered an assignment yet (src/lib/review_queue.js nudgeAssignees).
+  if (!raw.prepare("PRAGMA table_info(review_assignees)").all().some((c) => c.name === "nudged_at")) {
+    raw.exec("ALTER TABLE review_assignees ADD COLUMN nudged_at TEXT");
+    raw.exec("ALTER TABLE review_assignees ADD COLUMN nudged_by INTEGER REFERENCES users(id)");
+  }
   // A Review note edited through its Staff reports copy (src/lib/review_queue.js syncReviewNote).
   if (!raw.prepare("PRAGMA table_info(review_notes)").all().some((c) => c.name === "updated_at")) {
     raw.exec("ALTER TABLE review_notes ADD COLUMN updated_at TEXT");

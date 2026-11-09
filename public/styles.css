@@ -1031,6 +1031,7 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
 .rv-answer { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
 .rv-answer.reviewed { color: var(--pass); border-color: color-mix(in srgb, var(--pass) 40%, transparent); }
 .rv-answer.declined { color: var(--hold); }
+.rv-answer.nudged { color: var(--hold); border-color: color-mix(in srgb, var(--hold) 55%, transparent); background: var(--hold-bg); }
 @media (max-width: 760px) {
   .rv-row { grid-template-columns: 1fr; }
   .rv-actions { justify-content: flex-start; }

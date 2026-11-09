@@ -5,9 +5,10 @@
 //               lead's queue, the Review tab and Activity, as if never sent
 //   assignment  the lead asks the scouts to review a player. It always goes to every scout: one item and note
 //               thread they share, each scout reviewing (optionally with a verdict) or declining on their own
-//               (review_assignees); it settles once every scout has answered. Once anyone has answered, it waits in
-//               the lead's Decisions beside the scouts' requests, and his call closes it: Short Board, Big Board (add
-//               him, or move him if he's already on it), or not for now
+//               (review_assignees); it settles once every scout has answered, and only then waits in the lead's
+//               Decisions beside the scouts' requests. His call closes it: Short Board, Big Board (add him, or move
+//               him if he's already on it), or not for now. Whoever has answered (or the lead) can nudge a scout
+//               who hasn't
 // Every item keeps a short note thread (why it was sent, replies). Players both scouts have passed, and that no one
 // has sent up yet, are suggested to the scouts.
 // Notes that report on the player also go in the author's Staff evaluation on the player page: the lead's note when
@@ -42,8 +43,8 @@ function member(db, user) {
   return m;
 }
 
-const assigneesOf = (db, itemId) => db.all(`SELECT a.user_id, u.name, a.status, a.resolved_at FROM review_assignees a
-  JOIN users u ON u.id = a.user_id WHERE a.item_id = ? ORDER BY u.sort, u.id`, itemId);
+const assigneesOf = (db, itemId) => db.all(`SELECT a.user_id, u.name, a.status, a.resolved_at, a.nudged_at, n.name AS nudged_by_name
+  FROM review_assignees a JOIN users u ON u.id = a.user_id LEFT JOIN users n ON n.id = a.nudged_by WHERE a.item_id = ? ORDER BY u.sort, u.id`, itemId);
 
 function itemRow(db, id) {
   const item = db.get("SELECT * FROM review_items WHERE id = ?", Number(id)) || fail(404, "Review item not found");
@@ -163,6 +164,21 @@ function withdrawTraces(db, item) {
   db.run("DELETE FROM notes WHERE review_note_id IN (SELECT id FROM review_notes WHERE item_id = ? AND user_id = ?)", item.id, item.from_user);
 }
 
+// A nudge to the scouts who haven't answered an assignment yet, from a scout who has (or the lead). It shows on their
+// row, which moves to the top of their list. A scout already nudged in the last 12 hours isn't nudged again.
+export function nudgeAssignees(db, user, itemId) {
+  const me = member(db, user), item = itemRow(db, itemId);
+  if (!canSee(me, item) || item.kind !== "assignment") fail(404, "Review item not found");
+  if (item.status !== "open") fail(409, "Everyone has answered this one");
+  if (me.role !== "lead" && item.assignees.find((a) => a.user_id === me.id)?.status === "open") fail(409, "Answer it yourself first");
+  const waiting = item.assignees.filter((a) => a.status === "open" && a.user_id !== me.id);
+  if (!waiting.length) fail(409, "No one is left to answer");
+  const due = waiting.filter((a) => !a.nudged_at || Date.parse(a.nudged_at.replace(" ", "T") + "Z") < Date.now() - 12 * 3600e3);
+  if (!due.length) fail(429, `${waiting.map((a) => a.name).join(" and ")} ${waiting.length === 1 ? "was" : "were"} nudged in the last 12 hours`);
+  for (const a of due) db.run("UPDATE review_assignees SET nudged_at = datetime('now'), nudged_by = ? WHERE item_id = ? AND user_id = ?", me.id, item.id, a.user_id);
+  return due.map((a) => a.name);
+}
+
 // The author edited the Staff reports copy of a Review note: the thread shows the same words, marked edited.
 export function syncReviewNote(db, reviewNoteId, body) {
   if (reviewNoteId != null) db.run("UPDATE review_notes SET body = ?, updated_at = datetime('now') WHERE id = ?", body, reviewNoteId);
@@ -266,10 +282,9 @@ export function reviewBoard(db, user) {
     WHERE n.item_id IN (${rows.map(() => "?").join(",")}) ORDER BY n.id`, ...rows.map((r) => r.id)) : [];
   const name = (id) => team.find((u) => u.id === id)?.name ?? db.get("SELECT name FROM users WHERE id = ?", id)?.name ?? null;
   const openSb = new Set(rows.filter((r) => r.kind === "sb_review" && r.status === "open").map((r) => r.player_id));
-  // An assignment a scout has answered, waiting for the lead's Short Board call: in his Decisions, and in the
-  // scouts' Ready for the lead once they've answered it.
-  const awaiting = (r) => r.kind === "assignment" && ["open", "reviewed", "declined"].includes(r.status)
-    && r.assignees.some((a) => a.status !== "open") && !openSb.has(r.player_id);
+  // An assignment every scout has answered (so it has settled), waiting for the lead's call: in his Decisions and the
+  // scouts' Ready for the lead. Until then it waits on the scouts.
+  const awaiting = (r) => r.kind === "assignment" && ["reviewed", "declined"].includes(r.status) && !openSb.has(r.player_id);
   const items = rows.map((r) => ({ ...r, awaiting_lead: awaiting(r), from_name: name(r.from_user),
     to_name: r.assignees ? r.assignees.map((a) => a.name).join(" and ") : r.to_user ? name(r.to_user) : null,
     resolved_by_name: r.resolved_by ? name(r.resolved_by) : null, notes: notes.filter((n) => n.item_id === r.id) }));
@@ -286,11 +301,10 @@ export function reviewBoard(db, user) {
 export function reviewCount(db, user) {
   const m = user && db.get("SELECT review_role AS role FROM users WHERE id = ?", user.id);
   if (!m?.role) return 0;
-  // The lead: requests waiting on him, plus assignments a scout has answered that he hasn't decided (one per player).
+  // The lead: requests waiting on him, plus assignments every scout has answered that he hasn't decided (one per player).
   if (m.role === "lead") return db.get("SELECT count(*) AS n FROM review_items WHERE status = 'open' AND kind = 'sb_review' AND to_user = ?", user.id).n
-    + db.get(`SELECT count(*) AS n FROM review_items i WHERE i.kind = 'assignment' AND i.status IN ('open', 'reviewed', 'declined')
-        AND (i.status = 'open' OR i.resolved_at >= datetime('now', '-30 days'))
-        AND EXISTS (SELECT 1 FROM review_assignees a WHERE a.item_id = i.id AND a.status <> 'open')
+    + db.get(`SELECT count(*) AS n FROM review_items i WHERE i.kind = 'assignment' AND i.status IN ('reviewed', 'declined')
+        AND i.resolved_at >= datetime('now', '-30 days')
         AND NOT EXISTS (SELECT 1 FROM review_items s WHERE s.kind = 'sb_review' AND s.status = 'open' AND s.player_id = i.player_id)`).n;
   return db.get(`SELECT count(*) AS n FROM review_assignees a JOIN review_items i ON i.id = a.item_id
     WHERE i.status = 'open' AND a.status = 'open' AND a.user_id = ?`, user.id).n;
@@ -322,6 +336,7 @@ export function registerReviewQueue(app, { db }) {
     addNote(db, actor(c), c.req.param("id"), (await c.req.json()).body);
     return c.json({ ok: true });
   });
+  app.post("/api/review/items/:id/nudge", (c) => c.json({ nudged: nudgeAssignees(db, actor(c), c.req.param("id")) }));
   app.post("/api/review/items/:id/resolve", async (c) => {
     resolveItem(db, actor(c), c.req.param("id"), await c.req.json());
     return c.json({ ok: true });

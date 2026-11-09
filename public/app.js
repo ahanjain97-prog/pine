@@ -3787,8 +3787,9 @@ function reviewCard(item, actions, always = false) {
   // Each scout's answer on a shared assignment. A settled one is credited by these, not by whoever answered last.
   const shared = item.kind === "assignment" && item.assignees?.length;
   const answers = shared ? `<div class="rv-answers">${item.assignees.map((x) =>
-    `<span class="rv-answer ${x.status}">${esc(x.user_id === S.me.id ? "You" : x.name)}: ${x.status === "open" ? (settled ? "no answer" : "to review")
-      : x.status === "reviewed" ? `reviewed${p.verdicts?.[x.name] ? ` (${esc(cap(p.verdicts[x.name]))})` : ""}` : "declined"}</span>`).join("")}</div>` : "";
+    `<span class="rv-answer ${x.status} ${x.status === "open" && x.nudged_at && !settled ? "nudged" : ""}">${esc(x.user_id === S.me.id ? "You" : x.name)}: ${x.status === "open" ? (settled ? "no answer" : "to review")
+      : x.status === "reviewed" ? `reviewed${p.verdicts?.[x.name] ? ` (${esc(cap(p.verdicts[x.name]))})` : ""}` : "declined"}${
+      x.status === "open" && x.nudged_at && !settled ? ` · nudged${x.user_id === S.me.id && x.nudged_by_name ? ` by ${esc(x.nudged_by_name)}` : ""} ${esc(relTime(x.nudged_at))}` : ""}</span>`).join("")}</div>` : "";
   // Who settled it: the lead for a withdrawal or his Short Board / Big Board call; otherwise the scouts' answers say it.
   const by = shared && !["removed", "added_sb", "added_bb", "moved_bb", "not_sb"].includes(item.status) ? "" : esc(item.resolved_by_name || "");
   const last = item.notes.at(-1);
@@ -3846,8 +3847,8 @@ async function renderReview(main) {
     `<button type="button" class="btn sm ghost" data-rv-resolve="removed" title="Remove from your watch list">Remove</button>`].join("");
   const myAnswer = (i) => i.assignees?.find((x) => x.user_id === S.me.id)?.status;
   const lastMove = (i) => [i.created_at, ...(i.assignees || []).map((x) => x.resolved_at)].filter(Boolean).sort().at(-1);
-  // Settled items, plus (for a scout) shared assignments they've answered while the other scout hasn't yet.
-  const history = d.items.filter((i) => i.kind !== "watch" && !i.awaiting_lead && (!open(i) || (role === "scout" && i.kind === "assignment" && myAnswer(i) !== "open")));
+  // Settled items that need nothing more from anyone.
+  const history = d.items.filter((i) => i.kind !== "watch" && !i.awaiting_lead && !open(i));
   let tabs;
   if (role === "lead") {
     tabs = [
@@ -3857,18 +3858,26 @@ async function renderReview(main) {
         html: (l) => rows(l, (i) => decisionActions(S.byId.get(i.player_id)), true) },
       { id: "watch", label: "Watch list", list: watch, empty: "Your watch list is empty. Add players with the bar above.", html: (l) => rows(l, watchActions) },
       { id: "assigned", label: "Assigned out", list: asg.filter(open), empty: "No reviews out with the scouts.",
-        html: (l) => rows(l, () => `<button type="button" class="btn sm ghost" data-rv-resolve="removed">Withdraw</button>`) },
+        html: (l) => rows(l, (i) => `${nudgeButton(i)}<button type="button" class="btn sm ghost" data-rv-resolve="removed">Withdraw</button>`) },
       { id: "history", label: "History", list: history, empty: "Nothing settled in the last 30 days.", html: (l) => rows(l, () => "") },
     ];
   } else {
     const sent = new Set(sb.map((i) => i.player_id));
     const ready = d.suggestions.filter((id) => !sent.has(id)).map((id) => S.byId.get(id)).filter(Boolean);
-    // Assignments you've answered that now wait for the lead's Short Board call.
-    const withLead = asg.filter((i) => i.awaiting_lead && myAnswer(i) !== "open").sort((a, b) => (lastMove(b) > lastMove(a) ? 1 : -1));
+    // Assignments every scout has answered, now waiting for the lead's call.
+    const withLead = asg.filter((i) => i.awaiting_lead).sort((a, b) => (lastMove(b) > lastMove(a) ? 1 : -1));
+    // Assignments you've answered that still wait on the other scout: nudge them from here.
+    const others = reviewScouts().filter((x) => x.id !== S.me.id).map((x) => x.name).join(" and ") || "the other scouts";
+    const waitingOn = asg.filter((i) => open(i) && myAnswer(i) && myAnswer(i) !== "open").sort((a, b) => (lastMove(b) > lastMove(a) ? 1 : -1));
+    // Yours to review, any you've been nudged on first.
+    const myNudge = (i) => i.assignees?.find((x) => x.user_id === S.me.id)?.nudged_at || "";
+    const toReview = asg.filter((i) => open(i) && myAnswer(i) === "open").sort((a, b) => (myNudge(b) > myNudge(a) ? 1 : myNudge(b) < myNudge(a) ? -1 : 0));
     const heading = (t, n) => `<h3 class="rv-sub">${esc(t)} <span class="muted">${n}</span></h3>`;
     tabs = [
-      { id: "assigned", label: "Assigned to you", list: asg.filter((i) => open(i) && myAnswer(i) === "open"), urgent: true, empty: `Nothing from ${leadName} to review.`,
+      { id: "assigned", label: "Assigned to you", list: toReview, urgent: true, empty: `Nothing from ${leadName} to review.`,
         html: (l) => rows(l, () => `<button type="button" class="btn sm primary" data-rv-review>Review</button><button type="button" class="btn sm" data-rv-resolve="declined">Decline</button>`) },
+      { id: "waiting", label: `Waiting on ${others}`, list: waitingOn, empty: `Nothing you've answered is waiting on ${others}.`,
+        html: (l) => rows(l, nudgeButton) },
       { id: "ready", label: `Ready for ${leadName}`, list: [...withLead, ...ready],
         empty: `Nothing waiting on ${leadName}: no reviews back with him, and no players ${reviewScouts().map((x) => x.name).join(" and ")} have both passed to send.`,
         html: () => `${withLead.length ? `${heading(`Reviewed, waiting on ${leadName}'s Short Board decision`, withLead.length)}${rows(withLead, () => "", true)}` : ""}${
@@ -3922,6 +3931,16 @@ function reviewDialog({ title, player, extra = "", noteLabel = "Note", required 
     });
     $("select, textarea", m)?.focus();
   });
+}
+
+// Nudge the scouts who haven't answered an assignment (shown once a nudge is more than 12 hours old).
+function nudgeButton(i) {
+  const left = (i.assignees || []).filter((x) => x.status === "open" && x.user_id !== S.me.id);
+  if (!left.length) return "";
+  const names = left.map((x) => x.name).join(" and ");
+  const recent = left.every((x) => x.nudged_at && Date.now() - toDate(x.nudged_at) < 12 * 3600e3);
+  return recent ? `<button type="button" class="btn sm ghost" disabled title="You can nudge again 12 hours after the last one">Nudged ${esc(relTime(left[0].nudged_at))}</button>`
+    : `<button type="button" class="btn sm" data-rv-nudge title="Bring it to the top of ${esc(names)}'s list, marked as a nudge">Nudge ${esc(names)}</button>`;
 }
 
 // The lead's choices on a player waiting in Decisions: the Big Board (add him, or move him if he's on it), the Short
@@ -4052,6 +4071,12 @@ function wireReview(root, d) {
     const p = S.byId.get(Number(card.dataset.player)), itemId = card.dataset.item;
     const resolve = (body) => api("POST", `/api/review/items/${itemId}/resolve`, body);
     try {
+      if (t.matches("[data-rv-nudge]")) {
+        const { nudged } = await api("POST", `/api/review/items/${itemId}/nudge`, {});
+        toast(`Nudged ${nudged.join(" and ")} on ${p.name}`);
+        await afterMutation();
+        return;
+      }
       if (t.matches("[data-rv-send]")) {
         if (await reviewSendDialog(p, "sb_review")) await afterMutation();
       } else if (t.dataset.rvAssign) {

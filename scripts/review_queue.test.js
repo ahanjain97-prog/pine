@@ -4,7 +4,7 @@ import { openDb } from '../src/db.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addNote, copyReviewNotesToEvals, createItem, resolveItem, reviewBoard, reviewCount, syncReviewNote } from '../src/lib/review_queue.js';
+import { addNote, copyReviewNotesToEvals, createItem, nudgeAssignees as nudge, resolveItem, reviewBoard, reviewCount, syncReviewNote } from '../src/lib/review_queue.js';
 
 // openDb seeds Ray (1, lead), Ahan (2, scout), Ford (3, scout), Bobby (4, not on the review team).
 const RAY = { id: 1 }, AHAN = { id: 2 }, FORD = { id: 3 }, BOBBY = { id: 4 };
@@ -98,22 +98,27 @@ test('the lead assigns both scouts: one item and thread they share, each answeri
   assert.throws(() => reviewBoard(db, BOBBY), /review team/);
 });
 
-test('an answered assignment waits in the lead\'s Decisions; his call closes it and anything else open on the player', (t) => {
+test('an assignment waits in the lead\'s Decisions once both scouts have answered; his call closes it', (t) => {
   const db = setup(t);
   const a = createItem(db, RAY, { kind: 'assignment', player_id: 1, note: 'Free agent.' });
   const decisions = () => reviewBoard(db, RAY).items.filter((i) => i.awaiting_lead || (i.kind === 'sb_review' && i.status === 'open')).map((i) => `${i.kind}:${i.player_id}`);
-  assert.deepEqual(decisions(), [], 'nothing until a scout answers');
-  assert.equal(reviewCount(db, RAY), 0);
   resolveItem(db, FORD, a, { outcome: 'reviewed', verdict: 'hold', note: 'Low ball wins.' });
-  assert.deepEqual(decisions(), ['assignment:1']);
+  assert.deepEqual([decisions(), reviewCount(db, RAY)], [[], 0], 'one answer is not enough: it waits on Ahan');
+  assert.equal(reviewBoard(db, FORD).items.find((i) => i.id === a).awaiting_lead, false);
+  resolveItem(db, AHAN, a, { outcome: 'reviewed', verdict: 'fail', note: 'Not for us.' });
+  assert.deepEqual([decisions(), reviewCount(db, RAY)], [['assignment:1'], 1]);
   assert.equal(reviewBoard(db, FORD).items.find((i) => i.id === a).awaiting_lead, true, 'Ford sees it waiting on Ray (Ready for Ray)');
-  assert.equal(reviewCount(db, RAY), 1);
   assert.throws(() => resolveItem(db, AHAN, a, { outcome: 'not_sb' }), /Only the review lead decides/);
   resolveItem(db, RAY, a, { outcome: 'not_sb', note: 'Not for this window.' });
   assert.equal(db.get('SELECT status FROM review_items WHERE id = ?', a).status, 'not_sb');
+  assert.deepEqual([decisions(), reviewCount(db, RAY)], [[], 0]);
   assert.equal(reviewBoard(db, FORD).items.find((i) => i.id === a).awaiting_lead, false, 'decided: off Ready, into History');
-  assert.deepEqual([decisions(), reviewCount(db, RAY), reviewCount(db, AHAN)], [[], 0, 0], 'Ahan no longer owes an answer');
-  assert.throws(() => resolveItem(db, AHAN, a, { outcome: 'reviewed' }), /already been dealt with/);
+
+  // The lead can still call one early (it isn't in his Decisions, but nothing stops him); it closes for both scouts.
+  const early = createItem(db, RAY, { kind: 'assignment', player_id: 5 });
+  resolveItem(db, RAY, early, { outcome: 'not_sb' });
+  assert.equal(reviewCount(db, AHAN), 0);
+  assert.throws(() => resolveItem(db, AHAN, early, { outcome: 'reviewed' }), /already been dealt with/);
 
   // Answered by both (settled as reviewed) and sent up too: one row, and one call settles both.
   const b = createItem(db, RAY, { kind: 'assignment', player_id: 2 });
@@ -246,6 +251,24 @@ test('the lead can put a reviewed player on the Big Board, or move him up it, in
   assert.deepEqual(order(), [3, 1, 4, 2]);
   assert.equal(db.get('SELECT status FROM review_items WHERE id = ?', sb).status, 'moved_bb');
   assert.equal(reviewCount(db, RAY), 0);
+});
+
+test('a scout who has answered (or the lead) can nudge the one who has not, at most every 12 hours', (t) => {
+  const db = setup(t);
+  const a = createItem(db, RAY, { kind: 'assignment', player_id: 1 });
+  assert.throws(() => nudge(db, AHAN, a), /Answer it yourself first/);
+  resolveItem(db, AHAN, a, { outcome: 'reviewed', verdict: 'fail' });
+  assert.deepEqual(nudge(db, AHAN, a), ['Ford']);
+  const ford = reviewBoard(db, FORD).items[0].assignees.find((x) => x.name === 'Ford');
+  assert.ok(ford.nudged_at);
+  assert.equal(ford.nudged_by_name, 'Ahan');
+  assert.throws(() => nudge(db, AHAN, a), /nudged in the last 12 hours/);
+  assert.throws(() => nudge(db, RAY, a), /nudged in the last 12 hours/);
+  db.run("UPDATE review_assignees SET nudged_at = datetime('now', '-13 hours') WHERE user_id = 3");
+  assert.deepEqual(nudge(db, RAY, a), ['Ford'], 'the lead can nudge too, after 12 hours');
+  assert.throws(() => nudge(db, BOBBY, a), /review team/);
+  resolveItem(db, FORD, a, { outcome: 'declined' });
+  assert.throws(() => nudge(db, AHAN, a), /Everyone has answered/);
 });
 
 test('notes need text and visibility', (t) => {
