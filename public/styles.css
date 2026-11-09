@@ -110,10 +110,20 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .wordmark { font-family: var(--disp); font-weight: 700; font-size: 26px; letter-spacing: .08em; line-height: 1; }
 .tagline { font-size: 11px; color: rgba(255, 255, 255, .62); max-width: 120px; line-height: 1.15; }
 @media (max-width: 1560px) { .top .tagline { display: none; } } /* room for it only on wide screens */
-.nav { display: flex; gap: 2px; }
-.nav a { white-space: nowrap; color: rgba(255, 255, 255, .75); padding: 7px 10px; border-radius: 7px; font-weight: 600; font-size: 13.5px; text-decoration: none; }
-.nav a:hover { color: #fff; background: rgba(255, 255, 255, .08); }
-.nav a.on { color: #fff; background: rgba(255, 255, 255, .16); }
+.nav { display: flex; align-items: center; gap: 2px; }
+.nav > a, .nav-trigger { flex: none; white-space: nowrap; color: rgba(255, 255, 255, .75); padding: 7px 10px; border-radius: 7px; font-weight: 600; font-size: 13.5px; text-decoration: none; }
+.nav-trigger { display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; cursor: pointer; }
+.nav-caret { font-size: 10px; }
+.nav-trigger[aria-expanded="true"] .nav-caret { transform: rotate(180deg); }
+.nav > a:hover, .nav-trigger:hover { color: #fff; background: rgba(255, 255, 255, .08); }
+.nav > a.on, .nav-trigger.on, .nav-trigger[aria-expanded="true"] { color: #fff; background: rgba(255, 255, 255, .16); }
+.nav > a:focus-visible, .nav-trigger:focus-visible { outline-color: #fff; }
+.nav-menu { position: fixed; inset: auto; margin: 0; width: min(200px, calc(100vw - 24px)); padding: 6px;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
+.nav-menu:popover-open { display: grid; gap: 2px; }
+.nav-menu a { display: block; padding: 10px 12px; border-radius: 6px; color: var(--ink-2); font-size: 13px; font-weight: 600; text-decoration: none; }
+.nav-menu a:hover { color: var(--ink); background: var(--surface-2); }
+.nav-menu a.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
 .top-r { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .top .btn.primary { background: #fff; color: var(--navy); border-color: #fff; }
 .top .btn.ghost { color: rgba(255, 255, 255, .8); }
@@ -889,7 +899,7 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
 /* ---------- responsive ---------- */
 @media (max-width: 1240px) { /* narrower laptops: tighter nav and search so it still fits one line */
   .top { gap: 12px; }
-  .nav a { padding: 7px 7px; font-size: 13px; }
+  .nav > a, .nav-trigger { padding: 7px 7px; font-size: 13px; }
   .gsearch input { width: 120px; }
   .brand .wordmark { font-size: 22px; }
 }
