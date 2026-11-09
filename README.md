@@ -422,6 +422,13 @@ syncs leave the signing status alone.
 - **Staff** (`#/staff`, admins): set each person's sign-in email, add staff, and choose who gets a Staff reports
   box and verdict dot on every player (**Reports**; someone unticked still shows where they've written).
 
+## Analysis library
+
+The **Analysis** tab (`#/analysis`) presents selected staff research in three topics,
+with searchable briefs, coverage and review dates, limitations, and original reports.
+Real content stays in the private analysis repository and is uploaded behind staff
+sign-in. See [publication, ongoing curation and rollout](docs/analysis.md).
+
 ## Data sources
 
 - **Transfermarkt**: server-side scrape of the public profile page and quick search.
