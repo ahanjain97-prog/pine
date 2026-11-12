@@ -59,6 +59,9 @@ if (!existsSync(DB_FILE) && existsSync(SEED_DB)) {
   copyFileSync(SEED_DB, DB_FILE);
   console.log(`Seeded ${DB_FILE} from ${SEED_DB}`);
 }
+// Reclaim disposable cache before opening/migrating SQLite or taking a backup:
+// a full volume must be recoverable by deploying this fix, not just by SSH.
+configureDiskCache(join(dirname(DB_FILE), "cache"));
 const db = openDb(DB_FILE);
 gatesMoveDate(); // Reject a malformed recruitment date at startup.
 const BACKUP_DIR = join(dirname(DB_FILE), "backups");
@@ -68,7 +71,6 @@ startDailyBackups(db, BACKUP_DIR);
 // so deploys don't make the next person wait half a minute per season. Every season of our three
 // leagues is kept ready in the background, checked at startup and then every six hours: the current
 // season is re-downloaded when it is over six hours old, finished seasons once a week.
-configureDiskCache(join(dirname(DB_FILE), "cache"));
 const HOUR = 60 * 60 * 1000;
 // The league seasons PINE keeps: every non-cup season of the three benchmark leagues. Cup games are
 // left out of the KPI benchmarks, so nothing would read a cup's data.

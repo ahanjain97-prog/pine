@@ -3,6 +3,7 @@
 // the job. Every version is kept: files are never overwritten or deleted.
 import { existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { makeDiskSpace } from "./disk_cache.js";
 
 export const MAX_CARD_BYTES = 10 * 1024 * 1024; // per file, PDF or PNG
 export const DAILY_CARD_LIMIT = 30; // across PINE, per rolling 24 hours
@@ -47,6 +48,7 @@ export const cardFileName = (d, iterationId, position, ext = "pdf") => `${utc(d)
 export function saveCardFile(root, card, buf, when, ext = "pdf") {
   const dir = join(root, String(card.player_id));
   const name = cardFileName(when, card.iteration_id, card.position, ext);
+  makeDiskSpace(buf.length);
   mkdirSync(dir, { recursive: true });
   if (existsSync(join(dir, name))) throw new Error(`card file ${name} already exists`);
   const tmp = join(dir, `.${name}.part`);
@@ -57,6 +59,7 @@ export function saveCardFile(root, card, buf, when, ext = "pdf") {
 // Write to a temp name, then rename; a failed write (a full disk, say) removes the half-written temp file.
 export function writeAtomically(tmp, file, buf) {
   try {
+    makeDiskSpace(buf.length);
     writeFileSync(tmp, buf);
     renameSync(tmp, file);
   } catch (e) {

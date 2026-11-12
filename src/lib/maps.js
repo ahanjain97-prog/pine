@@ -6,6 +6,7 @@
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
+import { makeDiskSpace } from "./disk_cache.js";
 import { CARD_POSITIONS } from "./card_options.js";
 import { cardErrorCode, cardFileName, cardProgress, writeAtomically } from "./cards.js";
 
@@ -150,9 +151,10 @@ export function normalizeMaps(raw, job) {
 export function saveMapsFile(root, map, data, when) {
   const dir = join(root, String(map.player_id));
   const name = cardFileName(when, map.iteration_id, map.position, "json.gz").replace(/Z-/, `Z-${map.id}-`);
+  const buf = gzipSync(JSON.stringify(data));
+  makeDiskSpace(buf.length);
   mkdirSync(dir, { recursive: true });
   if (existsSync(join(dir, name))) throw new Error(`maps file ${name} already exists`);
-  const buf = gzipSync(JSON.stringify(data));
   const tmp = join(dir, `.${name}.part`);
   writeAtomically(tmp, join(dir, name), buf);
   return { file: `${map.player_id}/${name}`, bytes: buf.length };
