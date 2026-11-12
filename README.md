@@ -485,6 +485,10 @@ password. The live address is kept out of this repo.
 
 - Railway project `pine`, service `pine`, environment `production`. This folder is linked, so the Railway CLI works from `~/pine`.
 - The database lives on the `pine-volume` disk mounted at `/app/data` (500 MB). Deploys never touch it.
+- Reproducible Impect cache is capped at 128 MiB and yields space to preserve a 32 MiB free-space
+  reserve. Startup reclaims cache before SQLite opens; card and map uploads also reclaim it before
+  writing. Cache downloads are skipped if the reserve cannot be maintained. Databases, snapshots,
+  saved cards and maps are never evicted. If durable data fills the volume, increase its capacity.
 - Player card PDFs and their PNGs live on the same disk under `/app/data/cards/<player id>/`, one pair per
   version, never overwritten or deleted. They are not in the database snapshots; the Mac mini worker keeps its own copy of
   every card it renders.
