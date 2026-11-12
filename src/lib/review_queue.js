@@ -4,12 +4,14 @@
 //   sb_review   a scout asks the lead whether a player goes on the Short Board: the lead adds him (picking the
 //               role) or says not for now. The scout who sent it can withdraw it while it waits: it leaves the
 //               lead's queue, the Review tab and Activity, as if never sent
-//   assignment  the lead asks the scouts to review a player. It always goes to every scout: one item and note
+//   assignment  the lead (or an assigner: users.review_assigner) asks the scouts to review a player. It always goes to every scout: one item and note
 //               thread they share, each scout reviewing (optionally with a verdict) or declining on their own
 //               (review_assignees); it settles once every scout has answered, and only then waits in the lead's
 //               Decisions beside the scouts' requests. His call closes it: Short Board, Big Board (add him, or move
 //               him if he's already on it), or not for now. Whoever has answered (or the lead) can nudge a scout
 //               who hasn't
+// An assigner is on the War Room only to assign: he sees the assignments he sent (and can nudge or withdraw them) and
+// keeps a watch list; the lead still decides on them, and the scouts' requests stay between the lead and the scouts.
 // Every item keeps a short note thread (why it was sent, replies). Players both scouts have passed, and that no one
 // has sent up yet, are suggested to the scouts.
 // Notes that report on the player also go in the author's Staff evaluation on the player page: the lead's note when
@@ -35,11 +37,15 @@ const text = (value, name, required = false) => {
   return t || null;
 };
 
+// A member's War Room role: lead, scout, or assigner.
+export const REVIEW_ROLE = "coalesce(review_role, CASE WHEN review_assigner = 1 THEN 'assigner' END)";
+const ASSIGNS = ["lead", "assigner"];
+
 export const reviewTeam = (db) =>
-  db.all("SELECT id, name, review_role AS role FROM users WHERE review_role IS NOT NULL ORDER BY sort, id");
+  db.all(`SELECT id, name, ${REVIEW_ROLE} AS role FROM users WHERE ${REVIEW_ROLE} IS NOT NULL ORDER BY sort, id`);
 
 function member(db, user) {
-  const m = user && db.get("SELECT id, name, review_role AS role FROM users WHERE id = ?", user.id);
+  const m = user && db.get(`SELECT id, name, ${REVIEW_ROLE} AS role FROM users WHERE id = ?`, user.id);
   if (!m?.role) fail(403, "The War Room is for the review team");
   return m;
 }
@@ -54,11 +60,11 @@ function itemRow(db, id) {
 }
 
 // Who may see an item: the owner of a watch; the lead and every scout for a Short Board request (the scouts share
-// it); the lead and its scouts for an assignment.
+// it); the lead, its scouts and whoever assigned it for an assignment.
 function canSee(me, item) {
   if (item.kind === "watch") return item.from_user === me.id;
-  if (item.kind === "sb_review") return true;
-  return me.role === "lead" || (item.assignees || []).some((a) => a.user_id === me.id);
+  if (item.kind === "sb_review") return me.role !== "assigner";
+  return me.role === "lead" || item.from_user === me.id || (item.assignees || []).some((a) => a.user_id === me.id);
 }
 
 // A watch list is private: its entries are kept in the activity log but left out of the shared feed.
@@ -132,7 +138,7 @@ export function createItem(db, user, input) {
   }
   let scouts = [];
   if (kind === "assignment") {
-    if (me.role !== "lead") fail(403, "Only the review lead assigns players");
+    if (!ASSIGNS.includes(me.role)) fail(403, "Only the review lead or an assigner assigns players");
     // Every scout, whatever the request names: a page open since before shared assignments still sends one scout.
     scouts = team.filter((u) => u.role === "scout");
     if (!scouts.length) fail(400, "No one is set as a review scout");
@@ -165,7 +171,7 @@ function withdrawTraces(db, item) {
   db.run("DELETE FROM notes WHERE review_note_id IN (SELECT id FROM review_notes WHERE item_id = ? AND user_id = ?)", item.id, item.from_user);
 }
 
-// A nudge to the scouts who haven't answered an assignment yet, from a scout who has (or the lead). It shows on their
+// A nudge to the scouts who haven't answered an assignment yet, from a scout who has (or the lead, or its assigner). It shows on their
 // row, which moves to the top of their list. A scout already nudged in the last 12 hours isn't nudged again.
 export function nudgeAssignees(db, user, itemId) {
   const me = member(db, user), item = itemRow(db, itemId);
@@ -205,8 +211,10 @@ export function resolveItem(db, user, itemId, input) {
   if (item.kind === "sb_review" && outcome !== "removed" && me.role !== "lead") fail(403, "Only the review lead decides the Short Board");
   const mine = item.kind === "assignment" && !decision && outcome !== "removed" ? item.assignees.find((a) => a.user_id === me.id) : null;
   if (item.kind === "assignment") {
-    if (decision || outcome === "removed") {
-      if (me.role !== "lead") fail(403, decision ? "Only the review lead decides the Short Board" : "Only the review lead withdraws an assignment");
+    if (decision) {
+      if (me.role !== "lead") fail(403, "Only the review lead decides the Short Board");
+    } else if (outcome === "removed") {
+      if (me.role !== "lead" && item.from_user !== me.id) fail(403, "Only the review lead or whoever assigned it withdraws an assignment");
     } else {
       if (!mine) fail(403, "Only the assigned scouts review this");
       if (mine.status !== "open") fail(409, "You've already answered this one");
@@ -300,8 +308,8 @@ export function reviewBoard(db, user) {
 
 // How many open items are waiting on this member (the Review tab's badge).
 export function reviewCount(db, user) {
-  const m = user && db.get("SELECT review_role AS role FROM users WHERE id = ?", user.id);
-  if (!m?.role) return 0;
+  const m = user && db.get(`SELECT ${REVIEW_ROLE} AS role FROM users WHERE id = ?`, user.id);
+  if (!m?.role || m.role === "assigner") return 0; // nothing waits on an assigner
   // The lead: requests waiting on him, plus assignments every scout has answered that he hasn't decided (one per player).
   if (m.role === "lead") return db.get("SELECT count(*) AS n FROM review_items WHERE status = 'open' AND kind = 'sb_review' AND to_user = ?", user.id).n
     + db.get(`SELECT count(*) AS n FROM review_items i WHERE i.kind = 'assignment' AND i.status IN ('reviewed', 'declined')

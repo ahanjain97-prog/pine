@@ -4,10 +4,10 @@ import { openDb } from '../src/db.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addNote, copyReviewNotesToEvals, createItem, nudgeAssignees as nudge, resolveItem, reviewBoard, reviewCount, syncReviewNote } from '../src/lib/review_queue.js';
+import { REVIEW_ROLE, addNote, copyReviewNotesToEvals, createItem, nudgeAssignees as nudge, resolveItem, reviewBoard, reviewCount, reviewTeam, syncReviewNote } from '../src/lib/review_queue.js';
 
-// openDb seeds Ray (1, lead), Ahan (2, scout), Ford (3, scout), Bobby (4, not on the review team).
-const RAY = { id: 1 }, AHAN = { id: 2 }, FORD = { id: 3 }, BOBBY = { id: 4 };
+// openDb seeds Ray (1, lead), Ahan (2, scout), Ford (3, scout), Bobby (4, assigner), Alex (5, not on the review team).
+const RAY = { id: 1 }, AHAN = { id: 2 }, FORD = { id: 3 }, BOBBY = { id: 4 }, ALEX = { id: 5 };
 function setup(t) {
   const db = openDb(':memory:'); t.after(() => db.raw.close());
   for (const id of [1, 2, 3, 4, 5]) db.run('INSERT INTO players(id, name) VALUES (?, ?)', id, `Example ${id}`);
@@ -15,17 +15,18 @@ function setup(t) {
 }
 const statuses = (db) => db.all('SELECT kind, status FROM review_items ORDER BY id').map((r) => `${r.kind}:${r.status}`);
 
-test('the first review team is Ray as lead and Ahan and Ford as scouts', (t) => {
+test('the review team is Ray as lead, Ahan and Ford as scouts, and Bobby as an assigner', (t) => {
   const db = setup(t);
-  assert.deepEqual(db.all('SELECT name, review_role AS r FROM users WHERE review_role IS NOT NULL ORDER BY id').map((u) => `${u.name}:${u.r}`),
-    ['Ray:lead', 'Ahan:scout', 'Ford:scout']);
+  assert.deepEqual(db.all(`SELECT name, ${REVIEW_ROLE} AS r FROM users WHERE ${REVIEW_ROLE} IS NOT NULL ORDER BY id`).map((u) => `${u.name}:${u.r}`),
+    ['Ray:lead', 'Ahan:scout', 'Ford:scout', 'Bobby:assigner']);
+  assert.deepEqual(reviewTeam(db).map((u) => u.role), ['lead', 'scout', 'scout', 'assigner']);
 });
 
 test('a watch list is private to its owner and only for the review team', (t) => {
   const db = setup(t);
   createItem(db, AHAN, { kind: 'watch', player_id: 1, note: 'Follow up after the cup game.' });
   assert.throws(() => createItem(db, AHAN, { kind: 'watch', player_id: 1 }), /already on your watch list/);
-  assert.throws(() => createItem(db, BOBBY, { kind: 'watch', player_id: 1 }), /review team/);
+  assert.throws(() => createItem(db, ALEX, { kind: 'watch', player_id: 1 }), /review team/);
   assert.equal(reviewBoard(db, FORD).items.length, 0, 'another member never sees it');
   const [item] = reviewBoard(db, AHAN).items;
   assert.equal(item.notes[0].body, 'Follow up after the cup game.');
@@ -95,7 +96,7 @@ test('the lead assigns both scouts: one item and thread they share, each answeri
   resolveItem(db, FORD, a, { outcome: 'declined', note: 'Seen enough from Ahan\'s notes.' });
   item = reviewBoard(db, RAY).items[0];
   assert.deepEqual([item.status, item.notes.length], ['reviewed', 4], 'settled as reviewed when anyone reviewed; one thread');
-  assert.throws(() => reviewBoard(db, BOBBY), /review team/);
+  assert.throws(() => reviewBoard(db, ALEX), /review team/);
 });
 
 test('an assignment waits in the lead\'s Decisions once both scouts have answered; his call closes it', (t) => {
@@ -266,7 +267,8 @@ test('a scout who has answered (or the lead) can nudge the one who has not, at m
   assert.throws(() => nudge(db, RAY, a), /nudged in the last 12 hours/);
   db.run("UPDATE review_assignees SET nudged_at = datetime('now', '-13 hours') WHERE user_id = 3");
   assert.deepEqual(nudge(db, RAY, a), ['Ford'], 'the lead can nudge too, after 12 hours');
-  assert.throws(() => nudge(db, BOBBY, a), /review team/);
+  assert.throws(() => nudge(db, ALEX, a), /review team/);
+  assert.throws(() => nudge(db, BOBBY, a), /not found/, 'an assigner nudges only on what he assigned');
   resolveItem(db, FORD, a, { outcome: 'declined' });
   assert.throws(() => nudge(db, AHAN, a), /Everyone has answered/);
 });
@@ -277,9 +279,53 @@ test('notes need text and visibility', (t) => {
   addNote(db, RAY, id, 'Can you send me clips?');
   addNote(db, FORD, id, 'Sent in the group chat.');
   assert.throws(() => addNote(db, RAY, id, '   '), /Note is required/);
-  assert.throws(() => addNote(db, BOBBY, id, 'hi'), /review team/);
+  assert.throws(() => addNote(db, ALEX, id, 'hi'), /review team/);
+  assert.throws(() => addNote(db, BOBBY, id, 'hi'), /not found/, 'the scouts\' requests are between them and the lead');
   assert.deepEqual(reviewBoard(db, AHAN).items[0].notes.map((n) => `${n.user_name}: ${n.body}`),
     ['Ray: Can you send me clips?', 'Ford: Sent in the group chat.']);
   db.run('DELETE FROM players WHERE id = 1');
   assert.equal(db.get('SELECT count(*) AS n FROM review_notes').n, 0, 'a deleted player takes his review items with him');
+});
+
+test('an assigner (Bobby) assigns players to every scout like the lead; the lead still makes the call', (t) => {
+  const db = setup(t);
+  const a = createItem(db, BOBBY, { kind: 'assignment', player_id: 1, note: 'Saw him live on Saturday.' });
+  assert.deepEqual(db.all('SELECT user_id FROM review_assignees WHERE item_id = ?', a).map((r) => r.user_id), [2, 3], 'to Ahan and Ford');
+  assert.throws(() => createItem(db, RAY, { kind: 'assignment', player_id: 1 }), /already out for review/);
+  assert.throws(() => createItem(db, BOBBY, { kind: 'sb_review', player_id: 2 }), /Scouts send/);
+  assert.throws(() => createItem(db, AHAN, { kind: 'assignment', player_id: 2 }), /lead or an assigner/);
+  assert.throws(() => createItem(db, ALEX, { kind: 'assignment', player_id: 2 }), /review team/);
+  assert.equal(db.get("SELECT context FROM notes WHERE player_id = 1 AND user_id = 4").context, 'Review: asked Ahan and Ford to review', 'his note goes in his Staff reports');
+  assert.equal(reviewBoard(db, AHAN).items[0].from_name, 'Bobby');
+  assert.equal(reviewBoard(db, RAY).items[0].from_name, 'Bobby', 'the lead sees it too');
+  assert.deepEqual([reviewCount(db, AHAN), reviewCount(db, FORD), reviewCount(db, BOBBY)], [1, 1, 0], 'nothing waits on an assigner');
+
+  // He sees what he assigned, not the scouts' requests or the lead's own assignments.
+  const sb = createItem(db, FORD, { kind: 'sb_review', player_id: 3 });
+  const ray = createItem(db, RAY, { kind: 'assignment', player_id: 4 });
+  assert.deepEqual(reviewBoard(db, BOBBY).items.map((i) => i.id), [a]);
+  assert.throws(() => resolveItem(db, BOBBY, sb, { outcome: 'not_sb' }), /not found/);
+  assert.throws(() => resolveItem(db, BOBBY, ray, { outcome: 'removed' }), /not found/);
+  addNote(db, AHAN, a, 'Watching his last three.');
+  addNote(db, BOBBY, a, 'Thanks.');
+  assert.throws(() => resolveItem(db, BOBBY, a, { outcome: 'reviewed' }), /Only the assigned scouts/);
+
+  // He can nudge, then the lead decides once both scouts have answered.
+  resolveItem(db, AHAN, a, { outcome: 'reviewed', verdict: 'pass', note: 'Good.' });
+  assert.deepEqual(nudge(db, BOBBY, a), ['Ford']);
+  assert.equal(reviewBoard(db, FORD).items.find((i) => i.id === a).assignees.find((x) => x.name === 'Ford').nudged_by_name, 'Bobby');
+  resolveItem(db, FORD, a, { outcome: 'reviewed', verdict: 'hold' });
+  assert.equal(reviewBoard(db, BOBBY).items[0].awaiting_lead, true, 'waiting on Ray');
+  assert.equal(reviewCount(db, RAY), 2, 'in Ray\'s Decisions beside Ford\'s request');
+  assert.throws(() => resolveItem(db, BOBBY, a, { outcome: 'not_sb' }), /Only the review lead decides/);
+  resolveItem(db, RAY, a, { outcome: 'added_bb', role: 'CM1', note: 'Worth a spot.' });
+  assert.equal(reviewBoard(db, BOBBY).items[0].status, 'added_bb');
+
+  // He withdraws his own open assignment; the lead can withdraw his too.
+  const b = createItem(db, BOBBY, { kind: 'assignment', player_id: 5 });
+  resolveItem(db, BOBBY, b, { outcome: 'removed', note: 'Signed elsewhere.' });
+  assert.equal(db.get('SELECT status FROM review_items WHERE id = ?', b).status, 'removed');
+  const c = createItem(db, BOBBY, { kind: 'assignment', player_id: 5 });
+  resolveItem(db, RAY, c, { outcome: 'removed' });
+  assert.equal(reviewCount(db, AHAN), 1, 'only Ray\'s assignment is left for Ahan');
 });

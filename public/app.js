@@ -1456,7 +1456,7 @@ async function renderPlayer(main, idArg) {
           <button type="button" class="btn sm ghost" id="mark-reviewed">Mark reviewed</button>
           ${reviewRole() ? `<button type="button" class="btn sm ghost" data-rv-player="watch">Watch</button>` : ""}
           ${reviewRole() === "scout" ? `<button type="button" class="btn sm ghost" data-rv-player="sb_review">Send to ${esc(reviewLead()?.name || "the lead")}</button>` : ""}
-          ${reviewRole() === "lead" ? `<button type="button" class="btn sm ghost" data-rv-player="assignment">${esc(assignLabel())}</button>` : ""}
+          ${canAssign() ? `<button type="button" class="btn sm ghost" data-rv-player="assignment">${esc(assignLabel())}</button>` : ""}
           ${S.me.is_admin ? `<button type="button" class="btn sm ghost danger" id="del-p">Delete</button>` : ""}
         </div>
       </div>
@@ -3646,13 +3646,13 @@ async function renderStaff(main) {
     <div class="page-h"><div><h1>Staff</h1><div class="sub">Everyone ticked under <b>Reports</b> gets their own box in Staff reports and a verdict dot on every player (anyone unticked still shows where they've written something). To let someone sign in, or to reset a forgotten password,
       click <b>Email sign-in link</b>: a Gmail draft opens, addressed to them with their link, and you press Send. They open the link, choose a password, and from then on sign in with their email and that password.
       A link works once and expires after 7 days.</div></div></div>
-    <div class="table-wrap"><table class="grid"><thead><tr><th>Name</th><th>Sign-in email</th><th>Sign-in</th><th>Admin</th><th>Reports</th><th title="Who has the War Room: the lead decides the Short Board and assigns reviews; scouts send players up">War Room</th><th></th></tr></thead><tbody>
+    <div class="table-wrap"><table class="grid"><thead><tr><th>Name</th><th>Sign-in email</th><th>Sign-in</th><th>Admin</th><th>Reports</th><th title="Who has the War Room: the lead decides the Short Board and assigns reviews; scouts send players up; an assigner assigns reviews too, and the lead decides on them">War Room</th><th></th></tr></thead><tbody>
       ${users.map((u) => `<tr data-uid="${u.id}" data-has-password="${u.has_password ? 1 : 0}" style="cursor:default"><td><b>${esc(u.name)}</b></td>
         <td><input type="email" value="${esc(u.email || "")}" placeholder="Add an email to let ${esc(u.name)} sign in" style="width:260px" aria-label="${esc(u.name)} email"></td>
         <td>${signInStatus(u)}</td>
         <td><input type="checkbox" name="is_admin" ${u.is_admin ? "checked" : ""} ${u.id === S.me.id ? "disabled" : ""} aria-label="${esc(u.name)} is admin"></td>
         <td><input type="checkbox" name="in_evals" ${u.in_evals ? "checked" : ""} aria-label="${esc(u.name)} has a Staff reports box"></td>
-        <td><select name="review_role" aria-label="${esc(u.name)} War Room role">${[["", "—"], ["lead", "Lead"], ["scout", "Scout"]].map(([v, l]) =>
+        <td><select name="review_role" aria-label="${esc(u.name)} War Room role">${[["", "—"], ["lead", "Lead"], ["scout", "Scout"], ["assigner", "Assigner"]].map(([v, l]) =>
           `<option value="${v}" ${(u.review_role || "") === v ? "selected" : ""}>${l}</option>`).join("")}</select></td>
         <td class="staff-actions"><button type="button" class="btn sm" data-save-user>Save</button>
           <button type="button" class="btn sm primary" data-link-user>${u.has_password ? "Email new link" : "Email sign-in link"}</button></td></tr>`).join("")}
@@ -3783,8 +3783,10 @@ boot();
 
 /* ---------- Review: the lead's Short Board decisions, assignments, and watch lists ---------- */
 // The review team (users.review_role, set on the Staff page): the lead decides the Short Board and assigns scouts
-// players to review; scouts send players up. Everyone on it keeps a private watch list. Server: review_queue.js.
+// players to review; scouts send players up; an assigner (Bobby) assigns players as the lead does, and the lead decides
+// on them. Everyone on it keeps a private watch list. Server: review_queue.js.
 const reviewRole = () => S.config.review_team?.find((u) => u.id === S.me?.id)?.role || null;
+const canAssign = () => ["lead", "assigner"].includes(reviewRole());
 const reviewLead = () => S.config.review_team?.find((u) => u.role === "lead") || null;
 const reviewScouts = () => (S.config.review_team || []).filter((u) => u.role === "scout");
 const TM_LINK = /transfermarkt\.[a-z.]+\/.+\/spieler\/\d+/i;
@@ -3819,8 +3821,10 @@ function reviewCard(item, actions, always = false) {
   const settled = item.status !== "open" && !item.awaiting_lead;
   const [label, tone] = settled ? RV_STATUS[item.status] || [item.status, ""] : [];
   const others = (item.assignees || []).filter((x) => x.user_id !== S.me.id).map((x) => x.name);
+  // An assignment reads "To the scouts" for whoever sent it, "From Bobby, to the scouts" for the lead when someone else did.
   const route = item.kind === "sb_review" ? `From ${esc(item.from_name)}` : item.kind === "assignment"
-    ? (reviewRole() === "lead" ? `To ${esc(item.to_name)}` : `From ${esc(item.from_name)}${others.length ? `, with ${esc(others.join(" and "))}` : ""}`) : "Watching";
+    ? (canAssign() ? `${item.from_user === S.me.id ? "To" : `From ${esc(item.from_name)}, to`} ${esc(item.to_name)}`
+      : `From ${esc(item.from_name)}${others.length ? `, with ${esc(others.join(" and "))}` : ""}`) : "Watching";
   // Each scout's answer on a shared assignment. A settled one is credited by these, not by whoever answered last.
   const shared = item.kind === "assignment" && item.assignees?.length;
   const answers = shared ? `<div class="rv-answers">${item.assignees.map((x) =>
@@ -3861,7 +3865,7 @@ function reviewAddForm(role) {
     <input id="rv-note" placeholder="Why? (optional)" maxlength="4000" aria-label="Note">
     <div class="rv-add-btns"><button class="btn" type="submit" data-rv-target="watch">Watch</button>
       ${role === "scout" ? `<button class="btn primary" type="submit" data-rv-target="sb_review">Send to ${esc(lead)}</button>` : ""}
-      ${role === "lead" ? `<button class="btn primary" type="submit" data-rv-target="assignment">${esc(assignLabel())}</button>` : ""}</div>
+      ${canAssign() ? `<button class="btn primary" type="submit" data-rv-target="assignment">${esc(assignLabel())}</button>` : ""}</div>
   </form>`;
 }
 
@@ -3879,7 +3883,7 @@ async function renderReview(main) {
   const watch = d.items.filter((i) => i.kind === "watch" && open(i));
   const rows = (list, actions, always = false) => list.map((i) => reviewCard(i, actions(i), always)).join("");
   const watchActions = () => [
-    ...(role === "lead" ? [`<button type="button" class="btn sm" data-rv-assign="1">${esc(assignLabel())}</button>`] : []),
+    ...(canAssign() ? [`<button type="button" class="btn sm" data-rv-assign="1">${esc(assignLabel())}</button>`] : []),
     role === "scout" ? `<button type="button" class="btn sm" data-rv-send>Send to ${esc(leadName)}</button>` : "",
     `<button type="button" class="btn sm ghost" data-rv-resolve="removed" title="Remove from your watch list">Remove</button>`].join("");
   const myAnswer = (i) => i.assignees?.find((x) => x.user_id === S.me.id)?.status;
@@ -3898,6 +3902,17 @@ async function renderReview(main) {
         html: (l) => rows(l, (i) => `${nudgeButton(i)}<button type="button" class="btn sm ghost" data-rv-resolve="removed">Withdraw</button>`) },
       { id: "history", label: "History", list: history, empty: "Nothing settled in the last 30 days.", html: (l) => rows(l, () => "") },
     ];
+  } else if (role === "assigner") {
+    // What he assigned (the server sends nothing else): out with the scouts, then waiting on the lead's call.
+    const scoutNames = reviewScouts().map((x) => x.name).join(" and ") || "the scouts";
+    tabs = [
+      { id: "assigned", label: `Out with ${scoutNames}`, list: asg.filter(open), empty: `Nothing you've assigned is out with ${scoutNames}.`,
+        html: (l) => rows(l, (i) => `${nudgeButton(i)}<button type="button" class="btn sm ghost" data-rv-resolve="removed">Withdraw</button>`) },
+      { id: "lead", label: `With ${leadName}`, list: asg.filter((i) => i.awaiting_lead).sort((a, b) => (lastMove(b) > lastMove(a) ? 1 : -1)),
+        empty: `Nothing you've assigned is waiting on ${leadName}'s decision.`, html: (l) => rows(l, () => "", true) },
+      { id: "watch", label: "Watch list", list: watch, empty: "Your watch list is empty. Add players with the bar above.", html: (l) => rows(l, watchActions) },
+      { id: "history", label: "History", list: history, empty: "Nothing settled in the last 30 days.", html: (l) => rows(l, () => "") },
+    ];
   } else {
     const sent = new Set(sb.map((i) => i.player_id));
     const ready = d.suggestions.filter((id) => !sent.has(id)).map((id) => S.byId.get(id)).filter(Boolean);
@@ -3911,7 +3926,7 @@ async function renderReview(main) {
     const toReview = asg.filter((i) => open(i) && myAnswer(i) === "open").sort((a, b) => (myNudge(b) > myNudge(a) ? 1 : myNudge(b) < myNudge(a) ? -1 : 0));
     const heading = (t, n) => `<h3 class="rv-sub">${esc(t)} <span class="muted">${n}</span></h3>`;
     tabs = [
-      { id: "assigned", label: "Assigned to you", list: toReview, urgent: true, empty: `Nothing from ${leadName} to review.`,
+      { id: "assigned", label: "Assigned to you", list: toReview, urgent: true, empty: "Nothing assigned to you to review.",
         html: (l) => rows(l, () => `<button type="button" class="btn sm primary" data-rv-review>Review</button><button type="button" class="btn sm" data-rv-resolve="declined">Decline</button>`) },
       { id: "waiting", label: `Waiting on ${others}`, list: waitingOn, empty: `Nothing you've answered is waiting on ${others}.`,
         html: (l) => rows(l, nudgeButton) },
@@ -3931,7 +3946,8 @@ async function renderReview(main) {
   main.innerHTML = `<div class="page rv-page">
     <div class="page-h"><h1>War Room</h1><span class="muted">${role === "lead"
       ? "Decide on what the scouts send up and review for you, assign reviews, and keep your watch list"
-      : `What ${esc(leadName)} assigned you, players to send up, and your watch list`}</span></div>
+      : role === "assigner" ? `Assign players to ${esc(reviewScouts().map((x) => x.name).join(" and ") || "the scouts")}, follow them to ${esc(leadName)}'s decision, and keep your watch list`
+      : "What's assigned to you, players to send up, and your watch list"}</span></div>
     <section class="panel rv-bar">${reviewAddForm(role)}</section>
     <div class="rv-tabs" role="tablist">${tabs.map((t) => `<button type="button" role="tab" data-rv-tab="${t.id}" aria-selected="${t === tab}" class="${t === tab ? "on" : ""}">
       ${esc(t.label)}${t.id !== "history" && t.list.length ? `<span class="rv-count ${t.urgent ? "urgent" : ""}">${t.list.length}</span>` : ""}</button>`).join("")}</div>

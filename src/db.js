@@ -366,6 +366,11 @@ export function openDb(file) {
   if (!raw.prepare("PRAGMA table_info(users)").all().some((c) => c.name === "review_role")) {
     raw.exec("ALTER TABLE users ADD COLUMN review_role TEXT CHECK (review_role IN ('lead','scout'))");
   }
+  // An assigner (review_role NULL, review_assigner 1) is on the War Room to assign players to the scouts, as the lead
+  // does; the lead still makes the call. A flag, since review_role's CHECK can't take a new value without a rebuild.
+  if (!raw.prepare("PRAGMA table_info(users)").all().some((c) => c.name === "review_assigner")) {
+    raw.exec("ALTER TABLE users ADD COLUMN review_assigner INTEGER NOT NULL DEFAULT 0");
+  }
   // Entries kept for the record but left out of the Activity feed and player histories.
   if (!raw.prepare("PRAGMA table_info(activity)").all().some((c) => c.name === "hidden")) {
     raw.exec("ALTER TABLE activity ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0");
@@ -418,6 +423,10 @@ export function openDb(file) {
   db.once("review_team_2026_11", () => {
     db.run("UPDATE users SET review_role = 'lead' WHERE name = 'Ray' AND review_role IS NULL");
     db.run("UPDATE users SET review_role = 'scout' WHERE name IN ('Ahan', 'Ford') AND review_role IS NULL");
+  });
+  // Bobby assigns players to the scouts too (asked 2026-11-12).
+  db.once("review_assigner_bobby_2026_11_12", () => {
+    db.run("UPDATE users SET review_assigner = 1 WHERE name = 'Bobby' AND review_role IS NULL");
   });
   // "Out of our range" became an exit reason; removals saved before it as "Unwilling to play in League One" with
   // the note "Out of range" move to it (in the board history and the Activity entry), and the note goes.
