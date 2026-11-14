@@ -403,7 +403,9 @@ syncs leave the signing status alone.
   and open KPI categories to see their metrics. Player names stay visible as you scroll, and phone layouts keep player controls on separate rows.
   You can choose each player's season, position, physical data and saved card separately, and share your selections by copying the link.
   Percentile gaps and sorting by difference are unavailable when the comparison groups differ.
-  The scouting table uses saved card data in render schema 16. You can also compare the original cards with linked zoom and scrolling,
+  The scouting comparison uses saved card data in render schema 16. PxT and Packing appear in an Overall, Attack and Defend matrix,
+  followed by whole scouting sections in two columns. Each section uses the card's questions for the selected position.
+  Different or unknown positions keep the saved section labels. You can also compare the original cards with linked zoom and scrolling,
   side by side or in A/B view, and open their PDFs. The comparison page uses existing data without creating scores or requesting new cards.
 - **Structured scouting cards**: complete renderer inputs can be stored as compressed JSON alongside each PDF, bound to its exact PDF bytes. See [snapshot storage, worker contract and backfill](docs/card-snapshots.md).
 - **Pitch maps**: a panel on the player page (Impect-linked players) under the player card. It shows the card's two
@@ -535,3 +537,8 @@ Staff notes, verdicts, decisions, board ranks, and account data are excluded.
 The endpoint only reads the database and sends `Cache-Control: no-store`.
 
 To review the comparison page with fictional players, run `node scripts/preview-comparison.mjs` and open the printed URL. The preview uses a temporary database and demo data, with provider access disabled. Screenshots for desktop and phone in light and dark mode are in `docs/screenshots/comparison/`.
+
+The scouting comparison's display sections are in `public/scouting-card-sections.js`.
+The file copies question headings and metric IDs from Hearts of Pine's `data/reference/metric_grid.yml`,
+with the source commit recorded in its header. Update the display sections when the card layout changes.
+Metrics absent from the display sections remain under their saved section labels, and all values and percentiles come from the saved cards.

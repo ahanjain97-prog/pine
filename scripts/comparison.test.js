@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseComparison, comparisonPath, mergeRows, gap, orderRows, choosePair, kpiComparable, kpiRows,
-  physicalComparable, physicalRows, scoutingComparable, scoutingRows } from '../public/comparison-data.js';
+  physicalComparable, physicalRows, scoutingComparable, scoutingRows, scoutingSections } from '../public/comparison-data.js';
 
 const metric = (id, percentile, value = 0) => ({ id, label: id, percentile, value, direction: 'higher' });
 const kpi = () => ({ position: 'MID', iteration: { id: 1916, season: '2026' }, benchmark_competitions: ['USL League One', 'USL Championship'], min_share_used: 5,
@@ -82,4 +82,39 @@ test('scouting comparisons retain original values, suppress rare ranks and rejec
   assert.equal(scoutingComparable(missing, structuredClone(missing)), false);
   assert.equal(kpiComparable({}, {}), false);
   assert.equal(physicalComparable({}, {}), false);
+});
+
+test('saved card value tiles keep their scoring system and phase, including an existing open play rank', () => {
+  const card = snapshot(), r = card.render_input;
+  r.value = { PxT: ['overall', 'attack', 'defend'], Packing: ['packing'] };
+  r.subject.profiles[0].percentiles = { overall: 0, attack: 82, defend: null, packing: 71, IMPECT_WITHOUT_FOULS_AND_SET_PIECES_SCORE_PXT: 42 };
+  const values = scoutingRows(card).filter(r => r.kind === 'value');
+  assert.deepEqual(values.map(r => [r.family, r.phase, r.percentile]), [
+    ['PxT', 'Overall', 0], ['PxT', 'Attack', 82], ['PxT', 'Defend', null], ['Packing', 'Overall', 71], ['PxT', 'Open play', 42],
+  ]);
+  delete r.subject.profiles[0].percentiles.IMPECT_WITHOUT_FOULS_AND_SET_PIECES_SCORE_PXT;
+  assert.equal(scoutingRows(card).filter(r => r.kind === 'value').length, 4, 'a missing source field does not create an extra tile');
+});
+
+test('card sections use position questions and retain every paired metric, including unfamiliar IDs', () => {
+  const row = (metric, group) => ({ id: `metric:${metric}`, kind: 'metric', label: metric, group,
+    a: { value: 0, percentile: 0 }, b: { value: null, percentile: null } });
+  const rows = [row('CORNER_SCORE', 'Set pieces'), row('BALL_LOSS_ADDED_OPPONENTS', 'Passing'), row('PXT_PASS_PRO', 'Passing'),
+    row('IMPECT_SCORE_PACKING', 'Overall'), row('SUCCESSFUL_PASSES', 'Passing'), row('UNFAMILIAR', 'Carrying')];
+  const original = JSON.stringify(rows), sections = scoutingSections(rows, ['CM', 'CM']);
+  assert.deepEqual(sections.map(s => s.label), ['Overall contribution', 'Can he connect play across midfield?',
+    'Can he progress through pressure?', 'Does he manage possession responsibly?', 'Set-piece delivery', 'Carrying']);
+  const all = sections.flatMap(s => s.rows);
+  assert.equal(all.length, rows.length);
+  assert.equal(new Set(all.map(r => r.id)).size, rows.length);
+  for (const r of rows) assert.equal(all.find(v => v.id === r.id), r, 'layout keeps the original paired values');
+  assert.equal(JSON.stringify(rows), original);
+});
+
+test('different or unknown card positions retain the saved section labels', () => {
+  const rows = [{ id: 'metric:PXT_PASS_PRO', kind: 'metric', group: 'Passing' }, { id: 'metric:BALL_WIN_NUMBER', kind: 'metric', group: 'Defending' }];
+  for (const positions of [['CM', 'FB'], ['unknown', 'unknown'], []]) {
+    assert.deepEqual(scoutingSections(rows, positions).map(s => s.label), ['Passing', 'Defending']);
+    assert.deepEqual(scoutingSections(rows, positions).flatMap(s => s.rows), rows);
+  }
 });

@@ -1317,3 +1317,70 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
 }
 
 @media (max-width: 450px) { .cmp-context { grid-template-columns: minmax(0, 1fr); } }
+
+/* Saved scouting cards keep their value matrix and whole scouting sections. */
+.cmp-scout-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; background: var(--surface); padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; margin-bottom: 14px; z-index: 4; }
+.cmp-scout-card-sections > .cmp-scout-legend { position: sticky; top: var(--cmp-top, 54px); }
+.cmp-scout-legend small { display: inline; color: var(--muted); margin-left: 8px; font-size: 11px; }
+.cmp-scout-value-block { padding: 14px; background: var(--surface-2); border: 1px solid var(--line); border-top: 3px solid var(--pine); border-radius: 8px; margin-bottom: 18px; }
+.cmp-scout-values { border-collapse: separate; border-spacing: 8px; width: 100%; table-layout: fixed; }
+.cmp-scout-values th { font: 600 17px/1.2 var(--disp); text-align: center; color: var(--ink-2); padding: 0 0 5px; }
+.cmp-scout-values th:first-child { width: 100px; text-align: left; color: var(--ink); }
+.cmp-scout-values tbody th { font-size: 22px; }
+.cmp-scout-values td { text-align: center; vertical-align: middle; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); padding: 10px; }
+.cmp-scout-value-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.cmp-scout-score { display: block; text-align: center; min-width: 0; }
+.cmp-scout-score-label { display: block; font-size: 10px; color: var(--cmp-color); margin-bottom: 3px; }
+.cmp-scout-score .cmp-symbol { margin-right: 2px; }
+.cmp-scout-score .cmp-value { font-size: 25px; }
+.cmp-scout-score .cmp-na { font-size: 10px; overflow-wrap: anywhere; }
+.cmp-scout-value-block .cmp-gap { position: static; margin-top: 8px; font-size: 11px; padding: 3px 7px; }
+.cmp-scout-additional { display: flex; flex-wrap: wrap; gap: 12px; padding: 10px 8px 0; }
+.cmp-scout-additional > div { display: flex; align-items: center; gap: 16px; font-size: 12px; }
+.cmp-scout-additional h3 { font-size: 12px; font-weight: 600; }
+.cmp-scout-additional .cmp-scout-value-pair { min-width: 120px; }
+.cmp-scout-additional .cmp-gap { margin-top: 0; }
+.cmp-scout-sections { columns: 2; column-gap: 16px; }
+.cmp-scout-section { break-inside: avoid; margin-bottom: 16px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; min-width: 0; }
+.cmp-scout-section h3 { font: 600 20px/1.25 var(--disp); padding: 12px; background: var(--surface-2); border-bottom: 1px solid var(--line); }
+.cmp-scout-metric, .cmp-scout-section-columns { display: grid; grid-template-columns: minmax(100px, 1fr) 82px 82px 78px; gap: 10px; align-items: center; padding: 12px; }
+.cmp-scout-section-columns { font-size: 11px; color: var(--ink-2); border-bottom: 1px solid var(--line); padding-top: 8px; padding-bottom: 8px; text-align: center; }
+.cmp-scout-section-columns > span:first-child { text-align: left; }
+.cmp-scout-section-columns small { display: block; font-size: 9px; color: var(--muted); margin-top: 3px; }
+.cmp-scout-metric { border-bottom: 1px solid var(--line); }
+.cmp-scout-metric:last-child { border-bottom: 0; }
+.cmp-scout-metric .cmp-metric b { font-size: 12px; }
+.cmp-scout-metric .cmp-value { font-size: 23px; }
+.cmp-scout-metric .cmp-gap { position: static; font-size: 11px; padding: 4px 6px; }
+.cmp-scout-metric .cmp-scout-score-label { display: none; }
+.cmp-scout-mini { display: block; height: 5px; margin: 7px 3px 0; border-radius: 2px; background: var(--none-bg); }
+.cmp-scout-mini i { display: block; height: 100%; border-radius: 2px; background: var(--cmp-color); opacity: .7; }
+@media (max-width: 1100px) {
+  .cmp-scout-metric, .cmp-scout-section-columns { grid-template-columns: minmax(80px, 1fr) 58px 58px 66px; gap: 8px; }
+}
+@media (max-width: 850px) {
+  .cmp-scout-sections { columns: 1; }
+  .cmp-scout-metric, .cmp-scout-section-columns { grid-template-columns: minmax(100px, 1fr) 82px 82px 78px; }
+}
+@media (max-width: 700px) {
+  .cmp-scout-legend { padding: 10px; gap: 8px; }
+  .cmp-scout-legend small { display: block; margin-left: 0; margin-top: 3px; }
+  .cmp-scout-value-block { padding: 8px 2px; }
+  .cmp-scout-values { border-spacing: 4px 8px; }
+  .cmp-scout-values th { font-size: 15px; }
+  .cmp-scout-values th:first-child { width: 48px; }
+  .cmp-scout-values tbody th { font-size: 18px; }
+  .cmp-scout-values td { padding: 8px 3px; }
+  .cmp-scout-value-pair { gap: 3px; }
+  .cmp-scout-value-block .cmp-value { font-size: 22px; }
+  .cmp-scout-value-block .cmp-gap { font-size: 10px; gap: 2px; padding: 3px 4px; }
+  .cmp-scout-score-label { font-size: 9px; }
+  .cmp-scout-additional { padding: 8px 6px 2px; }
+  .cmp-scout-additional > div { flex-wrap: wrap; gap: 8px; }
+  .cmp-scout-metric { position: relative; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .cmp-scout-metric .cmp-metric { grid-column: 1 / -1; padding-right: 80px; min-height: 22px; }
+  .cmp-scout-metric .cmp-gap { position: absolute; top: 12px; right: 12px; }
+  .cmp-scout-metric .cmp-scout-score-label { display: block; }
+  .cmp-scout-metric .cmp-scout-score { padding: 6px; background: color-mix(in srgb, var(--cmp-color) 5%, var(--surface)); border-radius: 6px; }
+  .cmp-scout-section-columns { display: none; }
+}

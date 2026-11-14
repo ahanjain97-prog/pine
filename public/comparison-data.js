@@ -1,3 +1,5 @@
+import { cardQuestions } from './scouting-card-sections.js';
+
 // Presentation only: align existing values by source IDs; never re-score players.
 export const finite = v => typeof v === 'number' && Number.isFinite(v);
 export const pct = v => finite(v) && v >= 0 && v <= 100 ? v : null;
@@ -85,15 +87,39 @@ export function scoutingRows(envelope) {
   if (r?.schema_version !== 16 || !profile) return [];
   const tiles = Object.entries(r.value || {}).flatMap(([family, metrics]) => metrics.map((metric, i) => ({
     id: `tile:${metric}`, label: `${family}, ${['Overall', 'Attack', 'Defend'][i] || metric}`, group: 'Value',
+    kind: 'value', family, phase: ['Overall', 'Attack', 'Defend'][i] || metric,
     percentile: pct(profile.percentiles?.[metric]), direction: 'higher',
   })));
+  const openPlay = 'IMPECT_WITHOUT_FOULS_AND_SET_PIECES_SCORE_PXT';
+  if (Object.hasOwn(profile.percentiles || {}, openPlay)) tiles.push({ id: `tile:${openPlay}`, label: 'Open play PxT',
+    group: 'Value', kind: 'value', family: 'PxT', phase: 'Open play', percentile: pct(profile.percentiles[openPlay]), direction: 'higher' });
   const names = { overall: 'Overall', passing: 'Passing', receiving: 'Receiving', carrying: 'Carrying', shooting: 'Shooting', defending: 'Defending', set_pieces: 'Set pieces' };
   return [...tiles, ...(profile.grid || []).filter(m => m.metric && !m.film).map(m => ({
-    id: `metric:${m.metric}`, label: m.name || m.short, group: names[m.bucket] || m.bucket,
+    id: `metric:${m.metric}`, label: m.name || m.short, group: names[m.bucket] || m.bucket || 'Other metrics', kind: 'metric', code: m.code,
     value: m.value, percentile: m.rare ? null : pct(m.percentile), direction: m.direction,
     note: m.rare ? 'The action is rare for the position and has no percentile.' : m.code === 'D' ? 'The metric describes playing style or how often actions occur.' : m.direction === 'lower' ? 'Lower values are better, and percentiles account for that.' : '',
     rare: m.rare,
   }))];
+}
+// Organize both players together. Different position groups keep the saved bucket labels.
+export function scoutingSections(rows, positions = []) {
+  const groups = [...new Set(positions.filter(Boolean))], questions = groups.length === 1 ? cardQuestions[groups[0]] || [] : [];
+  const remaining = new Map(rows.filter(r => r.kind !== 'value').map(r => [r.id, r]));
+  const sections = [];
+  const take = (label, ids) => {
+    const found = ids.map(id => remaining.get(`metric:${id}`)).filter(Boolean);
+    for (const r of found) remaining.delete(r.id);
+    if (found.length) sections.push({ label, rows: found });
+  };
+  if (questions.length) {
+    take('Overall contribution', ['IMPECT_SCORE_PACKING']);
+    for (const q of questions) take(q.label, q.metrics);
+    take('Set-piece delivery', ['CORNER_SCORE', 'FREE_KICK_SCORE']);
+  }
+  for (const label of new Set([...remaining.values()].map(r => r.group))) {
+    sections.push({ label, rows: [...remaining.values()].filter(r => r.group === label) });
+  }
+  return sections;
 }
 function gridHash(r) {
   const hashes = r?.provenance?.sha256 || {};

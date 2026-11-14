@@ -57,11 +57,29 @@ export function demoSnapshot(card) {
   const side = card > 20, pid = side ? 502 : 501;
   return { schema: 1, data_as_of: '2026-10-01', render_input: { schema_version: 16, id: `player-${pid}-1916-cm`, iteration: 1916,
     subject: { id: pid, club: side ? 'Riverside FC' : 'Harbor FC', season: 2026, league: 'USL1', profiles: [{ group: 'CM', ms: 19.2,
-      percentiles: { PX: side ? 76 : 61, ATT: side ? 83 : 56, DEF: side ? 52 : 82, PK: side ? 72 : 80 },
-      grid: [['PASS', 'Line-breaking passing', 'passing', side ? 88 : 58], ['CARRY', 'Progressive carrying', 'carrying', side ? 60 : 63],
-        ['CHANCE', 'Chance creation', 'shooting', side ? 78 : 43], ['WIN', 'Ball winning', 'defending', side ? 57 : 85], ['RARE', 'Rare action', 'shooting', 99]]
-        .map(([metric, name, bucket, percentile]) => ({ metric, name, bucket, percentile, value: metric === 'RARE' ? 0 : side ? 3.4 : 5.1, rare: metric === 'RARE', direction: 'higher', code: 'R' })) }] },
-    value: { PxT: ['PX', 'ATT', 'DEF'], Packing: ['PK'] }, grid: { source: '/demo/metric_grid.yml', ledger: 'demo.csv' }, provenance: { sha256: { '/demo/metric_grid.yml': 'a'.repeat(64) } }, events: { position: 'CM' } } };
+      percentiles: { IMPECT_SCORE_PXT: side ? 76 : 61, OFFENSIVE_IMPECT_SCORE_PXT: side ? 83 : 56, DEFENSIVE_IMPECT_SCORE_PXT: side ? 52 : 82,
+        IMPECT_SCORE_PACKING: side ? 72 : 80, OFFENSIVE_IMPECT_SCORE_PACKING: side ? 85 : 68, DEFENSIVE_IMPECT_SCORE_PACKING: side ? 49 : 86,
+        IMPECT_WITHOUT_FOULS_AND_SET_PIECES_SCORE_PXT: side ? 74 : 59 },
+      grid: [
+        ['IMPECT_SCORE_PACKING', 'Overall packing', 'overall', 80, 72],
+        ['BYPASSED_OPPONENTS_RECEIVING', 'Receiving between lines', 'receiving', 71, 67],
+        ['SUCCESSFUL_PASSES', 'Completed passes', 'passing', 72, 76],
+        ['PXT_PASS_PRO', 'Goal threat from passes', 'passing', 58, 88],
+        ['BYPASSED_OPPONENTS_BY_ACTION_DRIBBLE', 'Progressive carrying', 'carrying', 63, 60],
+        ['BALL_LOSS_ADDED_OPPONENTS', 'Turnover cost', 'passing', 90, 56],
+        ['EXPECTED_GOAL_ASSISTS', 'Chance creation', 'shooting', 43, 78],
+        ['SHOT_XG', 'Expected goals', 'shooting', 36, 55],
+        ['BALL_WIN_NUMBER', 'Ball winning', 'defending', 85, 57],
+        ['WON_GROUND_DUELS', 'Ground duels won', 'defending', 82, 58],
+        ['NUMBER_OF_PRESSES', 'Pressing volume', 'defending', 77, 45],
+        ['CORNER_SCORE', 'Corner delivery', 'set_pieces', 99, 99],
+      ].map(([metric, name, bucket, a, b]) => ({ metric, name, bucket, percentile: side ? b : a,
+        value: metric === 'CORNER_SCORE' || metric === 'BALL_LOSS_ADDED_OPPONENTS' && !side ? 0 : side ? 3.4 : 5.1,
+        rare: metric === 'CORNER_SCORE', direction: metric === 'BALL_LOSS_ADDED_OPPONENTS' ? 'lower' : metric === 'NUMBER_OF_PRESSES' ? 'none' : 'higher', code: metric === 'NUMBER_OF_PRESSES' ? 'D' : 'R' })) }] },
+    value: { PxT: ['IMPECT_SCORE_PXT', 'OFFENSIVE_IMPECT_SCORE_PXT', 'DEFENSIVE_IMPECT_SCORE_PXT'],
+      Packing: ['IMPECT_SCORE_PACKING', 'OFFENSIVE_IMPECT_SCORE_PACKING', 'DEFENSIVE_IMPECT_SCORE_PACKING'] },
+    grid: { source: '/demo/metric_grid.yml', ledger: 'demo.csv' }, provenance: { sha256: { '/demo/metric_grid.yml': 'a'.repeat(64) } }, events: { position: 'CM' } } };
+
 }
 export function demoCardImage(card) {
   const side = card > 20, name = side ? 'LEO SANTOS' : 'ALEX MERCER';
