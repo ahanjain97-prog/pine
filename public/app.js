@@ -1,5 +1,6 @@
 import { renderAnalysis } from "./analysis.js";
 import { loadPlayingTimePanel } from "./playing-time.js";
+import { renderCompare } from "./compare.js";
 
 // PINE front end: single page, no build step.
 // Routes: #/board  #/short-board  #/ncaa[/database]  #/players  #/player/:id  #/impect  #/activity  #/staff
@@ -377,6 +378,7 @@ function renderShell() {
       <button class="nav-trigger" id="operations-trigger" type="button" popovertarget="operations-menu" aria-controls="operations-menu" aria-expanded="false">Operations<span class="nav-caret" aria-hidden="true">▾</span></button>
       <div class="nav-menu" id="operations-menu" popover role="group" aria-label="Operations">
         <a href="#/players" data-v="players">Database</a>
+        <a href="#/compare" data-v="compare">Compare players</a>
         <a href="#/impect" data-v="impect">Impect</a>
         <a href="#/analysis" data-v="analysis">Analysis</a>
         ${S.me.is_admin ? `<a href="#/staff" data-v="staff">Staff</a>` : ""}
@@ -481,12 +483,12 @@ async function render() {
     if (a.dataset.v === view) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   });
-  const inOperations = ["players", "player", "impect", "analysis", "staff"].includes(view);
+  const inOperations = ["players", "player", "compare", "impect", "analysis", "staff"].includes(view);
   $("#operations-trigger").classList.toggle("on", inOperations);
   const link = $("#nav > .on"), nav = $("#nav");
   if (link && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = link.offsetLeft - nav.offsetLeft - (nav.clientWidth - link.offsetWidth) / 2;
   $("#upd").hidden = !S.staleNotified; // the reload prompt stays up until they reload
-  const views = { analysis: (main, arg) => renderAnalysis(main, arg, { api, setTitle }), board: renderBoard, "war-room": renderReview, "short-board": renderShortBoard, ncaa: renderNcaa, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
+  const views = { compare: (main, arg) => renderCompare(main, arg, { api, setTitle, players: S.players, physicalGroups: PHYS_KEY }), analysis: (main, arg) => renderAnalysis(main, arg, { api, setTitle }), board: renderBoard, "war-room": renderReview, "short-board": renderShortBoard, ncaa: renderNcaa, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
   // Pitch maps had their own tab for a day; its links now open the player's page, where the maps live.
   if (view === "maps") { location.hash = arg ? `#/player/${arg}` : "#/players"; return; }
   if (!views[view]) { location.hash = "#/board"; return; }
@@ -1452,6 +1454,7 @@ async function renderPlayer(main, idArg) {
             ? `<a class="btn sm" href="${esc(p.tm_url)}" target="_blank" rel="noopener">Transfermarkt ↗</a><button type="button" class="btn sm ghost" id="sync-tm">Sync from Transfermarkt</button>${p.tm_synced_at ? `<span class="muted sm">Synced ${esc(relTime(p.tm_synced_at))}</span>` : ""}`
             : `<form id="link-tm" class="row"><input type="url" required placeholder="Paste a Transfermarkt link to pull info" aria-label="Transfermarkt link"><button class="btn sm" type="submit">Link</button></form>`}
           <button type="button" class="btn sm ghost" id="share-p">Share</button>
+          <a class="btn sm" href="#/compare/${p.id}">Compare with…</a>
           <button type="button" class="btn sm ghost" id="edit-p">Edit details</button>
           <button type="button" class="btn sm ghost" id="mark-reviewed">Mark reviewed</button>
           ${reviewRole() ? `<button type="button" class="btn sm ghost" data-rv-player="watch">Watch</button>` : ""}
