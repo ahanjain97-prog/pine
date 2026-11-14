@@ -26,6 +26,7 @@ import { playingTime } from "./lib/playing_time.js";
 import { configureDiskCache } from "./lib/disk_cache.js";
 import { playerCardOptions } from "./lib/card_options.js";
 import { MAX_CARD_BYTES, DAILY_CARD_LIMIT, cardErrorCode, cardProgress, claimCard, isPdf, isPng, saveCardFile, sqlTime } from "./lib/cards.js";
+import { MAX_SNAPSHOT_BYTES, SnapshotError, sha256, validateSnapshot, saveSnapshot, readSnapshot } from "./lib/card_snapshots.js";
 import {
   MAX_MAPS_BYTES, DAILY_MAPS_LIMIT, OPEN_MAPS_PER_USER, MapsError, claimMap, mapErrorCode, mapProgress, normalizeMaps,
   removeMapsFiles, saveMapsFile,
@@ -1049,7 +1050,7 @@ async function cardOptionsFor(p) {
 // Everything but the stored file paths.
 const CARD_SELECT = `SELECT c.id, c.iteration_id, c.competition, c.season, c.position, c.status, c.error,
     c.requested_at, c.started_at, c.generated_at, c.bytes, c.hop_commit, c.data_as_of, c.image IS NOT NULL AS has_image,
-    c.progress, c.progress_matches,
+    c.progress, c.progress_matches, c.snapshot_file IS NOT NULL AS has_snapshot, c.snapshot_schema,
     u.name AS requested_by_name
   FROM cards c LEFT JOIN users u ON u.id = c.requested_by`;
 
@@ -1109,10 +1110,52 @@ app.get("/api/cards/:id/png", (c) => {
   if (!card.image) fail(404, "This card has no picture");
   return sendCardFile(card.image, "image/png", { "Cache-Control": "private, max-age=604800, immutable" });
 });
+app.get("/api/cards/:id/snapshot", (c) => {
+  const card = doneCard(c);
+  if (!card.snapshot_file) fail(404, "This card has no structured snapshot");
+  return sendCardFile(card.snapshot_file, "application/json", {
+    "Content-Encoding": "gzip", "Cache-Control": "private, no-store",
+  });
+});
+
+// Cursor pagination lets the backfill inventory every completed version. Only
+// metadata and a PDF digest leave this worker-only route, never file paths.
+app.get("/api/worker/cards/snapshots", (c) => {
+  const after = Number(c.req.query("after") || 0);
+  if (!Number.isSafeInteger(after) || after < 0) fail(400, "Invalid card cursor");
+  const rows = db.all(`SELECT id, impect_id, iteration_id, position, season, hop_commit, data_as_of,
+    file, snapshot_file FROM cards WHERE status = 'done' AND file IS NOT NULL AND id > ? ORDER BY id LIMIT 100`, after);
+  return c.json({ cards: rows.map(({ file, snapshot_file, ...row }) => ({ ...row,
+    has_snapshot: !!snapshot_file && existsSync(join(CARDS_DIR, snapshot_file)),
+    pdf_sha256: existsSync(join(CARDS_DIR, file)) ? sha256(readFileSync(join(CARDS_DIR, file))) : null,
+  })), next: rows.length === 100 ? rows.at(-1).id : null });
+});
+const snapshotBodyLimit = bodyLimit({ maxSize: MAX_SNAPSHOT_BYTES, onError: c => c.json({ error: "Snapshot is over 10 MB" }, 413) });
+app.put("/api/worker/cards/:id/snapshot", snapshotBodyLimit, async c => {
+  const raw = await c.req.json().catch(() => null);
+  const card = db.get("SELECT * FROM cards WHERE id = ?", Number(c.req.param("id"))) || fail(404, "Card not found");
+  if (!["running", "done"].includes(card.status)) fail(409, "Card must be running or completed");
+  let snapshot;
+  try { snapshot = validateSnapshot(raw, card); } catch (e) {
+    if (e instanceof SnapshotError) fail(400, e.message);
+    throw e;
+  }
+  if (card.status === "done") {
+    if (!card.file || !existsSync(join(CARDS_DIR, card.file))) fail(409, "The original PDF is unavailable");
+    if (sha256(readFileSync(join(CARDS_DIR, card.file))) !== raw.pdf_sha256 ||
+        card.hop_commit !== raw.hop_commit || card.data_as_of !== raw.data_as_of) {
+      fail(409, "Snapshot does not match this PDF and its provenance");
+    }
+  }
+  if (card.snapshot_sha256 && card.snapshot_sha256 !== snapshot.digest) fail(409, "This card already has a different immutable snapshot");
+  const stored = saveSnapshot(CARDS_DIR, card, snapshot);
+  db.run("UPDATE cards SET snapshot_file = ?, snapshot_schema = ?, snapshot_sha256 = ? WHERE id = ?", stored, snapshot.schema, snapshot.digest, card.id);
+  return c.json({ ok: true });
+});
 
 // Card worker API (X-PINE-Worker-Token, checked in the /api gate above).
 function runningCard(c) {
-  const card = db.get("SELECT id, player_id, iteration_id, position, status FROM cards WHERE id = ?", Number(c.req.param("id"))) || fail(404, "Card not found");
+  const card = db.get("SELECT * FROM cards WHERE id = ?", Number(c.req.param("id"))) || fail(404, "Card not found");
   if (card.status !== "running") fail(409, `Card ${card.id} is ${card.status}, not running`);
   return card;
 }
@@ -1136,11 +1179,19 @@ app.put("/api/worker/cards/:id/pdf", cardBodyLimit,
     if (!isPdf(buf)) fail(400, "That isn't a PDF");
     const commit = c.req.header("X-PINE-Card-Commit") || "";
     const asOf = c.req.header("X-PINE-Card-Data-As-Of") || "";
+    const validCommit = /^[0-9a-f]{7,40}$/i.test(commit) ? commit : null;
+    const validAsOf = /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : null;
+    if (card.snapshot_file) {
+      const snapshot = readSnapshot(CARDS_DIR, card.snapshot_file);
+      if (snapshot.pdf_sha256 !== sha256(buf) || snapshot.hop_commit !== validCommit || snapshot.data_as_of !== validAsOf) {
+        fail(409, "PDF does not match its structured snapshot");
+      }
+    }
     const now = new Date();
     db.run(
       "UPDATE cards SET status = 'done', error = NULL, generated_at = ?, file = ?, bytes = ?, hop_commit = ?, data_as_of = ? WHERE id = ?",
       sqlTime(now), saveCardFile(CARDS_DIR, card, buf, now), buf.length,
-      /^[0-9a-f]{7,40}$/i.test(commit) ? commit : null, /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : null, card.id);
+      validCommit, validAsOf, card.id);
     return c.json({ ok: true });
   });
 // A note on why a running card is slower (a fixed code and a count), shown under "Generating".

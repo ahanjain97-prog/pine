@@ -31,7 +31,8 @@ export function claimCard(db) {
   db.run(`UPDATE cards SET status = 'failed', error = 'failed' WHERE ${stale} AND attempts >= ${MAX_ATTEMPTS}`);
   const job = db.get(
     `UPDATE cards SET status = 'running', started_at = datetime('now'), attempts = attempts + 1, image = NULL,
-         progress = NULL, progress_matches = NULL
+         progress = NULL, progress_matches = NULL,
+         snapshot_file = NULL, snapshot_schema = NULL, snapshot_sha256 = NULL
      WHERE id = (SELECT id FROM cards WHERE status = 'queued' OR (${stale})
                  ORDER BY requested_at, id LIMIT 1)
      RETURNING id, impect_id, iteration_id, position, tm_id`);
