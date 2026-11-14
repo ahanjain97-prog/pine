@@ -1126,7 +1126,7 @@ app.get("/api/worker/cards/snapshots", (c) => {
   const rows = db.all(`SELECT id, impect_id, iteration_id, position, season, hop_commit, data_as_of,
     file, snapshot_file FROM cards WHERE status = 'done' AND file IS NOT NULL AND id > ? ORDER BY id LIMIT 100`, after);
   return c.json({ cards: rows.map(({ file, snapshot_file, ...row }) => ({ ...row,
-    has_snapshot: !!snapshot_file,
+    has_snapshot: !!snapshot_file && existsSync(join(CARDS_DIR, snapshot_file)),
     pdf_sha256: existsSync(join(CARDS_DIR, file)) ? sha256(readFileSync(join(CARDS_DIR, file))) : null,
   })), next: rows.length === 100 ? rows.at(-1).id : null });
 });

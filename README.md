@@ -397,6 +397,7 @@ syncs leave the signing status alone.
   panel shows under "Generating" so staff know why a card that downloads Impect match data first is slower.
   Every version is kept and any signed-in staff member can open it. One card per player can be in progress, and at most 30 are
   requested across PINE per 24 hours.
+- **Structured scouting cards**: complete renderer inputs can be stored as compressed JSON alongside each PDF, bound to its exact PDF bytes. See [snapshot storage, worker contract and backfill](docs/card-snapshots.md).
 - **Pitch maps**: a panel on the player page (Impect-linked players) under the player card. It shows the card's two
   activity maps (In attack, Defensive actions) for a season and position, with up to three metrics per map chosen
   from every metric the card worker exports (28 today: the card's markers plus passes into the box, receptions,

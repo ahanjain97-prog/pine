@@ -25,6 +25,7 @@ test('HTTP: snapshots bind to a PDF, require auth, backfill without changing art
   const add = (status, stored = null) => Number(db.run("INSERT INTO cards(player_id,impect_id,iteration_id,position,status,file,hop_commit,data_as_of) VALUES (?,555,1916,'AM',?,?,'abcdef1','2026-10-01')", player, status, stored).lastInsertRowid);
   const old = add('done', `${player}/old.pdf`), running = add('running'), legacy = add('running'), queued = add('queued');
   db.run("UPDATE cards SET position = 'CF' WHERE id = ?", legacy);
+  for (let i = 0; i < 102; i++) add('done', `${player}/old.pdf`);
   mkdirSync(join(dir, 'cards', String(player)), { recursive: true });
   writeFileSync(join(dir, 'cards', String(player), 'old.pdf'), pdf); db.raw.close();
   const child = spawn(process.execPath, ['--import', './scripts/fixtures/offline-fetch.mjs', 'src/server.js'], {
@@ -55,9 +56,16 @@ test('HTTP: snapshots bind to a PDF, require auth, backfill without changing art
   assert.equal(inventory.cards[0].pdf_sha256, sha256(pdf));
   assert.equal(inventory.cards[0].has_snapshot, true);
   assert.equal(inventory.cards[0].file, undefined);
+  assert.equal(inventory.cards.length, 100);
+  const next = await (await request(`/api/worker/cards/snapshots?after=${inventory.next}`, { headers: worker })).json();
+  assert.equal(next.cards.length, 3); assert.equal(next.next, null);
   assert.equal((await request('/api/worker/cards/snapshots?after=-1', { headers: worker })).status, 400);
   const login = await request('/api/auth/setup', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-PINE': '1' }, body: JSON.stringify({ token, password: 'Synthetic password 123!' }) });
   const cookie = login.headers.get('set-cookie').split(';')[0];
+  assert.equal((await put(old, snapshot(), { 'X-PINE': '1', Cookie: cookie })).status, 401);
+  const listing = await (await request(`/api/players/${player}/cards`, { headers: { Cookie: cookie } })).json();
+  assert.equal(listing.cards.find(c => c.id === old).has_snapshot, 1);
+  assert.equal(listing.cards.find(c => c.id === old).snapshot_schema, 16);
   const read = await request(`/api/cards/${old}/snapshot`, { headers: { Cookie: cookie } });
   assert.equal(read.status, 200); assert.deepEqual(await read.json(), snapshot());
   assert.equal((await request(`/api/cards/${legacy}/snapshot`, { headers: { Cookie: cookie } })).status, 404);

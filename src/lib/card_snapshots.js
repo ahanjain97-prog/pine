@@ -13,9 +13,9 @@ const object = x => x && typeof x === 'object' && !Array.isArray(x);
 
 export function validateSnapshot(raw, card) {
   if (!object(raw) || raw.schema !== 1) bad('Unsupported card snapshot schema');
-  if (!/^[a-f0-9]{64}$/.test(raw.pdf_sha256 || '')) bad('A PDF SHA-256 is required');
-  if (raw.hop_commit !== null && !/^[a-f0-9]{7,40}$/i.test(raw.hop_commit || '')) bad('Invalid generator commit');
-  if (raw.data_as_of !== null && !/^\d{4}-\d{2}-\d{2}$/.test(raw.data_as_of || '')) bad('Invalid data date');
+  if (typeof raw.pdf_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(raw.pdf_sha256)) bad('A PDF SHA-256 is required');
+  if (raw.hop_commit !== null && (typeof raw.hop_commit !== 'string' || !/^[a-f0-9]{7,40}$/i.test(raw.hop_commit))) bad('Invalid generator commit');
+  if (raw.data_as_of !== null && (typeof raw.data_as_of !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(raw.data_as_of))) bad('Invalid data date');
   const r = raw.render_input;
   if (!object(r) || !Number.isSafeInteger(r.schema_version) || r.schema_version < 1) bad('Missing render schema version');
   if (r.subject?.id !== card.impect_id || r.iteration !== card.iteration_id ||
