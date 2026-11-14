@@ -398,15 +398,14 @@ syncs leave the signing status alone.
   Every version is kept and any signed-in staff member can open it. One card per player can be in progress, and at most 30 are
   requested across PINE per 24 hours.
 - **Compare players** (`#/compare`): open from Operations or **Compare with…** on a player profile.
-  Compare KPI profiles, physical data and saved scouting cards with adjacent player values, paired bars on a shared scale from 0 to 100,
+  Compare KPI profiles and physical data with adjacent player values, paired bars on a shared scale from 0 to 100,
   and badges showing the percentile difference. Use the buttons to sort by section, largest differences or closest values,
   and open KPI categories to see their metrics. Player names stay visible as you scroll, and phone layouts keep player controls on separate rows.
-  You can choose each player's season, position, physical data and saved card separately, and share your selections by copying the link.
+  You can choose each player's season, position and physical data separately, and share your selections by copying the link.
   Percentile gaps and sorting by difference are unavailable when the comparison groups differ.
-  The scouting comparison uses saved card data in render schema 16. PxT and Packing appear in an Overall, Attack and Defend matrix,
-  followed by whole scouting sections in two columns. Each section uses the card's questions for the selected position.
-  Different or unknown positions keep the saved section labels. You can also compare the original cards with linked zoom and scrolling,
-  side by side or in A/B view, and open their PDFs. The comparison page uses existing data without creating scores or requesting new cards.
+  The scouting tab shows the original cards side by side, with independent version selectors and PDF links.
+  Image previews have linked zoom and scrolling. Cards without an image preview show their PDF directly.
+  The comparison page uses existing data without creating scores or requesting new cards.
 - **Structured scouting cards**: complete renderer inputs can be stored as compressed JSON alongside each PDF, bound to its exact PDF bytes. See [snapshot storage, worker contract and backfill](docs/card-snapshots.md).
 - **Pitch maps**: a panel on the player page (Impect-linked players) under the player card. It shows the card's two
   activity maps (In attack, Defensive actions) for a season and position, with up to three metrics per map chosen
@@ -537,8 +536,3 @@ Staff notes, verdicts, decisions, board ranks, and account data are excluded.
 The endpoint only reads the database and sends `Cache-Control: no-store`.
 
 To review the comparison page with fictional players, run `node scripts/preview-comparison.mjs` and open the printed URL. The preview uses a temporary database and demo data, with provider access disabled. Screenshots for desktop and phone in light and dark mode are in `docs/screenshots/comparison/`.
-
-The scouting comparison's display sections are in `public/scouting-card-sections.js`.
-The file copies question headings and metric IDs from Hearts of Pine's `data/reference/metric_grid.yml`,
-with the source commit recorded in its header. Update the display sections when the card layout changes.
-Metrics absent from the display sections remain under their saved section labels, and all values and percentiles come from the saved cards.

@@ -1420,7 +1420,6 @@ const ASSET_VERSION = createHash("sha1")
   .update(readFileSync(join(PUBLIC_DIR, "app.js")))
   .update(readFileSync(join(PUBLIC_DIR, "compare.js")))
   .update(readFileSync(join(PUBLIC_DIR, "comparison-data.js")))
-  .update(readFileSync(join(PUBLIC_DIR, "scouting-card-sections.js")))
   .update(readFileSync(join(PUBLIC_DIR, "styles.css")))
   .digest("hex")
   .slice(0, 8);
