@@ -343,6 +343,11 @@ export function openDb(file) {
     raw.exec("ALTER TABLE cards ADD COLUMN progress TEXT");
     raw.exec("ALTER TABLE cards ADD COLUMN progress_matches INTEGER");
   }
+  if (!raw.prepare("PRAGMA table_info(cards)").all().some((c) => c.name === "snapshot_file")) {
+    raw.exec("ALTER TABLE cards ADD COLUMN snapshot_file TEXT");
+    raw.exec("ALTER TABLE cards ADD COLUMN snapshot_schema INTEGER");
+    raw.exec("ALTER TABLE cards ADD COLUMN snapshot_sha256 TEXT");
+  }
   // A report's class (Freshman ... Grad Student) that season: drives the class shown for each board year.
   if (!raw.prepare("PRAGMA table_info(ncaa_reports)").all().some((c) => c.name === "class")) {
     raw.exec("ALTER TABLE ncaa_reports ADD COLUMN class TEXT");
