@@ -9,44 +9,43 @@ const mark = i => `<span class="cmp-symbol cmp-${i}" aria-hidden="true">${i ? '�
 const option = (value, label, selected) => `<option value="${esc(value)}" ${String(value) === String(selected) ? 'selected' : ''}>${esc(label)}</option>`;
 const select = (id, label, options, selected) => `<label><span>${esc(label)}</span><select id="${id}">${selected && !options.some(o => String(o.key) === String(selected)) ? option(selected, 'Selection unavailable', selected) : ''}${options.map(o => option(o.key, o.label, selected)).join('')}</select></label>`;
 const settled = r => r.status === 'fulfilled' ? { data: r.value } : { error: r.reason.message };
-const sideValue = r => `<span class="cmp-value">${r?.rare ? 'Rare' : pct(r?.percentile) == null ? '<span class="cmp-na">Unavailable</span>' : `${num(r.percentile)}<small class="cmp-pct-unit">pct</small>`}${finite(r?.value) ? `<small>raw ${num(r.value)}</small>` : ''}${r?.outlook ? `<small>Likely ${num(r.outlook.expected)}<br>range ${num(r.outlook.low)} to ${num(r.outlook.high)}</small>` : ''}</span>`;
+const sideValue = r => `<span class="cmp-value">${r?.rare ? 'Rare' : pct(r?.percentile) == null ? '<span class="cmp-na">Unavailable</span>' : `${num(r.percentile)}<span class="sr-only"> percentile</span>`}${finite(r?.value) ? `<small>Value ${num(r.value)}</small>` : ''}${r?.outlook ? `<small>Likely ${num(r.outlook.expected)}<br>range ${num(r.outlook.low)} to ${num(r.outlook.high)}</small>` : ''}</span>`;
 function chart(row) {
-  const a = pct(row.a?.percentile), b = pct(row.b?.percentile);
-  return `<span class="cmp-track" aria-hidden="true"><i class="cmp-mid"></i>${a != null && b != null ? `<i class="cmp-bridge" style="left:${Math.min(a, b)}%;width:${Math.abs(a - b)}%"></i>` : ''}${[a, b].map((p, i) => {
-    const o = row[i ? 'b' : 'a']?.outlook;
-    return `${o && finite(o.low) && finite(o.high) ? `<i class="cmp-range cmp-${i}" style="left:${Math.max(0, o.low)}%;width:${Math.min(100, o.high) - Math.max(0, o.low)}%"></i>` : ''}${p == null ? '' : `<i class="cmp-dot cmp-${i}" style="left:${p}%"></i>`}`;
+  return `<span class="cmp-chart" aria-hidden="true">${[row.a, row.b].map((r, i) => {
+    const p = pct(r?.percentile), o = r?.outlook;
+    return `<span class="cmp-bar cmp-${i}${p == null ? ' cmp-bar-missing' : ''}"><span class="cmp-bar-label">${i ? 'B' : 'A'}</span><span class="cmp-track">${p == null ? `<span class="cmp-bar-empty">${r?.rare ? 'Not ranked' : 'Unavailable'}</span>` : `<i class="cmp-fill" style="width:${p}%"></i><i class="cmp-dot cmp-${i}" style="left:${p}%"></i>`}${o && finite(o.low) && finite(o.high) ? `<i class="cmp-range" style="left:${Math.max(0, o.low)}%;width:${Math.min(100, o.high) - Math.max(0, o.low)}%"></i>` : ''}</span></span>`;
   }).join('')}</span>`;
 }
-function rowHTML(row, comparable, detail = false) {
+function rowHTML(row, comparable, showGroup = false) {
   const delta = gap(row, comparable);
   const notes = [...new Set([row.a?.note, row.b?.note].filter(Boolean))];
-  const cells = `<span class="cmp-metric"><b>${esc(row.label)}</b>${detail ? '' : `<small>${esc(row.group)}</small>`}${notes.length ? `<small>${esc(notes.join(' '))}</small>` : ''}</span>
-    <span class="cmp-number cmp-0"><span class="sr-only">Player A: </span>${sideValue(row.a)}</span>${chart(row)}<span class="cmp-number cmp-1"><span class="sr-only">Player B: </span>${sideValue(row.b)}</span>
-    <span class="cmp-gap ${delta > 0 ? 'cmp-0' : delta < 0 ? 'cmp-1' : ''}" title="${delta == null ? 'Percentile gap unavailable' : 'The gap is in percentile points. Higher values do not always mean better performance.'}">${delta == null ? '—' : delta === 0 ? 'Same' : `${delta > 0 ? 'A' : 'B'} +${num(Math.round(Math.abs(delta) * 10) / 10)}`}</span>`;
+  const cells = `<span class="cmp-metric"><b>${esc(row.label)}</b>${showGroup ? `<small>${esc(row.group)}</small>` : ''}${notes.length ? `<small>${esc(notes.join(' '))}</small>` : ''}</span>
+    ${[row.a, row.b].map((r, i) => `<span class="cmp-number cmp-${i}"><span class="sr-only">Player ${i ? 'B' : 'A'}: </span><span class="cmp-number-label" aria-hidden="true">${mark(i)} Player ${i ? 'B' : 'A'}</span>${sideValue(r)}</span>`).join('')}${chart(row)}
+    <span class="cmp-gap ${delta > 0 ? 'cmp-0' : delta < 0 ? 'cmp-1' : ''}" title="${delta == null ? 'Percentile gap unavailable' : 'The gap is in percentile points. Higher values do not always mean better performance.'}">${delta == null ? '—' : delta === 0 ? 'Same' : `<b>${delta > 0 ? 'A' : 'B'} +${num(Math.round(Math.abs(delta) * 10) / 10)}</b><small>pts</small>`}</span>`;
   const children = mergeRows(row.a?.children, row.b?.children);
   return children.length ? `<details class="cmp-item"><summary class="cmp-row">${cells}<span class="cmp-chevron" aria-hidden="true">⌄</span></summary>
-    <div class="cmp-detail">${row.description ? `<p>${esc(row.description)}</p>` : ''}<p class="muted sm">Values appear below their percentiles. For metrics marked ↓, lower values are better and the percentiles account for that. Volume measures how often an action happens.</p>${children.map(r => rowHTML(r, comparable, true)).join('')}</div></details>`
-    : `<div class="cmp-item cmp-row">${cells}<span></span></div>`;
+    <div class="cmp-detail">${row.description ? `<p>${esc(row.description)}</p>` : ''}<p class="muted sm">Values appear below their percentiles. For metrics marked ↓, lower values are better and the percentiles account for that. Volume measures how often an action happens.</p>${children.map(r => rowHTML(r, comparable)).join('')}</div></details>`
+    : `<div class="cmp-item cmp-row">${cells}<span class="cmp-chevron"></span></div>`;
 }
 function tableHTML(rows, comparable, state, players, explanation) {
   const grouped = [...new Set(rows.map(row => row.group))].flatMap(group => rows.filter(row => row.group === group));
   const ordered = orderRows(grouped, state.sort, comparable);
   let lastGroup;
-  return `<div class="cmp-table-toolbar"><div><h2>${state.tab === 'kpi' ? 'KPI profile' : state.tab === 'physical' ? 'Physical profile' : 'Scouting card metrics'}</h2><p>${esc(explanation)}</p></div>
-    <label class="cmp-sort"><span>Order</span><select id="cmp-sort"><option value="phase">By section</option><option value="gap" ${!comparable ? 'disabled' : ''}>Largest differences</option><option value="close" ${!comparable ? 'disabled' : ''}>Closest values</option></select></label></div>
-    <div class="cmp-columns cmp-row"><span>Metric <small>${rows.length} metrics</small></span><span>${mark(0)} A <small class="cmp-column-name">${esc(players[0].name)}</small></span><span class="cmp-axis"><span>0</span><span>50</span><span>100</span></span><span>${mark(1)} B <small class="cmp-column-name">${esc(players[1].name)}</small></span><span>Gap <small>pct points</small></span><span></span></div>
+  return `<div class="cmp-table-toolbar"><div><h2>${state.tab === 'kpi' ? 'KPI profile' : state.tab === 'physical' ? 'Physical profile' : 'Scouting card metrics'}</h2><p>${esc(explanation)}</p></div><span class="cmp-count">${rows.length} metrics</span></div>
+    <div class="cmp-table-controls"><div class="seg cmp-sort" id="cmp-sort" role="group" aria-label="Sort metrics">${[['phase', 'By section'], ['gap', 'Largest differences'], ['close', 'Closest values']].map(([key, label]) => `<button type="button" data-cmp-sort="${key}" class="${state.sort === key ? 'on' : ''}" aria-pressed="${state.sort === key}" ${key !== 'phase' && !comparable ? 'disabled' : ''}>${label}</button>`).join('')}</div><span class="cmp-help">Bars show percentile rank from 0 to 100.</span></div>
+    <div class="cmp-columns cmp-row"><span>Metric</span>${players.map((p, i) => `<span class="cmp-column-player cmp-${i}">${mark(i)}<b>${esc(p.name)}</b><small>Player ${i ? 'B' : 'A'} percentile</small></span>`).join('')}<span class="cmp-axis"><span>Percentile rank</span><span class="cmp-ticks"><span>0</span><span>50</span><span>100</span></span></span><span class="cmp-column-gap">Difference<small>Percentile points</small></span><span></span></div>
     <div class="cmp-rows">${ordered.map(row => {
       const heading = state.sort === 'phase' && lastGroup !== row.group ? `<h3 class="cmp-section">${esc(row.group)}</h3>` : '';
       lastGroup = row.group;
-      return heading + rowHTML(row, comparable);
+      return heading + rowHTML(row, comparable, state.sort !== 'phase');
     }).join('')}</div>`;
 }
 
 export async function renderCompare(main, arg, { api, setTitle, players, physicalGroups = [] }) {
   const state = parseComparison(arg), selected = state.ids.map(id => players.find(p => p.id === id) || null);
   main.removeAttribute('data-pid');
-  main.innerHTML = `<div class="page cmp-page"><header class="cmp-heading"><div><h1>Compare players</h1><p>Compare KPI profiles, physical data and scouting cards.</p></div><div class="row"><button class="btn" id="cmp-swap" type="button" ${selected.every(Boolean) ? '' : 'disabled'}>⇄ Swap</button><button class="btn" id="cmp-copy" type="button">Copy link</button></div></header>
-    <div class="cmp-players">${selected.map((p, i) => `<section class="cmp-player cmp-${i}"><div class="cmp-player-top"><span class="cmp-letter">${mark(i)} ${i ? 'B' : 'A'}</span>${p ? `<a href="#/player/${p.id}">Open profile ↗</a>` : ''}</div>
+  main.innerHTML = `<div class="page cmp-page"><header class="page-h cmp-heading"><div><h1>Compare players</h1><p>Compare KPI profiles, physical data and scouting cards.</p></div><div class="row"><button class="btn" id="cmp-swap" type="button" ${selected.every(Boolean) ? '' : 'disabled'}>⇄ Swap</button><button class="btn" id="cmp-copy" type="button">Copy link</button></div></header>
+    <div class="cmp-players">${selected.map((p, i) => `<section class="panel cmp-player cmp-${i}"><div class="cmp-player-top"><span class="cmp-letter">${mark(i)} Player ${i ? 'B' : 'A'}</span>${p ? `<a href="#/player/${p.id}">Open profile ↗</a>` : ''}</div>
       <h2>${esc(p?.name || 'Choose a player')}</h2><p>${esc(p ? [p.position, p.club, p.age != null ? `Age ${p.age}` : ''].filter(Boolean).join(', ') : 'Search by name, club or position.')}</p>
       ${state.ids[i] && !p ? '<p class="warn">The player is unavailable. Choose another player.</p>' : ''}
       <details class="cmp-search" ${p ? '' : 'open'}><summary>${p ? 'Change player' : 'Find a player'}</summary><input type="search" id="cmp-search-${i}" aria-label="Search player ${i ? 'B' : 'A'}" placeholder="Name, club or position…" autocomplete="off"><div id="cmp-results-${i}" class="cmp-results"></div></details>
@@ -54,6 +53,14 @@ export async function renderCompare(main, arg, { api, setTitle, players, physica
     <div class="cmp-nav"><div class="an-tabs" role="tablist" aria-label="Comparison view">${[['kpi', 'KPI profile'], ['physical', 'Physical'], ['card', 'Scouting cards']].map(([key, label]) => `<button type="button" role="tab" id="cmp-tab-${key}" aria-controls="cmp-body" data-cmp-tab="${key}">${label}</button>`).join('')}</div><span id="cmp-message" class="muted sm" role="status" aria-live="polite"></span></div>
     <section id="cmp-body" class="cmp-body panel" role="tabpanel" aria-live="polite"></section></div>`;
   const root = main.firstElementChild, $ = s => root.querySelector(s);
+  // Keep the player headings below Pine's header when its navigation wraps.
+  if (window.ResizeObserver) {
+    const header = document.querySelector('.top');
+    const fit = () => root.isConnected ? root.style.setProperty('--cmp-top', `${header?.getBoundingClientRect().height || 0}px`) : observer.disconnect();
+    const observer = new ResizeObserver(fit);
+    observer.observe(root); if (header) observer.observe(header);
+    fit();
+  }
   const cache = new Map();
   let ticket = 0;
   const get = path => {
@@ -61,7 +68,7 @@ export async function renderCompare(main, arg, { api, setTitle, players, physica
     return cache.get(path);
   };
   const updateURL = () => { if (root.isConnected) history.replaceState(null, '', `/${comparisonPath(state)}`); };
-  const change = (key, value) => { state[key] = value; state.sort = key === 'sort' ? value : 'phase'; updateURL(); draw(); };
+  const change = (key, value) => { state[key] = value; state.sort = key === 'sort' ? value : 'phase'; updateURL(); return draw(); };
   const bind = (id, fn) => $(id)?.addEventListener('change', e => fn(e.target.value));
   const context = (i, controls, text, warning = '') => {
     $(`#cmp-context-${i}`).innerHTML = `${controls}<p>${esc(text)}</p>${warning ? `<p class="cmp-warning">${esc(warning)}</p>` : ''}`;
@@ -97,7 +104,7 @@ export async function renderCompare(main, arg, { api, setTitle, players, physica
     catch { $('#cmp-message').textContent = 'Copy the page address to share the comparison.'; }
   });
   const tabs = [...root.querySelectorAll('[data-cmp-tab]')];
-  const showTab = key => { state.tab = key; state.sort = 'phase'; updateURL(); draw(); };
+  const showTab = key => { state.tab = key; state.sort = 'phase'; updateURL(); return draw(); };
   tabs.forEach((button, i) => {
     button.addEventListener('click', () => showTab(button.dataset.cmpTab));
     button.addEventListener('keydown', e => {
@@ -149,7 +156,7 @@ export async function renderCompare(main, arg, { api, setTitle, players, physica
           if (d && !d.empty) { state[`k${i}`] ||= d.iteration.id; state[`p${i}`] ||= d.position; }
           const controls = `${seasons.length ? select(`cmp-season-${i}`, 'Season and league', seasons, state[`k${i}`]) : ''}${d?.positions?.length ? select(`cmp-position-${i}`, 'Position group', d.positions.map(p => ({ key: p.group, label: `${p.label}, ${num(p.match_share)} matches` })), state[`p${i}`]) : ''}`;
           const warning = x.error || d?.reason || (invalid ? 'The selected season or position is unavailable. Choose another option from the lists above.' : d?.eligible === false ? `The player has ${num(d.match_share)} match shares at this position, below the ${num(d.min_share_used)} required for the comparison group. Percentiles may be less reliable.` : '');
-          context(i, controls, d && !d.empty ? `${d.squad ? d.squad + ', ' : ''}${d.position_label}, ${num(d.minutes)} min, ${d.peer_count} players in group, ${d.iteration.season}` : 'KPI profile unavailable', warning);
+          context(i, controls, d && !d.empty ? `${d.squad ? d.squad + ', ' : ''}${d.position_label}, ${num(d.minutes)} min, ${d.peer_count} players in group` : 'KPI profile unavailable', warning);
           bind(`#cmp-season-${i}`, value => { delete state[`p${i}`]; change(`k${i}`, value); });
           bind(`#cmp-position-${i}`, value => change(`p${i}`, value));
           return invalid ? null : d;
@@ -165,7 +172,7 @@ export async function renderCompare(main, arg, { api, setTitle, players, physica
         pair.forEach((r, i) => {
           if (r) state[`f${i}`] = r.key;
           context(i, options[i].length ? select(`cmp-physical-${i}`, 'Season and team', options[i].map(r => ({ key: r.key, label: `${r.season}, ${r.team}, ${r.league}` })), state[`f${i}`]) : '',
-            r ? `${r.pos}, ${num(r.mins)} min, ${r.pool} ${r.grp} players in group, ${r.league} ${r.season}` : 'Physical data unavailable',
+            r ? `${r.pos}, ${num(r.mins)} min, ${r.pool} ${r.grp} players in group` : 'Physical data unavailable',
             data[i].error || (!r ? 'No physical data is linked for the selection. You can link physical data on the player profile.' : r.pool < 20 ? `Only ${r.pool} players are in the comparison group, so percentiles may be less reliable.` : ''));
           bind(`#cmp-physical-${i}`, value => change(`f${i}`, value));
         });
@@ -198,7 +205,10 @@ export async function renderCompare(main, arg, { api, setTitle, players, physica
       if (!comparable) state.sort = 'phase';
       updateURL();
       $('#cmp-body').innerHTML = `${notices.map(note => `<p class="banner ${comparable ? 'info' : 'warn'} cmp-benchmark">${esc(note)}</p>`).join('')}${rows.length ? tableHTML(rows, comparable, state, selected, explanation) : state.tab !== 'card' ? '<div class="cmp-empty"><h2>No data available</h2><p>Choose another season, position or player.</p></div>' : ''}${extra}${snapshotError || data.some(x => x.error) || (state.tab === 'card' && !rows.length) ? '<button class="btn sm" type="button" id="cmp-retry">Try again</button>' : ''}`;
-      if ($('#cmp-sort')) { $('#cmp-sort').value = state.sort; bind('#cmp-sort', value => change('sort', value)); }
+      root.querySelectorAll('[data-cmp-sort]').forEach(button => button.addEventListener('click', async () => {
+        const value = button.dataset.cmpSort; await change('sort', value);
+        $(`[data-cmp-sort="${value}"]`)?.focus({ preventScroll: true });
+      }));
       $('#cmp-retry')?.addEventListener('click', () => { cache.clear(); draw(); });
       wireCardViewer(root);
     } catch (e) {

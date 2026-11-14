@@ -398,8 +398,9 @@ syncs leave the signing status alone.
   Every version is kept and any signed-in staff member can open it. One card per player can be in progress, and at most 30 are
   requested across PINE per 24 hours.
 - **Compare players** (`#/compare`): open from Operations or **Compare with…** on a player profile.
-  Compare KPI profiles, physical data and saved scouting cards on the same rows and a shared scale from 0 to 100.
-  Sort by section, largest differences or closest values, and open KPI categories to see their metrics.
+  Compare KPI profiles, physical data and saved scouting cards with adjacent player values, paired bars on a shared scale from 0 to 100,
+  and badges showing the percentile difference. Use the buttons to sort by section, largest differences or closest values,
+  and open KPI categories to see their metrics. Player names stay visible as you scroll, and phone layouts keep player controls on separate rows.
   You can choose each player's season, position, physical data and saved card separately, and share your selections by copying the link.
   Percentile gaps and sorting by difference are unavailable when the comparison groups differ.
   The scouting table uses saved card data in render schema 16. You can also compare the original cards with linked zoom and scrolling,
