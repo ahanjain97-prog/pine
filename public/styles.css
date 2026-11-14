@@ -1175,7 +1175,6 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
 .cmp-0 { --cmp-color: var(--cmp-a); }
 .cmp-1 { --cmp-color: var(--cmp-b); }
 .cmp-heading { display: flex; justify-content: space-between; align-items: end; gap: 16px; margin: 12px 0 26px; }
-.cmp-eyebrow { color: var(--ink-2); font-size: 11px; letter-spacing: .14em; font-weight: 700; margin-bottom: 8px; }
 .cmp-heading h1 { font: 700 42px/1 var(--disp); letter-spacing: -.01em; }
 .cmp-heading p { color: var(--ink-2); margin: 10px 0 0; }
 .cmp-players { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }

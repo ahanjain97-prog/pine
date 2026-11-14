@@ -397,7 +397,13 @@ syncs leave the signing status alone.
   panel shows under "Generating" so staff know why a card that downloads Impect match data first is slower.
   Every version is kept and any signed-in staff member can open it. One card per player can be in progress, and at most 30 are
   requested across PINE per 24 hours.
-- **Compare players** (`#/compare`): open from Operations or **Compare with…** on a player profile. Pick two players and compare KPI profiles, physical data and saved scouting cards on aligned rows with a shared 0–100 scale, raw values, and percentile-point gaps. Sort by section, largest differences or closest values; expand KPI categories for paired metrics. Season, position, physical row and card-version choices are independent and travel in the comparison URL. Gaps and difference sorting are disabled when benchmark contexts differ. Scouting metrics use supported saved snapshots (render schema 16); older cards remain available as aligned previews/PDFs, with linked zoom/pan and an A/B view. No new scores, data writes or card-generation jobs are created.
+- **Compare players** (`#/compare`): open from Operations or **Compare with…** on a player profile.
+  Compare KPI profiles, physical data and saved scouting cards on the same rows and a shared scale from 0 to 100.
+  Sort by section, largest differences or closest values, and open KPI categories to see their metrics.
+  You can choose each player's season, position, physical data and saved card separately, and share your selections by copying the link.
+  Percentile gaps and sorting by difference are unavailable when the comparison groups differ.
+  The scouting table uses saved card data in render schema 16. You can also compare the original cards with linked zoom and scrolling,
+  side by side or in A/B view, and open their PDFs. The comparison page uses existing data without creating scores or requesting new cards.
 - **Structured scouting cards**: complete renderer inputs can be stored as compressed JSON alongside each PDF, bound to its exact PDF bytes. See [snapshot storage, worker contract and backfill](docs/card-snapshots.md).
 - **Pitch maps**: a panel on the player page (Impect-linked players) under the player card. It shows the card's two
   activity maps (In attack, Defensive actions) for a season and position, with up to three metrics per map chosen
@@ -527,4 +533,4 @@ the Short Board flag for each role, and list membership, with a check time.
 Staff notes, verdicts, decisions, board ranks, and account data are excluded.
 The endpoint only reads the database and sends `Cache-Control: no-store`.
 
-For fictional comparison UI review, run `node scripts/preview-comparison.mjs` and open the printed URL. It uses a temporary database and demo data, with provider access disabled. Desktop/phone and light/dark examples are in `docs/screenshots/comparison/`.
+To review the comparison page with fictional players, run `node scripts/preview-comparison.mjs` and open the printed URL. The preview uses a temporary database and demo data, with provider access disabled. Screenshots for desktop and phone in light and dark mode are in `docs/screenshots/comparison/`.

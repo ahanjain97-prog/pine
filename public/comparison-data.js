@@ -59,10 +59,10 @@ export function kpiRows(data) {
   return (data.phases || []).flatMap(phase => (data.categories || []).filter(c => c.phase === phase.id).map(c => ({
     id: `category:${c.name}`, label: c.label, group: phase.name, description: c.description,
     percentile: pct(c.percentile), direction: 'higher', outlook: c.outlook,
-    note: c.phase === 'defstyle' ? 'Role and workload, not a quality ranking' : '',
+    note: c.phase === 'defstyle' ? 'The score describes role and workload.' : '',
     children: (c.components || []).map(m => ({ id: m.metric, label: m.label, group: m.kind,
       value: m.value, percentile: pct(m.percentile), direction: m.inverted ? 'lower' : 'higher',
-      note: m.inverted ? 'Lower raw values are better; percentile already accounts for this' : m.kind === 'volume' ? 'More, not necessarily better' : '',
+      note: m.inverted ? 'Lower values are better, and percentiles account for that.' : m.kind === 'volume' ? 'Higher values mean more actions.' : '',
       description: m.meaning || m.definition,
     })),
   })));
@@ -84,14 +84,14 @@ export function scoutingRows(envelope) {
   const r = envelope?.render_input, profile = r?.subject?.profiles?.[0];
   if (r?.schema_version !== 16 || !profile) return [];
   const tiles = Object.entries(r.value || {}).flatMap(([family, metrics]) => metrics.map((metric, i) => ({
-    id: `tile:${metric}`, label: `${family} · ${['Overall', 'Attack', 'Defend'][i] || metric}`, group: 'Value',
+    id: `tile:${metric}`, label: `${family}, ${['Overall', 'Attack', 'Defend'][i] || metric}`, group: 'Value',
     percentile: pct(profile.percentiles?.[metric]), direction: 'higher',
   })));
   const names = { overall: 'Overall', passing: 'Passing', receiving: 'Receiving', carrying: 'Carrying', shooting: 'Shooting', defending: 'Defending', set_pieces: 'Set pieces' };
   return [...tiles, ...(profile.grid || []).filter(m => m.metric && !m.film).map(m => ({
     id: `metric:${m.metric}`, label: m.name || m.short, group: names[m.bucket] || m.bucket,
     value: m.value, percentile: m.rare ? null : pct(m.percentile), direction: m.direction,
-    note: m.rare ? 'Rare for this position; percentile not graded' : m.code === 'D' ? 'Describes style or volume; not a quality ranking' : m.direction === 'lower' ? 'Lower raw values are better; percentile already accounts for this' : '',
+    note: m.rare ? 'The action is rare for the position and has no percentile.' : m.code === 'D' ? 'The metric describes playing style or how often actions occur.' : m.direction === 'lower' ? 'Lower values are better, and percentiles account for that.' : '',
     rare: m.rare,
   }))];
 }
