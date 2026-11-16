@@ -122,3 +122,19 @@ test('maintenance requires worker authentication and retries only original gener
   assert.equal((await app.request(`/api/worker/storage/cards/${conflict}/retry`, { method: 'POST', headers })).status, 409);
   assert.equal((await app.request('/api/worker/storage/cleanup', { method: 'POST', headers })).status, 200);
 });
+
+test('cleanup truncates retained SQLite WAL without losing records before backup compression', t => {
+  const { root, db, backups } = fixture(t);
+  db.run("INSERT INTO players(name, summary) VALUES ('Synthetic Player', ?)", 'retained data '.repeat(10000));
+  fs.mkdirSync(backups);
+  const raw = join(backups, 'pine-2026-11-15.sqlite');
+  db.raw.exec(`VACUUM INTO '${raw}'`);
+  const wal = join(root, 'pine.db-wal');
+  assert.ok(fs.statSync(wal).size > 0);
+  const result = cleanStorage(root, Date.now(), db);
+  assert.equal(result.checkpoint.busy, 0);
+  assert.equal(fs.statSync(wal).size, 0);
+  assert.equal(db.get('SELECT summary FROM players').summary, 'retained data '.repeat(10000));
+  assert.ok(result.compressed_bytes_saved > 0);
+  assert.deepEqual(restore(gunzipSync(fs.readFileSync(`${raw}.gz`)), join(root, 'restored.db')), ['Synthetic Player']);
+});

@@ -53,12 +53,16 @@ export function storageReport(root, db) {
   };
 }
 
-export function cleanStorage(root, now = Date.now()) {
+export function cleanStorage(root, now = Date.now(), db = null) {
   let removed = 0, bytes = 0;
   for (const f of files(root).filter(f => disposable(f, now))) {
     unlinkSync(join(root, f.name)); removed++; bytes += f.bytes;
   }
-  return { removed_files: removed, removed_bytes: bytes, compressed_bytes_saved: compressSnapshots(join(root, 'backups')) };
+  // SQLite retains allocated WAL space after automatic checkpoints. Explicitly
+  // checkpoint and truncate it before compression needs temporary volume space.
+  // SQLite itself refuses truncation while another reader still needs the WAL.
+  const checkpoint = db ? db.get('PRAGMA wal_checkpoint(TRUNCATE)') : null;
+  return { removed_files: removed, removed_bytes: bytes, checkpoint, compressed_bytes_saved: compressSnapshots(join(root, 'backups')) };
 }
 
 export function registerStorage(app, { root, db, token }) {
@@ -68,7 +72,7 @@ export function registerStorage(app, { root, db, token }) {
     return next();
   });
   app.get('/api/worker/storage', c => c.json(storageReport(root, db)));
-  app.post('/api/worker/storage/cleanup', c => c.json({ ...cleanStorage(root), storage: storageReport(root, db) }));
+  app.post('/api/worker/storage/cleanup', c => c.json({ ...cleanStorage(root, Date.now(), db), storage: storageReport(root, db) }));
   // Retry only an existing generic failure; never create new requests or retry
   // explicit data/coverage failures. The original request and history remain.
   app.post('/api/worker/storage/cards/:id/retry', c => {
