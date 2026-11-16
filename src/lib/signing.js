@@ -7,8 +7,10 @@ export function setSigned(db, playerId, signed, userId) {
     const p = db.get("SELECT is_signed FROM players WHERE id = ?", playerId);
     if (!p) throw Object.assign(new Error("Player not found"), { status: 404 });
     if (Boolean(p.is_signed) === signed) return signed;
-    db.run(`UPDATE players SET is_signed = ?, signed_by = ?, signed_at = ?, updated_at = datetime('now') WHERE id = ?`,
-      Number(signed), signed ? userId : null, signed ? new Date().toISOString() : null, playerId);
+    // Unsigning also drops any Roster page position, so a later re-signing starts from the worked-out spot.
+    db.run(`UPDATE players SET is_signed = ?, signed_by = ?, signed_at = ?, roster_position = CASE WHEN ? THEN roster_position END,
+      updated_at = datetime('now') WHERE id = ?`,
+      Number(signed), signed ? userId : null, signed ? new Date().toISOString() : null, Number(signed), playerId);
     logActivity(db, userId, playerId, "set_signed", { signed, previous: Boolean(p.is_signed) });
     return signed;
   });

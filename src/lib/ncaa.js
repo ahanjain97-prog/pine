@@ -295,6 +295,8 @@ export function mergePlayer(db, fromId, intoId) {
       signed_by = (SELECT signed_by FROM players WHERE id = ?),
       signed_at = (SELECT signed_at FROM players WHERE id = ?)
       WHERE id = ? AND is_signed = 0 AND (SELECT is_signed FROM players WHERE id = ?) = 1`, fromId, fromId, intoId, fromId);
+    db.run(`UPDATE players SET roster_position = coalesce(roster_position, (SELECT roster_position FROM players WHERE id = ?))
+      WHERE id = ? AND is_signed = 1`, fromId, intoId);
     db.run("DELETE FROM players WHERE id = ?", fromId);
     // Free the unique ID first, then preserve detection/analytics when the survivor has no link.
     if (sourceImpect?.impect_id) db.run(`UPDATE players SET impect_id = ?, impect_squad = ?, impect_competition = ?
