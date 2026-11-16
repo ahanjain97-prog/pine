@@ -18,8 +18,8 @@
 // assigning, a scout's note when reviewing, declining or sending a player up, and the lead's Short Board decision.
 // Thread replies and watch lists stay in the Review tab.
 // A thread stays open for replies after its item settles, so a question in the lead's decision note can be answered.
-// A reply, or a decision or withdrawal note, is new to everyone else on the item (New notes, and the badge) until
-// they reply or mark it read. Notes sent with a new item and a scout's own review answer aren't: those already reach
+// A reply, or a decision or withdrawal note, is new to everyone else on the item (the New notes tab, and a chip on its
+// row) until they reply or mark it read; the War Room badge stays what waits on you. Notes sent with a new item and a scout's own review answer aren't: those already reach
 // the others as an assignment, a request, or a review waiting on the lead.
 import { logActivity } from "../db.js";
 import { ROLES } from "../roles.js";
@@ -334,32 +334,23 @@ export function reviewBoard(db, user) {
   return { me, team, items, suggestions };
 }
 
-// How many items want this member's attention (the War Room badge): those waiting on him, and those with a note new to
-// him (each item once).
+// How many open items are waiting on this member (the War Room badge). Notes new to him aren't counted: they have
+// their own tab.
 export function reviewCount(db, user) {
-  const m = user && db.get(`SELECT id, ${REVIEW_ROLE} AS role FROM users WHERE id = ?`, user.id);
-  if (!m?.role) return 0;
-  const recent = "(i.status = 'open' OR i.resolved_at >= datetime('now', '-30 days'))";
-  // The lead: requests waiting on him, plus assignments every scout has answered that he hasn't decided (one per
-  // player). A scout: assignments he hasn't answered. Nothing waits on an assigner.
-  const waiting = m.role === "lead" ? `(i.kind = 'sb_review' AND i.status = 'open' AND i.to_user = ${m.id})
-      OR (i.kind = 'assignment' AND i.status IN ('reviewed', 'declined') AND i.resolved_at >= datetime('now', '-30 days')
-        AND NOT EXISTS (SELECT 1 FROM review_items s WHERE s.kind = 'sb_review' AND s.status = 'open' AND s.player_id = i.player_id))`
-    : m.role === "scout" ? `i.kind = 'assignment' AND i.status = 'open'
-      AND EXISTS (SELECT 1 FROM review_assignees a WHERE a.item_id = i.id AND a.user_id = ${m.id} AND a.status = 'open')`
-    : "0";
-  // The same items reviewBoard shows him (canSee), with a note new to him.
-  const sees = `((i.kind = 'sb_review' AND i.status <> 'removed' AND ${m.role === "assigner" ? 0 : 1})
-    OR (i.kind = 'assignment' AND (${m.role === "lead" ? 1 : 0} OR i.from_user = ${m.id}
-      OR EXISTS (SELECT 1 FROM review_assignees a WHERE a.item_id = i.id AND a.user_id = ${m.id}))))`;
-  return db.get(`SELECT count(*) AS n FROM review_items i WHERE (${waiting})
-    OR (${recent} AND ${sees} AND EXISTS (SELECT 1 FROM review_notes n WHERE n.item_id = i.id AND ${NEW_TO(m.id)}))`).n;
+  const m = user && db.get(`SELECT ${REVIEW_ROLE} AS role FROM users WHERE id = ?`, user.id);
+  if (!m?.role || m.role === "assigner") return 0; // nothing waits on an assigner
+  // The lead: requests waiting on him, plus assignments every scout has answered that he hasn't decided (one per player).
+  if (m.role === "lead") return db.get("SELECT count(*) AS n FROM review_items WHERE status = 'open' AND kind = 'sb_review' AND to_user = ?", user.id).n
+    + db.get(`SELECT count(*) AS n FROM review_items i WHERE i.kind = 'assignment' AND i.status IN ('reviewed', 'declined')
+        AND i.resolved_at >= datetime('now', '-30 days')
+        AND NOT EXISTS (SELECT 1 FROM review_items s WHERE s.kind = 'sb_review' AND s.status = 'open' AND s.player_id = i.player_id)`).n;
+  return db.get(`SELECT count(*) AS n FROM review_assignees a JOIN review_items i ON i.id = a.item_id
+    WHERE i.status = 'open' AND a.status = 'open' AND a.user_id = ?`, user.id).n;
 }
 
 // Once, when notes got a kind and threads their read marks. Notes written before are given their kind: the note sent
-// with an item, a scout's answer or the lead's decision (the note its activity entry recorded), else a reply. They
-// count as read, except the lead's replies and decisions from the last 7 days that a scout or assigner hasn't written
-// under since: those start as new, so a question he left can still be found and answered.
+// with an item, a scout's answer or the lead's decision (the note its activity entry recorded), else a reply. They all
+// count as read: New notes starts empty.
 export function seedNoteReads(db) {
   db.run(`UPDATE review_notes SET kind = 'ask' WHERE kind IS NULL
     AND id = (SELECT min(m.id) FROM review_notes m WHERE m.item_id = review_notes.item_id)
@@ -370,20 +361,23 @@ export function seedNoteReads(db) {
       WHERE a.action = 'review_resolved' AND a.user_id = review_notes.user_id AND a.player_id = i.player_id
         AND json_extract(a.detail, '$.kind') = i.kind AND json_extract(a.detail, '$.note') = review_notes.body LIMIT 1), 'reply')
     WHERE kind IS NULL`);
-  const team = reviewTeam(db), lead = team.find((u) => u.role === "lead");
-  for (const it of db.all("SELECT item_id AS id, max(id) AS last FROM review_notes GROUP BY item_id")) {
-    for (const u of team) {
-      const first = u.role === "lead" || !lead ? null : db.get(`SELECT min(n.id) AS id FROM review_notes n
-        WHERE n.item_id = ? AND n.user_id = ? AND n.kind IN ('reply', 'decision') AND n.created_at >= datetime('now', '-7 days')
-          AND n.id > coalesce((SELECT max(o.id) FROM review_notes o WHERE o.item_id = n.item_id AND o.user_id = ?), 0)`, it.id, lead.id, u.id).id;
-      setRead(db, it.id, u.id, first ? first - 1 : it.last);
-    }
+  markBacklogRead(db);
+}
+
+// Every note written before `before` (UTC; all of them if omitted) is read for the whole review team.
+export function markBacklogRead(db, before = null) {
+  const team = reviewTeam(db);
+  for (const it of db.all("SELECT item_id AS id, max(id) AS last FROM review_notes WHERE ? IS NULL OR created_at < ? GROUP BY item_id", before, before)) {
+    for (const u of team) setRead(db, it.id, u.id, it.last);
   }
 }
 
 export function registerReviewQueue(app, { db }) {
   db.once("review_notes_to_evals_2026_11_08", () => copyReviewNotesToEvals(db));
   db.once("review_note_reads_2026_11_15", () => seedNoteReads(db));
+  // The first release left the lead's notes of the week before as new (29 for one scout): too many to be of use. All
+  // notes from before it went live count as read.
+  db.once("review_notes_backlog_read_2026_11_16", () => markBacklogRead(db, "2026-11-16 03:00:00"));
   // Before the lead decided assignments, a Short Board call made on a scout's request left the player's assignment
   // waiting; it takes that call.
   db.once("assignments_settled_by_sb_call_2026_11_08", () => {

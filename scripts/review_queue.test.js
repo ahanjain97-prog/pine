@@ -4,7 +4,7 @@ import { openDb } from '../src/db.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { REVIEW_ROLE, addNote, copyReviewNotesToEvals, createItem, markRead, nudgeAssignees as nudge, resolveItem, reviewBoard, reviewCount, reviewTeam, seedNoteReads, syncReviewNote } from '../src/lib/review_queue.js';
+import { REVIEW_ROLE, addNote, copyReviewNotesToEvals, createItem, markBacklogRead, markRead, nudgeAssignees as nudge, resolveItem, reviewBoard, reviewCount, reviewTeam, seedNoteReads, syncReviewNote } from '../src/lib/review_queue.js';
 
 // openDb seeds Ray (1, lead), Ahan (2, scout), Ford (3, scout), Bobby (4, assigner), Alex (5, not on the review team).
 const RAY = { id: 1 }, AHAN = { id: 2 }, FORD = { id: 3 }, BOBBY = { id: 4 }, ALEX = { id: 5 };
@@ -118,8 +118,6 @@ test('an assignment waits in the lead\'s Decisions once both scouts have answere
   // The lead can still call one early (it isn't in his Decisions, but nothing stops him); it closes for both scouts.
   const early = createItem(db, RAY, { kind: 'assignment', player_id: 5 });
   resolveItem(db, RAY, early, { outcome: 'not_sb' });
-  assert.equal(reviewCount(db, AHAN), 1, 'nothing to review; only Ray\'s note on his first call is new to Ahan');
-  markRead(db, AHAN, a);
   assert.equal(reviewCount(db, AHAN), 0);
   assert.throws(() => resolveItem(db, AHAN, early, { outcome: 'reviewed' }), /already been dealt with/);
 
@@ -329,7 +327,6 @@ test('an assigner (Bobby) assigns players to every scout like the lead; the lead
   assert.equal(db.get('SELECT status FROM review_items WHERE id = ?', b).status, 'removed');
   const c = createItem(db, BOBBY, { kind: 'assignment', player_id: 5 });
   resolveItem(db, RAY, c, { outcome: 'removed' });
-  for (const id of [a, b]) markRead(db, AHAN, id); // Ray's call on the first, Bobby's withdrawal note on the second
   assert.equal(reviewCount(db, AHAN), 1, 'only Ray\'s assignment is left for Ahan');
 });
 
@@ -341,24 +338,24 @@ test('a note from the lead is new to the scouts until they reply or mark it read
   assert.deepEqual([unread(db, RAY), unread(db, FORD)], [[], []], 'the note sent with a request is not a new note: the request is');
   addNote(db, RAY, sb, 'Is his shooting good enough in the data?');
   assert.deepEqual([unread(db, AHAN), unread(db, FORD), unread(db, RAY)], [[sb], [sb], []]);
-  assert.deepEqual([reviewCount(db, AHAN), reviewCount(db, FORD), reviewCount(db, RAY)], [1, 1, 1], 'on the badge; Ray\'s 1 is the request itself');
+  assert.deepEqual([reviewCount(db, AHAN), reviewCount(db, FORD), reviewCount(db, RAY)], [0, 0, 1], 'the badge stays what waits on you: Ray\'s 1 is the request');
   addNote(db, AHAN, sb, 'Top third for xG per shot, low volume.');
-  assert.deepEqual([unread(db, AHAN), unread(db, RAY), reviewCount(db, RAY)], [[], [sb], 1], 'replying deals with it; the reply is new to Ray, counted once with the request');
+  assert.deepEqual([unread(db, AHAN), unread(db, RAY), reviewCount(db, RAY)], [[], [sb], 1], 'replying deals with it; the reply is new to Ray');
   assert.equal(reviewBoard(db, FORD).items[0].unread.length, 2, 'Ford has both to read');
   markRead(db, FORD, sb);
-  assert.deepEqual([unread(db, FORD), reviewCount(db, FORD)], [[], 0]);
+  assert.deepEqual(unread(db, FORD), []);
   assert.throws(() => markRead(db, ALEX, sb), /review team/);
   assert.throws(() => markRead(db, BOBBY, sb), /not found/);
 
   // His decision note settles the item, and is still theirs to read and answer.
   resolveItem(db, RAY, sb, { outcome: 'not_sb', note: 'Not yet. Can he play wide too?' });
-  assert.deepEqual([unread(db, AHAN), unread(db, FORD), reviewCount(db, AHAN)], [[sb], [sb], 1]);
+  assert.deepEqual([unread(db, AHAN), unread(db, FORD), reviewCount(db, AHAN)], [[sb], [sb], 0]);
   addNote(db, FORD, sb, 'He played 6 games at RW last year.');
-  assert.deepEqual([unread(db, FORD), unread(db, RAY), reviewCount(db, RAY)], [[], [sb], 1], 'a reply on a settled thread reaches Ray');
+  assert.deepEqual([unread(db, FORD), unread(db, RAY), reviewCount(db, RAY)], [[], [sb], 0], 'a reply on a settled thread reaches Ray');
   assert.equal(db.get('SELECT status FROM review_items WHERE id = ?', sb).status, 'not_sb', 'the call is still his');
   assert.equal(db.get("SELECT count(*) AS n FROM notes WHERE body LIKE 'He played 6%'").n, 0, 'replies stay out of Staff reports');
   markRead(db, RAY, sb); markRead(db, AHAN, sb);
-  assert.deepEqual([reviewCount(db, RAY), reviewCount(db, AHAN)], [0, 0]);
+  assert.deepEqual([unread(db, RAY), unread(db, AHAN)], [[], []]);
 });
 
 test('the note sent with an assignment stays pinned, and a scout\'s own answer is not a new note to the others', (t) => {
@@ -369,7 +366,7 @@ test('the note sent with an assignment stays pinned, and a scout\'s own answer i
   let item = reviewBoard(db, AHAN).items[0];
   assert.equal(item.notes.find((n) => n.id === item.ask_note_id).body, 'Is he good enough shooting, data-wise?', 'still pinned under Ford\'s note');
   addNote(db, RAY, a, 'Ahan, check his xG too.');
-  assert.equal(reviewCount(db, AHAN), 1, 'to review and a new note: one item, counted once');
+  assert.deepEqual([unread(db, AHAN), reviewCount(db, AHAN)], [[a], 1], 'new to Ahan; the badge is the review he owes');
   resolveItem(db, AHAN, a, { outcome: 'reviewed', verdict: 'fail', note: 'Bottom third for xG per shot.' });
   assert.deepEqual([unread(db, AHAN), reviewCount(db, AHAN)], [[], 0], 'answering under it deals with it');
   assert.deepEqual(db.all('SELECT kind FROM review_notes ORDER BY id').map((n) => n.kind), ['ask', 'answer', 'reply', 'answer']);
@@ -380,11 +377,11 @@ test('the note sent with an assignment stays pinned, and a scout\'s own answer i
   assert.equal(reviewBoard(db, FORD).items.find((i) => i.id === bare).ask_note_id, null);
   const mine = createItem(db, BOBBY, { kind: 'assignment', player_id: 3, note: 'Agent called.' });
   addNote(db, AHAN, mine, 'Which agent?');
-  assert.deepEqual([unread(db, BOBBY), reviewCount(db, BOBBY)], [[mine], 1], 'no request or Ray assignment in his list');
+  assert.deepEqual([unread(db, BOBBY), reviewCount(db, BOBBY)], [[mine], 0], 'no request or Ray assignment in his list');
   assert.deepEqual(unread(db, RAY).sort(), [mine], 'the lead sees every assignment thread');
 });
 
-test('notes written before read marks: kinds are worked out, and only the lead\'s recent unanswered notes start as new', (t) => {
+test('notes written before read marks are given their kind and all count as read; a later clear-out spares notes after its cutoff', (t) => {
   const db = setup(t);
   const old = createItem(db, AHAN, { kind: 'sb_review', player_id: 1, note: 'Send him up.' });
   resolveItem(db, RAY, old, { outcome: 'not_sb', note: 'Too old for us.' });
@@ -395,13 +392,18 @@ test('notes written before read marks: kinds are worked out, and only the lead\'
   const replied = createItem(db, FORD, { kind: 'sb_review', player_id: 3 });
   addNote(db, RAY, replied, 'Clips?');
   addNote(db, FORD, replied, 'Sent.');
-  // As it was before this release: no kinds, no read marks; the first item is two weeks old.
+  // As it was before notes had kinds and read marks.
   db.run('UPDATE review_notes SET kind = NULL'); db.run('DELETE FROM review_reads');
-  db.run("UPDATE review_notes SET created_at = datetime('now', '-14 days') WHERE item_id = ?", old);
-  db.run("UPDATE review_items SET created_at = datetime('now', '-14 days') WHERE id = ?", old);
   seedNoteReads(db);
   assert.deepEqual(db.all('SELECT kind FROM review_notes ORDER BY id').map((n) => n.kind), ['ask', 'decision', 'ask', 'answer', 'decision', 'reply', 'reply']);
-  assert.deepEqual(unread(db, AHAN).sort(), [recent, replied].sort(), 'Ray\'s two notes this week; not the old one');
-  assert.deepEqual(unread(db, FORD), [recent], 'Ford already wrote under the other');
-  assert.deepEqual(unread(db, RAY), [], 'nothing starts as new for the lead');
+  assert.deepEqual([unread(db, AHAN), unread(db, FORD), unread(db, RAY)], [[], [], []], 'New notes starts empty');
+
+  // The clear-out after the first release: read marks back as that release left them, one note written since.
+  db.run('DELETE FROM review_reads');
+  db.run("UPDATE review_notes SET created_at = datetime('now', '-2 days')");
+  addNote(db, RAY, old, 'Any change on him?');
+  db.run('DELETE FROM review_reads');
+  assert.equal(unread(db, AHAN).length, 3);
+  markBacklogRead(db, db.get("SELECT datetime('now', '-1 day') AS t").t);
+  assert.deepEqual([unread(db, AHAN), unread(db, FORD), unread(db, RAY)], [[old], [old], []], 'only the note written since is still new');
 });

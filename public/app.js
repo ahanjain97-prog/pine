@@ -3951,10 +3951,10 @@ async function renderReview(main) {
     ];
   }
   // Notes new to you (a reply, or a decision or withdrawal note, from someone else), newest first: read and answer them
-  // here. First for everyone, and on the badge with whatever else waits on you.
+  // here. Before History for everyone, and off the War Room badge, which stays what waits on you.
   const lastNew = (i) => i.notes.filter((n) => i.unread.includes(n.id)).at(-1)?.id || 0;
   const newNotes = d.items.filter((i) => i.unread?.length).sort((a, b) => lastNew(b) - lastNew(a));
-  tabs.unshift({ id: "notes", label: "New notes", list: newNotes, urgent: true, empty: "No new notes. Replies and decisions from the others show here until you reply or mark them read.",
+  tabs.splice(tabs.findIndex((t) => t.id === "history"), 0, { id: "notes", label: "New notes", list: newNotes, empty: "No new notes. Replies and decisions from the others show here until you reply or mark them read.",
     html: (l) => `${l.length > 1 ? `<div class="rv-list-h"><button type="button" class="btn sm ghost" data-rv-read-all>Mark all read</button></div>` : ""}${
       l.map((i) => reviewCard(i, `<button type="button" class="btn sm" data-rv-read title="Nothing to add: clear it from New notes">Mark read</button>`, true, true)).join("")}` });
   // Stay on the chosen tab; otherwise open on whatever is waiting on you, else the first tab with anything in it.
@@ -3970,8 +3970,8 @@ async function renderReview(main) {
       ${esc(t.label)}${t.id !== "history" && t.list.length ? `<span class="rv-count ${t.urgent ? "urgent" : ""}">${t.list.length}</span>` : ""}</button>`).join("")}</div>
     <section class="panel rv-list" role="tabpanel">${tab.list.length ? tab.html(tab.list) : `<p class="rv-empty">${esc(tab.empty)}</p>`}</section>
   </div>`;
-  // Each item once, as the server counts it (an assignment to review that also has a new note is one).
-  setReviewBadge(new Set(tabs.filter((t) => t.urgent).flatMap((t) => t.list.map((i) => i.id))).size);
+  const waiting = tabs.find((t) => t.urgent)?.list.length || 0;
+  setReviewBadge(waiting);
   const root = main.querySelector(".rv-page");
   root.querySelector(".rv-tabs").addEventListener("click", (e) => {
     const b = e.target.closest("[data-rv-tab]");
