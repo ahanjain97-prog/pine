@@ -217,6 +217,9 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .lane-body { padding: 6px; display: flex; flex-direction: column; gap: 5px; min-height: 46px; max-height: 420px; overflow-y: auto; }
 .lane-body.over { outline: 2px dashed var(--accent); outline-offset: -3px; border-radius: 8px; }
 .lane-empty { font-size: 11.5px; color: var(--muted); text-align: center; padding: 8px 0; }
+/* Roster page: signed players no position fits yet, above the pitch. */
+.roster-unplaced { background: var(--surface); border: 1px dashed var(--line); border-radius: 12px; margin-bottom: 14px; }
+.roster-unplaced .lane-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); max-height: none; }
 .drop-marker { height: 3px; background: var(--accent); border-radius: 2px; margin: -1px 0; }
 .pcard { display: flex; align-items: center; gap: 7px; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--none);
   border-radius: 7px; padding: 5px 7px 5px 5px; cursor: grab; user-select: none; min-width: 0; color: var(--ink); text-decoration: none !important; }

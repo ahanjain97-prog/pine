@@ -210,7 +210,7 @@ Minute share divides recorded player minutes by actual match duration across the
 
 **Big Board**, **Review** (for the review team), **Short Board**, **NCAA** and
 **Activity** have their own top-bar tabs. Review shows its pending-review count.
-**Operations** opens Database, Impect, Analysis and Staff (for admins). It stays
+**Operations** opens Database, Roster, Compare players, Impect, Analysis and Staff (for admins). It stays
 highlighted on those pages and on player profiles. Click a link to go directly
 to that page; click away or press Escape to close the dropdown.
 
@@ -270,6 +270,12 @@ syncs leave the signing status alone.
   board, and dragging a card here reorders it there too. Dropping a card into another role asks whether to
   move the player there or duplicate them (a top target in both roles). Stored as `board_entries.shortlist`, which `src/lib/board.js` carries across reorders; not to be confused with the Impect Scouting short lists on
   the Impect page, which are an import source.
+- **Roster** (`#/roster`, under Operations): every player marked as signed to Hearts of Pine, on the same pitch
+  with the same cards as the boards, one box per position, with signed, domestic and international counts.
+  A player's position is the one staff chose by dragging their card onto another position, else the position
+  of their first Big Board role, else a guess from their Transfermarkt position and foot (`src/lib/roster.js`).
+  Signed players with no position to go on wait in **No position yet** above the pitch. The choice is stored
+  as `players.roster_position`, logged to Activity, and cleared when a player is no longer signed.
 - **NCAA** (`#/ncaa`): the college section, in college purple. **Board** has a tab per year and uses the Big Board's
   pitch formation, with one ranked list per position. The latest year (2026, marked Live) is PINE's board,
   seeded from the college scouting database's latest board in its order, plus every Big Board player whose

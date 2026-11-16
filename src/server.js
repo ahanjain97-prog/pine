@@ -45,6 +45,7 @@ import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
 import { connectedDuplicate, connectionMergeProblem, mergeConnection, resolvePlayerId } from "./lib/player_connections.js";
 import { registerSigning } from "./lib/signing.js";
+import { registerRoster, rosterSpot } from "./lib/roster.js";
 import { addBoardRole, boardHistory, BOARD_SOURCES, BOARD_EXIT_REASONS, recordBoardReason, registerBoardMoves, validateBoardReason } from "./lib/board_reasons.js";
 import { REVIEW_ROLE, registerReviewQueue, reviewCount, reviewTeam, syncReviewNote } from "./lib/review_queue.js";
 import { boardLastReviews, registerReview, REVIEW_AFTER_DAYS } from "./lib/review.js";
@@ -172,6 +173,8 @@ function hydrate(p) {
   // The latest report anyone wrote on them (a staff note or a PINE college report): drives the "new report" mark.
   if ("last_report_json" in p) { p.last_report = p.last_report_json ? JSON.parse(p.last_report_json) : null; delete p.last_report_json; }
   if ("l2_json" in p) { p.l2 = JSON.parse(p.l2_json || "[]").sort((a, b) => b.year - a.year); delete p.l2_json; }
+  // The Roster page's position for a signed player (null for everyone else).
+  p.roster_spot = rosterSpot(p);
   return p;
 }
 
@@ -619,6 +622,7 @@ app.get("/api/players/:id/tm-candidates", async (c) => {
 
 /* ---------- decisions, verdicts, notes ---------- */
 registerSigning(app, { db, getPlayer });
+registerRoster(app, { db, getPlayer });
 registerReview(app, { db, getPlayer });
 app.put("/api/players/:id/decision", async (c) => {
   const user = c.get("user");

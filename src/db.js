@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS players(
   decision_by INTEGER REFERENCES users(id), decision_at TEXT,
   is_signed INTEGER NOT NULL DEFAULT 0 CHECK (is_signed IN (0,1)),
   signed_by INTEGER REFERENCES users(id), signed_at TEXT,
+  roster_position TEXT,
   summary TEXT,
   source TEXT NOT NULL DEFAULT 'manual',
   created_by INTEGER REFERENCES users(id),
@@ -291,6 +292,10 @@ export function openDb(file) {
     raw.exec("ALTER TABLE players ADD COLUMN is_signed INTEGER NOT NULL DEFAULT 0 CHECK (is_signed IN (0,1))");
     raw.exec("ALTER TABLE players ADD COLUMN signed_by INTEGER REFERENCES users(id)");
     raw.exec("ALTER TABLE players ADD COLUMN signed_at TEXT");
+  }
+  // The position a signed player is pinned to on the Roster page (src/lib/roster.js); null means worked out.
+  if (!raw.prepare("PRAGMA table_info(players)").all().some((c) => c.name === "roster_position")) {
+    raw.exec("ALTER TABLE players ADD COLUMN roster_position TEXT");
   }
   if (!raw.prepare("PRAGMA table_info(board_entries)").all().some((c) => c.name === "shortlist")) {
     raw.exec("ALTER TABLE board_entries ADD COLUMN shortlist INTEGER NOT NULL DEFAULT 0");

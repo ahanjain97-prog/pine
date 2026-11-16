@@ -3,7 +3,7 @@ import { loadPlayingTimePanel } from "./playing-time.js";
 import { renderCompare } from "./compare.js";
 
 // PINE front end: single page, no build step.
-// Routes: #/board  #/short-board  #/ncaa[/database]  #/players  #/player/:id  #/impect  #/activity  #/staff
+// Routes: #/board  #/short-board  #/roster  #/ncaa[/database]  #/players  #/player/:id  #/impect  #/activity  #/staff
 // Shared links come in as /p/:id, which the server rewrites to #/player/:id before this boots.
 
 import { matchText, textMatch } from "./search.js";
@@ -378,6 +378,7 @@ function renderShell() {
       <button class="nav-trigger" id="operations-trigger" type="button" popovertarget="operations-menu" aria-controls="operations-menu" aria-expanded="false">Operations<span class="nav-caret" aria-hidden="true">▾</span></button>
       <div class="nav-menu" id="operations-menu" popover role="group" aria-label="Operations">
         <a href="#/players" data-v="players">Database</a>
+        <a href="#/roster" data-v="roster">Roster</a>
         <a href="#/compare" data-v="compare">Compare players</a>
         <a href="#/impect" data-v="impect">Impect</a>
         <a href="#/analysis" data-v="analysis">Analysis</a>
@@ -483,12 +484,12 @@ async function render() {
     if (a.dataset.v === view) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   });
-  const inOperations = ["players", "player", "compare", "impect", "analysis", "staff"].includes(view);
+  const inOperations = ["players", "player", "roster", "compare", "impect", "analysis", "staff"].includes(view);
   $("#operations-trigger").classList.toggle("on", inOperations);
   const link = $("#nav > .on"), nav = $("#nav");
   if (link && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = link.offsetLeft - nav.offsetLeft - (nav.clientWidth - link.offsetWidth) / 2;
   $("#upd").hidden = !S.staleNotified; // the reload prompt stays up until they reload
-  const views = { compare: (main, arg) => renderCompare(main, arg, { api, setTitle, players: S.players, physicalGroups: PHYS_KEY }), analysis: (main, arg) => renderAnalysis(main, arg, { api, setTitle }), board: renderBoard, "war-room": renderReview, "short-board": renderShortBoard, ncaa: renderNcaa, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
+  const views = { compare: (main, arg) => renderCompare(main, arg, { api, setTitle, players: S.players, physicalGroups: PHYS_KEY }), analysis: (main, arg) => renderAnalysis(main, arg, { api, setTitle }), board: renderBoard, roster: renderRoster, "war-room": renderReview, "short-board": renderShortBoard, ncaa: renderNcaa, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
   // Pitch maps had their own tab for a day; its links now open the player's page, where the maps live.
   if (view === "maps") { location.hash = arg ? `#/player/${arg}` : "#/players"; return; }
   if (!views[view]) { location.hash = "#/board"; return; }
@@ -496,7 +497,7 @@ async function render() {
   const want = canonicalUrl({ view, arg });
   if (location.pathname + location.hash !== want) history.replaceState(null, "", want);
   // The player view retitles itself once the profile loads.
-  setTitle({ analysis: "Analysis", board: "Big Board", ncaa: "NCAA", players: "Database", impect: "Impect", activity: "Activity", staff: "Staff" }[view]);
+  setTitle({ analysis: "Analysis", board: "Big Board", roster: "Roster", ncaa: "NCAA", players: "Database", impect: "Impect", activity: "Activity", staff: "Staff" }[view]);
   await views[view]($("#main"), arg);
 }
 
@@ -538,6 +539,49 @@ function renderShortBoard(main) {
     <div class="pitch-wrap"><div class="pitch">${S.config.positions.map((pos) => posBox(pos, true)).join("")}</div></div>
   </div>`;
   wireBoard(main.firstElementChild, { short: true });
+}
+
+/* ---------- roster ---------- */
+// Everyone signed to Hearts of Pine, by position, with the same cards as the boards. The server works out
+// each player's position (roster_spot); dragging a card onto another position pins them there.
+function renderRoster(main) {
+  const signed = S.players.filter((p) => p.is_signed);
+  const status = (s) => signed.filter((p) => rosterStatus(p) === s).length;
+  const unknown = signed.length - status("domestic") - status("international");
+  const unplaced = signed.filter((p) => !p.roster_spot);
+  main.innerHTML = `<div class="page">
+    <div class="page-h">
+      <div><h1>Roster</h1>
+        <div class="board-stats"><span><b>${signed.length}</b> signed</span><span><b>${status("domestic")}</b> domestic</span>
+          <span><b>${status("international")}</b> international</span>${unknown ? `<span><b>${unknown}</b> status unknown</span>` : ""}</div></div>
+      <div class="spacer"></div>
+      <div class="filters"><span class="muted sm">Mark a player as signed on their profile to add them here. Drag a card onto another position to move them.</span>
+        <input id="rf-q" type="search" placeholder="Filter the roster…" value="${esc(S.rosterQ || "")}" aria-label="Filter the roster">${legendHTML()}</div>
+    </div>
+    ${signed.length ? "" : `<p class="empty">No signed players yet. Open a player's profile and mark them as signed to Hearts of Pine.</p>`}
+    ${unplaced.length ? `<section class="roster-unplaced"><header class="pos-h"><span class="pos-label">No position yet</span><span class="pos-n">${unplaced.length}</span></header>
+      <div class="lane-body" data-unordered>${unplaced.map((p) => boardCard(p, null)).join("")}</div></section>` : ""}
+    <div class="pitch-wrap"><div class="pitch">${S.config.positions.map((pos) => rosterPosBox(pos, signed)).join("")}</div></div>
+  </div>`;
+  const root = main.firstElementChild;
+  const filter = () => $$(".pcard", root).forEach((c) => { c.hidden = !matchText(S.byId.get(Number(c.dataset.pid)), S.rosterQ || ""); });
+  filter();
+  $("#rf-q", root).addEventListener("input", (e) => { S.rosterQ = e.target.value; filter(); });
+  wireCardDrag(root, ".lane-body[data-roster-pos]", (zone, card) => {
+    const p = S.byId.get(Number(card.dataset.pid)), to = zone.dataset.rosterPos;
+    if (!p || p.roster_spot === to) return null;
+    return api("PUT", `/api/players/${p.id}/roster-position`, { position: to });
+  });
+}
+
+function rosterPosBox(pos, signed) {
+  const list = signed.filter((p) => p.roster_spot === pos.code).sort((a, b) => a.name.localeCompare(b.name));
+  const line = POS_LINE[pos.code] || "def";
+  return `<section class="pos" style="grid-area:${pos.area};--pc:var(--pc-${line});--pc-ink:var(--pc-${line}-ink)">
+    <header class="pos-h"><span class="pos-code">${pos.code}</span><span class="pos-label">${esc(pos.label)}</span><span class="pos-n">${list.length}</span></header>
+    <div class="lanes"><div class="lane"><div class="lane-body" data-roster-pos="${pos.code}" data-unordered>${list.map((p) => boardCard(p, null)).join("")
+      || `<div class="lane-empty">No one signed yet</div>`}</div></div></div>
+  </section>`;
 }
 
 // Board colour by line of the team: attack, midfield, defence, keeper. Kept clear of the pass/hold/fail
@@ -801,7 +845,7 @@ function wireCardDrag(root, zones, onDrop) {
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     if (!zone.classList.contains("over")) { $$(".over", root).forEach((x) => x.classList.remove("over")); zone.classList.add("over"); }
-    if (!zone.matches("[data-tray]")) {
+    if (!zone.matches("[data-tray], [data-unordered]")) {
       marker ??= Object.assign(document.createElement("div"), { className: "drop-marker" });
       const before = cardAfter(zone, e.clientY);
       if (before) zone.insertBefore(marker, before); else zone.appendChild(marker);
@@ -3448,6 +3492,7 @@ function describeMove(a, onPlayerPage = false) {
     case "deleted_college_report": return `deleted a college report on ${who}`;
     case "updated_agent": return `updated agent details for ${who}${d.representation && d.representation !== "unknown" ? ` (${esc(repLabel(d.representation).toLowerCase())})` : ""}`;
     case "set_decision": return d.decision ? `set the club decision on ${who} to ${chip(d.decision)}` : `cleared the club decision on ${who}`;
+    case "set_roster_position": return d.position ? `moved ${who} to ${d.position} on the Roster` : `put ${who} back in their usual Roster position`;
     case "set_signed": return d.signed ? `marked ${who} as signed to Hearts of Pine` : `removed the signed status from ${who}`;
     case "set_verdict": return d.verdict ? `marked ${who} ${chip(d.verdict)}` : `cleared their verdict on ${who}`;
     case "added_note": return `added a note on ${who}`;
