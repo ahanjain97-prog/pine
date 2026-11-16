@@ -505,6 +505,18 @@ password. The live address is kept out of this repo.
   reserve. Startup reclaims cache before SQLite opens; card and map uploads also reclaim it before
   writing. Cache downloads are skipped if the reserve cannot be maintained. Databases, snapshots,
   saved cards and maps are never evicted. If durable data fills the volume, increase its capacity.
+- Daily database backups keep 14 snapshots as verified gzip-compressed SQLite files. Existing plain
+  snapshots are compressed without discarding their contents. Backup creation and downloads use
+  off-volume scratch space; the download API still returns an ordinary SQLite file.
+- Without Railway access, the existing worker credential can inspect `GET /api/worker/storage`
+  (aggregate storage totals and card job state, no staff content) and run
+  `POST /api/worker/storage/cleanup` with `X-PINE: 1`. Cleanup removes reproducible cache and recognized
+  abandoned temporary files older than a day, and compresses existing backups. It never deletes
+  database records, completed cards, maps, or retained backups. Symlinks are skipped.
+  After resolving an upload outage, `POST /api/worker/storage/cards/:id/retry` can requeue an existing
+  generic failed card if no other card for that player is in progress. Coverage/data failures cannot
+  be retried through this route. All maintenance routes require `X-PINE-Worker-Token` and do not
+  accept a staff session in its place.
 - Player card PDFs and their PNGs live on the same disk under `/app/data/cards/<player id>/`, one pair per
   version, never overwritten or deleted. They are not in the database snapshots; the Mac mini worker keeps its own copy of
   every card it renders.

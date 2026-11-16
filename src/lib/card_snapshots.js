@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { writeAtomically } from './cards.js';
+import { makeDiskSpace } from './disk_cache.js';
 
 export const MAX_SNAPSHOT_BYTES = 10 * 1024 * 1024;
 export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -44,6 +45,7 @@ export function validateSnapshot(raw, card) {
 export function saveSnapshot(root, card, snapshot) {
   const stored = `${card.player_id}/card-${card.id}-${snapshot.digest}.snapshot.json.gz`;
   const file = join(root, stored);
+  makeDiskSpace(snapshot.bytes.length);
   mkdirSync(join(root, String(card.player_id)), { recursive: true });
   if (!existsSync(file)) writeAtomically(`${file}.tmp`, file, gzipSync(snapshot.bytes));
   return stored;
