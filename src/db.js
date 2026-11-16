@@ -335,6 +335,18 @@ export function openDb(file) {
   if (!raw.prepare("PRAGMA table_info(review_notes)").all().some((c) => c.name === "updated_at")) {
     raw.exec("ALTER TABLE review_notes ADD COLUMN updated_at TEXT");
   }
+  // What a War Room note was: 'ask' (sent with a new item), 'answer' (a scout's review or decline), 'decision' (the
+  // lead's call or a withdrawal), 'reply' (written on the thread). Replies and decisions show as new to the others on
+  // the item until each has replied or marked it read (review_reads: the last note that member has dealt with).
+  if (!raw.prepare("PRAGMA table_info(review_notes)").all().some((c) => c.name === "kind")) {
+    raw.exec("ALTER TABLE review_notes ADD COLUMN kind TEXT CHECK (kind IN ('ask','answer','decision','reply'))");
+  }
+  raw.exec(`CREATE TABLE IF NOT EXISTS review_reads(
+    item_id INTEGER NOT NULL REFERENCES review_items(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    note_id INTEGER NOT NULL,
+    PRIMARY KEY (item_id, user_id)
+  )`);
   // A link survives role rewrites; the history itself never depends on a board entry existing.
   if (!raw.prepare("PRAGMA table_info(board_entries)").all().some((c) => c.name === "reason_id")) {
     raw.exec("ALTER TABLE board_entries ADD COLUMN reason_id INTEGER REFERENCES board_reasons(id)");

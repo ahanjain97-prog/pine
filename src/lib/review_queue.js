@@ -17,6 +17,10 @@
 // Notes that report on the player also go in the author's Staff evaluation on the player page: the lead's note when
 // assigning, a scout's note when reviewing, declining or sending a player up, and the lead's Short Board decision.
 // Thread replies and watch lists stay in the Review tab.
+// A thread stays open for replies after its item settles, so a question in the lead's decision note can be answered.
+// A reply, or a decision or withdrawal note, is new to everyone else on the item (New notes, and the badge) until
+// they reply or mark it read. Notes sent with a new item and a scout's own review answer aren't: those already reach
+// the others as an assignment, a request, or a review waiting on the lead.
 import { logActivity } from "../db.js";
 import { ROLES } from "../roles.js";
 import { addBoardRole, moveBoardCard, setBoardStar } from "./board_reasons.js";
@@ -70,8 +74,23 @@ function canSee(me, item) {
 // A watch list is private: its entries are kept in the activity log but left out of the shared feed.
 const hideLast = (db) => db.run("UPDATE activity SET hidden = 1 WHERE id = last_insert_rowid()");
 
-function addNoteRow(db, itemId, userId, body) {
-  return Number(db.run("INSERT INTO review_notes(item_id, user_id, body) VALUES (?,?,?)", itemId, userId, body).lastInsertRowid);
+// Writing on a thread also means its author has dealt with everything above.
+function addNoteRow(db, itemId, userId, body, kind) {
+  const id = Number(db.run("INSERT INTO review_notes(item_id, user_id, body, kind) VALUES (?,?,?,?)", itemId, userId, body, kind).lastInsertRowid);
+  setRead(db, itemId, userId, id);
+  return id;
+}
+const setRead = (db, itemId, userId, noteId) => db.run(`INSERT INTO review_reads(item_id, user_id, note_id) VALUES (?,?,?)
+  ON CONFLICT(item_id, user_id) DO UPDATE SET note_id = max(note_id, excluded.note_id)`, itemId, userId, noteId);
+// Notes that are new to a member: someone else's reply or decision, after the last note he has dealt with.
+const NEW_TO = (me) => `n.user_id <> ${Number(me)} AND n.kind IN ('reply', 'decision')
+  AND n.id > coalesce((SELECT r.note_id FROM review_reads r WHERE r.item_id = n.item_id AND r.user_id = ${Number(me)}), 0)`;
+
+export function markRead(db, user, itemId) {
+  const me = member(db, user), item = itemRow(db, itemId);
+  if (!canSee(me, item)) fail(404, "Review item not found");
+  const last = db.get("SELECT max(id) AS id FROM review_notes WHERE item_id = ?", item.id).id;
+  if (last) setRead(db, item.id, me.id, last);
 }
 
 // What the copied note was, shown as its context in the evaluation.
@@ -150,7 +169,7 @@ export function createItem(db, user, input) {
       player.id, kind, me.id, to?.id ?? (scouts.length === 1 ? scouts[0].id : null)).lastInsertRowid);
     for (const sc of scouts) db.run("INSERT INTO review_assignees(item_id, user_id) VALUES (?,?)", id, sc.id);
     if (note) {
-      const nid = addNoteRow(db, id, me.id, note);
+      const nid = addNoteRow(db, id, me.id, note, "ask");
       if (kind !== "watch") addEvalNote(db, { playerId: player.id, userId: me.id, reviewNoteId: nid, body: note,
         context: evalContext(kind, { to: to?.name ?? scouts.map((x) => x.name).join(" and ") }) });
     }
@@ -194,7 +213,7 @@ export function syncReviewNote(db, reviewNoteId, body) {
 export function addNote(db, user, itemId, body) {
   const me = member(db, user), item = itemRow(db, itemId);
   if (!canSee(me, item)) fail(404, "Review item not found");
-  addNoteRow(db, item.id, me.id, text(body, "Note", true));
+  addNoteRow(db, item.id, me.id, text(body, "Note", true), "reply");
 }
 
 export function resolveItem(db, user, itemId, input) {
@@ -269,7 +288,7 @@ export function resolveItem(db, user, itemId, input) {
         outcome, me.id, item.player_id, item.id);
     }
     if (note) {
-      const nid = addNoteRow(db, item.id, me.id, note);
+      const nid = addNoteRow(db, item.id, me.id, note, mine ? "answer" : "decision");
       const context = outcome === "removed" ? null : evalContext(outcome, { verdict, role, spot });
       if (context) addEvalNote(db, { playerId: item.player_id, userId: me.id, reviewNoteId: nid, body: note, context });
     }
@@ -294,9 +313,18 @@ export function reviewBoard(db, user) {
   // An assignment every scout has answered (so it has settled), waiting for the lead's call: in his Decisions and the
   // scouts' Ready for the lead. Until then it waits on the scouts.
   const awaiting = (r) => r.kind === "assignment" && ["reviewed", "declined"].includes(r.status) && !openSb.has(r.player_id);
-  const items = rows.map((r) => ({ ...r, awaiting_lead: awaiting(r), from_name: name(r.from_user),
-    to_name: r.assignees ? r.assignees.map((a) => a.name).join(" and ") : r.to_user ? name(r.to_user) : null,
-    resolved_by_name: r.resolved_by ? name(r.resolved_by) : null, notes: notes.filter((n) => n.item_id === r.id) }));
+  const fresh = new Set(rows.length ? db.all(`SELECT n.id FROM review_notes n WHERE ${NEW_TO(me.id)}
+    AND n.item_id IN (${rows.map(() => "?").join(",")})`, ...rows.map((r) => r.id)).map((n) => n.id) : []);
+  const items = rows.map((r) => {
+    const thread = notes.filter((n) => n.item_id === r.id);
+    // The note sent with the item (why he was assigned or sent up): pinned on its row, however long the thread grows.
+    const ask = thread[0] && (thread[0].kind === "ask" || (thread[0].kind == null && thread[0].user_id === r.from_user
+      && Math.abs(Date.parse(thread[0].created_at.replace(" ", "T") + "Z") - Date.parse(r.created_at.replace(" ", "T") + "Z")) <= 2000)) ? thread[0].id : null;
+    return { ...r, awaiting_lead: awaiting(r), from_name: name(r.from_user),
+      to_name: r.assignees ? r.assignees.map((a) => a.name).join(" and ") : r.to_user ? name(r.to_user) : null,
+      resolved_by_name: r.resolved_by ? name(r.resolved_by) : null, notes: thread, ask_note_id: ask,
+      unread: r.kind === "watch" ? [] : thread.filter((n) => fresh.has(n.id)).map((n) => n.id) };
+  });
   // Players every scout has passed, not on the Short Board, and never sent up (or decided) before.
   const scouts = team.filter((u) => u.role === "scout");
   const suggestions = me.role === "scout" && scouts.length >= 2 ? db.all(`SELECT p.id AS player_id FROM players p
@@ -306,21 +334,56 @@ export function reviewBoard(db, user) {
   return { me, team, items, suggestions };
 }
 
-// How many open items are waiting on this member (the Review tab's badge).
+// How many items want this member's attention (the War Room badge): those waiting on him, and those with a note new to
+// him (each item once).
 export function reviewCount(db, user) {
-  const m = user && db.get(`SELECT ${REVIEW_ROLE} AS role FROM users WHERE id = ?`, user.id);
-  if (!m?.role || m.role === "assigner") return 0; // nothing waits on an assigner
-  // The lead: requests waiting on him, plus assignments every scout has answered that he hasn't decided (one per player).
-  if (m.role === "lead") return db.get("SELECT count(*) AS n FROM review_items WHERE status = 'open' AND kind = 'sb_review' AND to_user = ?", user.id).n
-    + db.get(`SELECT count(*) AS n FROM review_items i WHERE i.kind = 'assignment' AND i.status IN ('reviewed', 'declined')
-        AND i.resolved_at >= datetime('now', '-30 days')
-        AND NOT EXISTS (SELECT 1 FROM review_items s WHERE s.kind = 'sb_review' AND s.status = 'open' AND s.player_id = i.player_id)`).n;
-  return db.get(`SELECT count(*) AS n FROM review_assignees a JOIN review_items i ON i.id = a.item_id
-    WHERE i.status = 'open' AND a.status = 'open' AND a.user_id = ?`, user.id).n;
+  const m = user && db.get(`SELECT id, ${REVIEW_ROLE} AS role FROM users WHERE id = ?`, user.id);
+  if (!m?.role) return 0;
+  const recent = "(i.status = 'open' OR i.resolved_at >= datetime('now', '-30 days'))";
+  // The lead: requests waiting on him, plus assignments every scout has answered that he hasn't decided (one per
+  // player). A scout: assignments he hasn't answered. Nothing waits on an assigner.
+  const waiting = m.role === "lead" ? `(i.kind = 'sb_review' AND i.status = 'open' AND i.to_user = ${m.id})
+      OR (i.kind = 'assignment' AND i.status IN ('reviewed', 'declined') AND i.resolved_at >= datetime('now', '-30 days')
+        AND NOT EXISTS (SELECT 1 FROM review_items s WHERE s.kind = 'sb_review' AND s.status = 'open' AND s.player_id = i.player_id))`
+    : m.role === "scout" ? `i.kind = 'assignment' AND i.status = 'open'
+      AND EXISTS (SELECT 1 FROM review_assignees a WHERE a.item_id = i.id AND a.user_id = ${m.id} AND a.status = 'open')`
+    : "0";
+  // The same items reviewBoard shows him (canSee), with a note new to him.
+  const sees = `((i.kind = 'sb_review' AND i.status <> 'removed' AND ${m.role === "assigner" ? 0 : 1})
+    OR (i.kind = 'assignment' AND (${m.role === "lead" ? 1 : 0} OR i.from_user = ${m.id}
+      OR EXISTS (SELECT 1 FROM review_assignees a WHERE a.item_id = i.id AND a.user_id = ${m.id}))))`;
+  return db.get(`SELECT count(*) AS n FROM review_items i WHERE (${waiting})
+    OR (${recent} AND ${sees} AND EXISTS (SELECT 1 FROM review_notes n WHERE n.item_id = i.id AND ${NEW_TO(m.id)}))`).n;
+}
+
+// Once, when notes got a kind and threads their read marks. Notes written before are given their kind: the note sent
+// with an item, a scout's answer or the lead's decision (the note its activity entry recorded), else a reply. They
+// count as read, except the lead's replies and decisions from the last 7 days that a scout or assigner hasn't written
+// under since: those start as new, so a question he left can still be found and answered.
+export function seedNoteReads(db) {
+  db.run(`UPDATE review_notes SET kind = 'ask' WHERE kind IS NULL
+    AND id = (SELECT min(m.id) FROM review_notes m WHERE m.item_id = review_notes.item_id)
+    AND EXISTS (SELECT 1 FROM review_items i WHERE i.id = review_notes.item_id AND i.from_user = review_notes.user_id
+      AND abs(julianday(i.created_at) - julianday(review_notes.created_at)) * 86400 <= 2)`);
+  db.run(`UPDATE review_notes SET kind = coalesce((SELECT CASE WHEN json_extract(a.detail, '$.outcome') IN ('reviewed', 'declined') THEN 'answer' ELSE 'decision' END
+      FROM activity a JOIN review_items i ON i.id = review_notes.item_id
+      WHERE a.action = 'review_resolved' AND a.user_id = review_notes.user_id AND a.player_id = i.player_id
+        AND json_extract(a.detail, '$.kind') = i.kind AND json_extract(a.detail, '$.note') = review_notes.body LIMIT 1), 'reply')
+    WHERE kind IS NULL`);
+  const team = reviewTeam(db), lead = team.find((u) => u.role === "lead");
+  for (const it of db.all("SELECT item_id AS id, max(id) AS last FROM review_notes GROUP BY item_id")) {
+    for (const u of team) {
+      const first = u.role === "lead" || !lead ? null : db.get(`SELECT min(n.id) AS id FROM review_notes n
+        WHERE n.item_id = ? AND n.user_id = ? AND n.kind IN ('reply', 'decision') AND n.created_at >= datetime('now', '-7 days')
+          AND n.id > coalesce((SELECT max(o.id) FROM review_notes o WHERE o.item_id = n.item_id AND o.user_id = ?), 0)`, it.id, lead.id, u.id).id;
+      setRead(db, it.id, u.id, first ? first - 1 : it.last);
+    }
+  }
 }
 
 export function registerReviewQueue(app, { db }) {
   db.once("review_notes_to_evals_2026_11_08", () => copyReviewNotesToEvals(db));
+  db.once("review_note_reads_2026_11_15", () => seedNoteReads(db));
   // Before the lead decided assignments, a Short Board call made on a scout's request left the player's assignment
   // waiting; it takes that call.
   db.once("assignments_settled_by_sb_call_2026_11_08", () => {
@@ -345,6 +408,7 @@ export function registerReviewQueue(app, { db }) {
     addNote(db, actor(c), c.req.param("id"), (await c.req.json()).body);
     return c.json({ ok: true });
   });
+  app.post("/api/review/items/:id/read", (c) => { markRead(db, actor(c), c.req.param("id")); return c.json({ ok: true }); });
   app.post("/api/review/items/:id/nudge", (c) => c.json({ nudged: nudgeAssignees(db, actor(c), c.req.param("id")) }));
   app.post("/api/review/items/:id/resolve", async (c) => {
     resolveItem(db, actor(c), c.req.param("id"), await c.req.json());

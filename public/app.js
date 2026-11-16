@@ -3817,9 +3817,14 @@ function reviewPlayerHead(p) {
 const rvWhen = (s) => `<span title="${esc(fmtDateTime(s))}">${esc(relTime(s))}</span>`;
 
 // One row per item: the player, where it came from and the latest note, the actions; the note thread folds open.
-function reviewCard(item, actions, always = false) {
+function reviewCard(item, actions, always = false, openThread = false) {
   const p = S.byId.get(item.player_id);
   if (!p) return "";
+  const who = (n) => (n.user_id === S.me.id ? "You" : n.user_name);
+  // The note sent with the item stays on the row however long the thread grows; notes new to you are marked.
+  const ask = item.notes.find((n) => n.id === item.ask_note_id);
+  const fresh = item.notes.filter((n) => item.unread?.includes(n.id));
+  const newFrom = [...new Set(fresh.map((n) => n.user_name))].join(" and ");
   // An assignment both scouts answered is settled for them but still waits on the lead: it reads as open until he decides.
   const settled = item.status !== "open" && !item.awaiting_lead;
   const [label, tone] = settled ? RV_STATUS[item.status] || [item.status, ""] : [];
@@ -3837,18 +3842,20 @@ function reviewCard(item, actions, always = false) {
   // Who settled it: the lead for a withdrawal or his Short Board / Big Board call; otherwise the scouts' answers say it.
   const by = shared && !["removed", "added_sb", "added_bb", "moved_bb", "not_sb"].includes(item.status) ? "" : esc(item.resolved_by_name || "");
   const last = item.notes.at(-1);
-  return `<article class="rv-row ${settled ? "settled" : ""}" data-item="${item.id}" data-player="${p.id}">
+  return `<article class="rv-row ${settled ? "settled" : ""} ${fresh.length ? "has-new" : ""}" data-item="${item.id}" data-player="${p.id}">
     ${reviewPlayerHead(p)}
     <div class="rv-info">
       <div class="rv-route">${route} · ${rvWhen(item.created_at)}${settled ? ` <span class="dchip ${tone ? "v-" + tone : ""}">${esc(label)}</span>
-        <span class="muted">${by ? `${by} · ` : ""}${rvWhen(item.resolved_at)}</span>` : ""}</div>
-      ${last ? `<div class="rv-last"><b>${esc(last.user_name)}:</b> ${esc(last.body)}</div>` : `<div class="rv-last muted">No notes</div>`}
+        <span class="muted">${by ? `${by} · ` : ""}${rvWhen(item.resolved_at)}</span>` : ""}${
+        fresh.length ? ` <span class="rv-new">New from ${esc(newFrom)}</span>` : ""}</div>
+      ${openThread ? "" /* the open thread below says it all */ : `${ask && ask !== last ? `<div class="rv-last rv-ask" title="${esc(ask.body)}"><b>${esc(who(ask))}, ${item.kind === "assignment" ? "assigning" : "sending"}:</b> ${esc(ask.body)}</div>` : ""}
+      ${last ? `<div class="rv-last" title="${esc(last.body)}"><b>${esc(who(last))}:</b> ${esc(last.body)}</div>` : `<div class="rv-last muted">No notes</div>`}`}
       ${answers}
     </div>
     <div class="rv-actions">${settled && !always ? "" : actions}${verdictDots(p.verdicts)}</div>
-    <details class="rv-thread"><summary>${item.notes.length ? `${item.notes.length} note${item.notes.length === 1 ? "" : "s"}` : "Add a note"}</summary>
-      ${item.notes.length ? `<ol class="rv-notes">${item.notes.map((n) => `<li><b>${esc(n.user_name)}</b> ${esc(n.body)}<span class="when">${rvWhen(n.created_at)}${n.updated_at ? ` · edited ${rvWhen(n.updated_at)}` : ""}</span></li>`).join("")}</ol>` : ""}
-      ${settled ? "" : `<form class="rv-note-form"><input name="body" maxlength="4000" placeholder="Add a note…" aria-label="Add a note"><button class="btn sm" type="submit">Add</button></form>`}
+    <details class="rv-thread" ${openThread ? "open" : ""}><summary>${item.notes.length ? `${item.notes.length} note${item.notes.length === 1 ? "" : "s"}` : "Add a note"}</summary>
+      ${item.notes.length ? `<ol class="rv-notes">${item.notes.map((n) => `<li class="${fresh.includes(n) ? "new" : ""}"><b>${esc(n.user_name)}</b> ${esc(n.body)}<span class="when">${rvWhen(n.created_at)}${n.updated_at ? ` · edited ${rvWhen(n.updated_at)}` : ""}</span></li>`).join("")}</ol>` : ""}
+      <form class="rv-note-form"><input name="body" maxlength="4000" placeholder="${item.notes.length ? "Reply…" : "Add a note…"}" aria-label="${item.notes.length ? "Reply" : "Add a note"}"><button class="btn sm" type="submit">${item.notes.length ? "Reply" : "Add"}</button></form>
     </details>
   </article>`;
 }
@@ -3943,6 +3950,13 @@ async function renderReview(main) {
       { id: "history", label: "History", list: history, empty: "Nothing settled in the last 30 days.", html: (l) => rows(l, () => "") },
     ];
   }
+  // Notes new to you (a reply, or a decision or withdrawal note, from someone else), newest first: read and answer them
+  // here. First for everyone, and on the badge with whatever else waits on you.
+  const lastNew = (i) => i.notes.filter((n) => i.unread.includes(n.id)).at(-1)?.id || 0;
+  const newNotes = d.items.filter((i) => i.unread?.length).sort((a, b) => lastNew(b) - lastNew(a));
+  tabs.unshift({ id: "notes", label: "New notes", list: newNotes, urgent: true, empty: "No new notes. Replies and decisions from the others show here until you reply or mark them read.",
+    html: (l) => `${l.length > 1 ? `<div class="rv-list-h"><button type="button" class="btn sm ghost" data-rv-read-all>Mark all read</button></div>` : ""}${
+      l.map((i) => reviewCard(i, `<button type="button" class="btn sm" data-rv-read title="Nothing to add: clear it from New notes">Mark read</button>`, true, true)).join("")}` });
   // Stay on the chosen tab; otherwise open on whatever is waiting on you, else the first tab with anything in it.
   const tab = tabs.find((t) => t.id === S.review.tab) || tabs.find((t) => t.urgent && t.list.length) || tabs.find((t) => t.list.length) || tabs[0];
   S.review.tab = tab.id;
@@ -3956,8 +3970,8 @@ async function renderReview(main) {
       ${esc(t.label)}${t.id !== "history" && t.list.length ? `<span class="rv-count ${t.urgent ? "urgent" : ""}">${t.list.length}</span>` : ""}</button>`).join("")}</div>
     <section class="panel rv-list" role="tabpanel">${tab.list.length ? tab.html(tab.list) : `<p class="rv-empty">${esc(tab.empty)}</p>`}</section>
   </div>`;
-  const waiting = tabs.find((t) => t.urgent)?.list.length || 0;
-  setReviewBadge(waiting);
+  // Each item once, as the server counts it (an assignment to review that also has a new note is one).
+  setReviewBadge(new Set(tabs.filter((t) => t.urgent).flatMap((t) => t.list.map((i) => i.id))).size);
   const root = main.querySelector(".rv-page");
   root.querySelector(".rv-tabs").addEventListener("click", (e) => {
     const b = e.target.closest("[data-rv-tab]");
@@ -4121,12 +4135,25 @@ function wireReview(root, d) {
   });
 
   root.addEventListener("click", async (e) => {
+    if (!e.target.closest("[data-rv-read-all]")) return;
+    try {
+      await Promise.all(d.items.filter((i) => i.unread?.length).map((i) => api("POST", `/api/review/items/${i.id}/read`, {})));
+      await afterMutation();
+    } catch (err) { oops(err); }
+  });
+
+  root.addEventListener("click", async (e) => {
     const t = e.target.closest("button");
     const card = t?.closest(".rv-row");
     if (!card) return;
     const p = S.byId.get(Number(card.dataset.player)), itemId = card.dataset.item;
     const resolve = (body) => api("POST", `/api/review/items/${itemId}/resolve`, body);
     try {
+      if (t.matches("[data-rv-read]")) {
+        await api("POST", `/api/review/items/${itemId}/read`, {});
+        await afterMutation();
+        return;
+      }
       if (t.matches("[data-rv-nudge]")) {
         const { nudged } = await api("POST", `/api/review/items/${itemId}/nudge`, {});
         toast(`Nudged ${nudged.join(" and ")} on ${p.name}`);
@@ -4156,7 +4183,8 @@ function wireReview(root, d) {
         toast(`${p.name} is on the Short Board`);
         await afterMutation();
       } else if (t.matches("[data-rv-review]")) {
-        const extra = `<label class="lbl">Your verdict</label><div class="seg" role="radiogroup">${S.config.decisions.map((v) =>
+        const it = d.items.find((i) => i.id === Number(itemId)), asked = it?.notes.find((n) => n.id === it.ask_note_id);
+        const extra = `${asked ? `<p class="rv-asked"><b>${esc(asked.user_name)}, assigning:</b> ${esc(asked.body)}</p>` : ""}<label class="lbl">Your verdict</label><div class="seg" role="radiogroup">${S.config.decisions.map((v) =>
           `<label class="v-${v}"><input type="radio" name="verdict" value="${v}" ${p.verdicts?.[S.me.name] === v ? "checked" : ""}> ${cap(v)}</label>`).join("")}</div>`;
         const v = await reviewDialog({ title: "Review", player: p.name, extra, noteLabel: "What did you think?", submit: "Mark reviewed" });
         if (!v) return;
