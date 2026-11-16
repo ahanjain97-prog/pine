@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configureDiskCache, readDisk, writeDisk } from '../src/lib/disk_cache.js';
 import { saveCardFile } from '../src/lib/cards.js';
+import { saveSnapshot } from '../src/lib/card_snapshots.js';
 import { saveMapsFile } from '../src/lib/maps.js';
 
 function fixture(t) {
@@ -84,3 +85,20 @@ for (const kind of ['pdf', 'png', 'maps']) {
     assert.equal(fs.readFileSync(join(root, 'cards', 'previous.pdf'), 'utf8'), '%PDF-previous');
   });
 }
+
+test('snapshot upload reclaims cache before creating a new player directory on a full disk', t => {
+  const { root, cache } = fixture(t);
+  const old = join(cache, 'cohort.json.gz');
+  configureDiskCache(cache, { maxBytes: 1024, reserveBytes: 200, availableBytes: () => fs.existsSync(old) ? 0 : 1000 });
+  fs.writeFileSync(old, Buffer.alloc(100));
+  const mkdir = fs.mkdirSync;
+  t.mock.method(fs, 'mkdirSync', (...args) => {
+    if (fs.existsSync(old)) throw Object.assign(new Error('disk full creating player directory'), { code: 'ENOSPC' });
+    return mkdir(...args);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  const saved = saveSnapshot(join(root, 'cards'), { player_id: 7, id: 1 }, { digest: 'a'.repeat(64), bytes: Buffer.from('{}') });
+  assert.ok(fs.existsSync(join(root, 'cards', saved)));
+  assert.equal(fs.existsSync(old), false);
+});

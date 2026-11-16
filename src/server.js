@@ -32,6 +32,7 @@ import {
   removeMapsFiles, saveMapsFile,
 } from "./lib/maps.js";
 import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.js";
+import { registerStorage } from "./lib/storage_maintenance.js";
 import { registerScoutingContext } from "./lib/scouting_context.js";
 import { registerAnalysis } from "./lib/analysis.js";
 import { gatesEligible, moveDate as gatesMoveDate, registerGates } from "./lib/mlsnp_gates.js";
@@ -381,6 +382,7 @@ app.use("/api/*", async (c, next) => {
 });
 
 registerScoutingContext(app, { db, token: WORKER_TOKEN });
+registerStorage(app, { root: dirname(DB_FILE), db, token: WORKER_TOKEN });
 registerAnalysis(app, { db });
 registerGates(app, { db, token: WORKER_TOKEN, getPlayer });
 registerLongThrows(app, { db, token: WORKER_TOKEN, iterations: cachedLeagues });
