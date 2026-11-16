@@ -511,7 +511,8 @@ password. The live address is kept out of this repo.
 - Without Railway access, the existing worker credential can inspect `GET /api/worker/storage`
   (aggregate storage totals and card job state, no staff content) and run
   `POST /api/worker/storage/cleanup` with `X-PINE: 1`. Cleanup removes reproducible cache and recognized
-  abandoned temporary files older than a day, and compresses existing backups. It never deletes
+  abandoned temporary files older than a day, checkpoints and truncates SQLite's retained write log,
+  and compresses existing backups. It never deletes
   database records, completed cards, maps, or retained backups. Symlinks are skipped.
   After resolving an upload outage, `POST /api/worker/storage/cards/:id/retry` can requeue an existing
   generic failed card if no other card for that player is in progress. Coverage/data failures cannot

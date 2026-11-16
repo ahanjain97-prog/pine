@@ -66,6 +66,10 @@ if (!existsSync(DB_FILE) && existsSync(SEED_DB)) {
 // a full volume must be recoverable by deploying this fix, not just by SSH.
 configureDiskCache(join(dirname(DB_FILE), "cache"));
 const db = openDb(DB_FILE);
+// Release retained SQLite log space before a backup needs temporary room. This
+// is safe on restart: SQLite handles active readers and never drops uncommitted data.
+try { db.get('PRAGMA wal_checkpoint(TRUNCATE)'); }
+catch (e) { console.warn(`startup checkpoint skipped: ${e.message}`); }
 gatesMoveDate(); // Reject a malformed recruitment date at startup.
 const BACKUP_DIR = join(dirname(DB_FILE), "backups");
 startDailyBackups(db, BACKUP_DIR);
