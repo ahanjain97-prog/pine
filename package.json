@@ -6,7 +6,8 @@
     "test": "node --test scripts/*.test.js",
     "start": "node --disable-warning=ExperimentalWarning src/server.js",
     "tunnel": "bin/cloudflared tunnel --no-autoupdate --url http://localhost:8787",
-    "check": "node scripts/check.mjs"
+    "check": "node scripts/check.mjs",
+    "player-context": "node scripts/player-context.mjs"
   },
   "keywords": [],
   "author": "",
