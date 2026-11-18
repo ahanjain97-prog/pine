@@ -362,7 +362,7 @@ const resolveUser = (c) => (AUTH_OFF ? actingUser(c) : currentUser(db, c));
 const BACKUP_TOKEN = process.env.PINE_BACKUP_TOKEN || "";
 const backupTokenOk = (c) => tokenMatches(c.req.header("X-PINE-Backup-Token"), BACKUP_TOKEN);
 // The player card worker sends PINE_WORKER_TOKEN as X-PINE-Worker-Token. It opens /api/worker/* only,
-// and those routes never accept a staff session instead.
+// including complete read-only player context. Those routes never accept a staff session instead.
 const WORKER_TOKEN = process.env.PINE_WORKER_TOKEN || "";
 // When the worker last called in at all, and about maps. It polls every 5 seconds, so the Maps tab can
 // say when it's offline, or running a version from before maps.
@@ -394,7 +394,7 @@ app.use("/api/*", async (c, next) => {
 });
 
 registerScoutingContext(app, { db, token: WORKER_TOKEN });
-registerPlayerContext(app, { db, token: process.env.PINE_AGENT_TOKEN || "" });
+registerPlayerContext(app, { db, token: process.env.PINE_AGENT_TOKEN || "", workerToken: WORKER_TOKEN });
 registerStorage(app, { root: dirname(DB_FILE), db, token: WORKER_TOKEN });
 registerAnalysis(app, { db });
 registerGates(app, { db, token: WORKER_TOKEN, getPlayer });

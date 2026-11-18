@@ -4,6 +4,9 @@ For questions about player comments, staff/scout/LS reports, pass/hold/fail, sum
 or their history, read [docs/agent-player-context.md](docs/agent-player-context.md). Use the read-only
 `npm run --silent player-context -- ...` command to retrieve the saved evidence before answering.
 For example, the second Forward role is `FWD2` (Target): `--board big --role FWD2`.
+Live reads use the existing `PINE_WORKER_TOKEN` and `PINE_URL`. If the Pine env lacks them, check
+the related worker repo's env (such as `../hearts-of-pine/.env`) and select that file with `PINE_ENV`.
+No separate agent key is required. Do not print token values.
 
 Retrieve every page before claiming to cover all matching players. Prefer live data; `data/pine.db`
 is an old local copy, not the live source of truth. State snapshot age when using a local backup.

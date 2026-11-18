@@ -198,7 +198,7 @@ Minute share divides recorded player minutes by actual match duration across the
 | `PINE_ADMIN_EMAIL` | Email for the seeded admin account, used only when the database is first created. |
 | `PINE_AUTH=off` | No sign-in; pick who you are from the name menu in the top bar. For local development. Delete it to require sign-in. |
 | `PINE_BACKUP_TOKEN` | Key that `scripts/pull-backup.sh` downloads snapshots with (set the same value on the deployment and in the Mac's `.env`). It opens `/api/backup` only. |
-| `PINE_WORKER_TOKEN` | Key the player card worker sends as `X-PINE-Worker-Token` (same value on the deployment and on the worker). It opens `/api/worker/*` only; unset, those routes refuse everything. |
+| `PINE_WORKER_TOKEN` | Shared key sent as `X-PINE-Worker-Token` for worker operations and complete read-only player context, including staff evaluations and private threads. Same value on deployment and trusted worker/agent. It opens `/api/worker/*` only; unset, those routes refuse everything. |
 | `PINE_MLSNP_MOVE_DATE` | Projected MLSNP-to-USL move date for gate checks; defaults to `2027-02-28`. The sync worker reads it from PINE. |
 | `APP_URL` | Public URL once hosted. Sign-in links use it, and `https://…` makes the sign-in cookie secure-only. |
 | `PORT` | Default 8787 |
@@ -553,8 +553,10 @@ For trusted agents summarizing **staff input**, use the separate [player context
 Forward role (Target), including notes, verdicts, summaries, War Room threads, board reasons, college
 reports and stored history. It supports live API access, a fresh backup using existing backup access,
 or an explicit read-only local snapshot. Retrieve every page; overwritten/deleted text that was never
-saved cannot be reconstructed. `PINE_AGENT_TOKEN` grants the new API read access to all saved club
-player input, including private watches; it is separate from the match-prep worker key below.
+saved cannot be reconstructed. The existing `PINE_WORKER_TOKEN` grants read access through
+`GET /api/worker/player-context` to all saved club player input, including private watches and
+hidden history. No additional key setup is needed. `PINE_AGENT_TOKEN` remains an optional
+dedicated reader key for `/api/agent/player-context`.
 
 The match-prep reader calls `GET /api/worker/scouting-context` with the existing
 `X-PINE-Worker-Token`. The response contains player identities, Big Board roles,
