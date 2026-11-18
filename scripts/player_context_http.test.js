@@ -14,7 +14,7 @@ import { createSetupLink } from '../src/auth.js';
 
 const exec = promisify(execFile);
 
-test('HTTP and CLI: isolated agent auth, complete live reads, backup fallback, and read-only snapshots', { timeout: 30000 }, async t => {
+test('HTTP and CLI: shared worker reads, optional agent auth, backup fallback, and read-only snapshots', { timeout: 30000 }, async t => {
   const dir = mkdtempSync(join(tmpdir(), 'pine-context-http-')), file = join(dir, 'pine.sqlite');
   const db = contextSample(openDb(file));
   const { token } = createSetupLink(db, 101);
@@ -51,6 +51,19 @@ test('HTTP and CLI: isolated agent auth, complete live reads, backup fallback, a
   assert.equal(result.pagination.total, 2);
   assert.equal(result.players[0].reviews[1].notes[0].body, 'Watch again next month');
   assert.equal(result.players[0].activity.length, 49);
+  const workerHeaders = { 'X-PINE-Worker-Token': env.PINE_WORKER_TOKEN };
+  const workerPath = '/api/worker/player-context?board=big&role=FWD2';
+  for (const headers of [{}, { Cookie: cookie }, { 'X-PINE-Worker-Token': 'wrong' },
+    { 'X-PINE-Backup-Token': env.PINE_BACKUP_TOKEN }, { 'X-PINE-Agent-Token': env.PINE_AGENT_TOKEN }]) {
+    assert.equal((await request(workerPath, { headers })).status, 401);
+  }
+  const workerResponse = await request(workerPath, { headers: workerHeaders });
+  assert.equal(workerResponse.status, 200);
+  assert.equal(workerResponse.headers.get('cache-control'), 'private, no-store');
+  assert.deepEqual((await workerResponse.json()).players, result.players);
+  assert.equal((await request('/api/players', { headers: workerHeaders })).status, 401);
+  assert.equal((await request('/api/players/501/decision', { method: 'PUT', headers: { ...workerHeaders, 'X-PINE': '1', 'Content-Type': 'application/json' }, body: '{"decision":"fail"}' })).status, 401);
+  assert.equal((await request('/api/worker/player-context', { method: 'POST', headers: { ...workerHeaders, 'X-PINE': '1' } })).status, 404, 'no context write route');
   assert.equal((await request('/api/players', { headers })).status, 401, 'agent key does not grant general app access');
   assert.equal((await request('/api/worker/scouting-context', { headers })).status, 401);
   assert.equal((await request('/api/backup', { headers })).status, 401);
@@ -63,7 +76,14 @@ test('HTTP and CLI: isolated agent auth, complete live reads, backup fallback, a
   const live = JSON.parse((await exec(process.execPath, args, { env })).stdout);
   assert.equal(live.source.kind, 'live_api');
   assert.deepEqual(live.players, result.players);
-  const backup = JSON.parse((await exec(process.execPath, args, { env: { ...env, PINE_AGENT_TOKEN: '' } })).stdout);
+  const workerOnly = JSON.parse((await exec(process.execPath, args, { env: { ...env, PINE_AGENT_TOKEN: '', PINE_BACKUP_TOKEN: '' } })).stdout);
+  assert.equal(workerOnly.source.kind, 'live_api');
+  assert.deepEqual(workerOnly.players, result.players);
+  const agentOnly = JSON.parse((await exec(process.execPath, args, { env: { ...env, PINE_WORKER_TOKEN: '' } })).stdout);
+  assert.equal(agentOnly.source.kind, 'live_api');
+  assert.deepEqual(agentOnly.players, result.players);
+  await assert.rejects(exec(process.execPath, args, { env: { ...env, PINE_WORKER_TOKEN: 'wrong' } }), /HTTP 401/, 'a rejected selected worker key does not silently use the agent key');
+  const backup = JSON.parse((await exec(process.execPath, args, { env: { ...env, PINE_WORKER_TOKEN: '', PINE_AGENT_TOKEN: '' } })).stdout);
   assert.equal(backup.source.kind, 'live_backup');
   assert.deepEqual(backup.players, result.players);
 

@@ -88,3 +88,26 @@ test('endpoint refuses missing, wrong and unset keys; sends private no-store JSO
     }
   }
 });
+
+test('worker context accepts the existing worker key without an agent key; keys stay bound to their routes', async t => {
+  const db = contextSample(); t.after(() => db.raw.close());
+  for (const token of ['', 'fictional-agent']) for (const workerToken of ['', 'fictional-worker']) {
+    const app = new Hono(); registerPlayerContext(app, { db, token, workerToken });
+    const candidates = [{}, { 'X-PINE-Worker-Token': 'wrong' }, { 'X-PINE-Worker-Token': 'fictional-worker' },
+      { 'X-PINE-Agent-Token': 'fictional-agent' }, { 'X-PINE-Worker-Token': 'fictional-agent' },
+      { 'X-PINE-Agent-Token': 'fictional-worker' }, { 'X-PINE-Backup-Token': 'fictional-worker' }];
+    for (const headers of candidates) for (const [path, header, key] of [
+      ['/api/worker/player-context', 'X-PINE-Worker-Token', workerToken],
+      ['/api/agent/player-context', 'X-PINE-Agent-Token', token],
+    ]) {
+      const response = await app.request(`${path}?board=big&role=FWD2`, { headers });
+      assert.equal(response.status, key && headers[header] === key ? 200 : 401);
+      assert.equal(response.headers.get('cache-control'), 'private, no-store');
+      if (response.ok) {
+        const result = await response.json();
+        assert.equal(result.players[0].summary.body, 'Strong in the air');
+        assert.equal(result.players[0].reviews[1].notes[0].body, 'Watch again next month');
+      }
+    }
+  }
+});

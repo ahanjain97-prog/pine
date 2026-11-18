@@ -11,14 +11,22 @@ npm run --silent player-context -- --q "Example Player"
 ```
 
 The command loads credentials from the repo `.env` (or `PINE_ENV`) without displaying them.
-Live access uses `PINE_URL` or `APP_URL`, overridable with `--url`. It prefers the dedicated
-`PINE_AGENT_TOKEN`. If that key is absent, the existing `PINE_BACKUP_TOKEN` fetches a fresh live
+Live access uses `PINE_URL` or `APP_URL`, overridable with `--url`. It uses the existing
+`PINE_WORKER_TOKEN` with `/api/worker/player-context`; no extra key is required. If no worker key
+is set, the optional `PINE_AGENT_TOKEN` uses `/api/agent/player-context`. If neither reader key is
+set, the existing `PINE_BACKUP_TOKEN` fetches a fresh live
 database through `/api/backup` and reads it locally without migrations or writes. This fallback
 works on deployments predating the agent API. Its temporary database is deleted even on failure.
 The backup download records the existing `downloaded_backup` audit event on the server.
 An optional shared `PINE_SITE_PASSWORD` is supported. Keys are environment values, never arguments.
-If an agent key is present but rejected, the command reports the error rather than silently
+If the selected reader key is rejected, the command reports the error rather than silently
 switching credentials.
+
+An existing sibling worker environment can be selected without copying any secrets:
+
+```sh
+PINE_ENV=../hearts-of-pine/.env npm run --silent player-context -- --board big --role FWD2
+```
 
 For a previously downloaded snapshot, explicitly choose it:
 
@@ -87,14 +95,16 @@ public repository and PRs.
 
 ## Live API setup
 
-Set a distinct `PINE_AGENT_TOKEN` on the deployment and in the trusted agent environment.
-This key grants **club-wide read access**, including private watches and hidden history. Issue it
-only to trusted club agents. Ordinary staff sessions retain their existing UI permissions; they
-do not open this endpoint. Worker and backup tokens do not open it either. The older match-prep
-`/api/worker/scouting-context` keeps its limited response.
+Use the existing `PINE_WORKER_TOKEN` on the deployment and trusted agent environment. It now grants
+**club-wide read access** through `GET /api/worker/player-context`, including staff evaluations,
+private watches and hidden history, alongside its existing worker operations. Share it only with
+trusted club workers and agents. The older match-prep `/api/worker/scouting-context` keeps its
+limited response; callers opt into complete evidence by using the new endpoint.
 
-`GET /api/agent/player-context` accepts header `X-PINE-Agent-Token`. With no configured key it
-refuses access. It returns `Cache-Control: private, no-store` and performs no mutations.
+`GET /api/worker/player-context` accepts header `X-PINE-Worker-Token`. The optional dedicated
+`PINE_AGENT_TOKEN` still opens `GET /api/agent/player-context` with header `X-PINE-Agent-Token`.
+Each route refuses access if its key is unset or wrong. Staff sessions and backup keys do not open
+either route. Both return `Cache-Control: private, no-store` and perform no mutations.
 Parameters: `board`, `role`, `player_id`, `q`, `limit`, `offset`. Unknown, duplicate or invalid
 parameters are errors. `player_id` for a missing profile returns 404; empty board matches return
 an empty list with total zero. There are no agent write routes.

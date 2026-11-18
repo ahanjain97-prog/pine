@@ -110,10 +110,10 @@ export function playerContext(db, input = {}, now = new Date()) {
   };
 }
 
-export function registerPlayerContext(app, { db, token }) {
-  app.get('/api/agent/player-context', (c) => {
+export function registerPlayerContext(app, { db, token, workerToken = '' }) {
+  const read = (header, key) => (c) => {
     c.header('Cache-Control', 'private, no-store');
-    if (!tokenMatches(c.req.header('X-PINE-Agent-Token'), token)) return c.json({ error: 'Agent token missing or wrong' }, 401);
+    if (!tokenMatches(c.req.header(header), key)) return c.json({ error: 'Reader token missing or wrong' }, 401);
     const input = {};
     for (const [key, values] of Object.entries(c.req.queries())) {
       if (values.length !== 1) return c.json({ error: `Filter ${key} must appear once` }, 400);
@@ -121,5 +121,8 @@ export function registerPlayerContext(app, { db, token }) {
     }
     try { return c.json(playerContext(db, input)); }
     catch (e) { if (e.status) return c.json({ error: e.message }, e.status); throw e; }
-  });
+  };
+  app.get('/api/worker/player-context', read('X-PINE-Worker-Token', workerToken));
+  // Keep the optional dedicated reader key for clients already using it.
+  app.get('/api/agent/player-context', read('X-PINE-Agent-Token', token));
 }

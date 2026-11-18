@@ -14,8 +14,9 @@ Filters: --board all|big|short|ncaa  --role FWD2  --player-id 123  --q "Name"
 Source:  --url https://pine.example.com  (defaults to PINE_URL or APP_URL)
          --db /absolute/path/snapshot.sqlite  (explicit local snapshot, opened read-only)
 
-Live access uses PINE_AGENT_TOKEN with GET /api/agent/player-context.
-If no agent key is configured, PINE_BACKUP_TOKEN downloads a fresh backup instead;
+Live access uses PINE_WORKER_TOKEN with GET /api/worker/player-context.
+An optional PINE_AGENT_TOKEN uses /api/agent/player-context when no worker key is set.
+If neither reader key is configured, PINE_BACKUP_TOKEN downloads a fresh backup instead;
 the temporary file is deleted after reading. Optional PINE_SITE_PASSWORD is supported.
 Credentials are loaded from the repo .env or PINE_ENV; never pass keys as arguments.
 JSON includes next_offset; fetch every page before summarizing all matching players.
@@ -67,16 +68,18 @@ async function main() {
     if (url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('Use the site origin as --url (no credentials, path, query or fragment)');
     const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
     if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) throw new Error('Live access requires HTTPS (HTTP allowed only on localhost)');
-    const agentToken = process.env.PINE_AGENT_TOKEN, backupToken = process.env.PINE_BACKUP_TOKEN;
-    if (!agentToken && !backupToken) throw new Error('Set PINE_AGENT_TOKEN or PINE_BACKUP_TOKEN for live access');
-    const headers = agentToken ? { 'X-PINE-Agent-Token': agentToken } : { 'X-PINE-Backup-Token': backupToken };
+    const workerToken = process.env.PINE_WORKER_TOKEN, agentToken = process.env.PINE_AGENT_TOKEN, backupToken = process.env.PINE_BACKUP_TOKEN;
+    const useContext = Boolean(workerToken || agentToken);
+    if (!useContext && !backupToken) throw new Error('Set PINE_WORKER_TOKEN, PINE_AGENT_TOKEN or PINE_BACKUP_TOKEN for live access');
+    const headers = workerToken ? { 'X-PINE-Worker-Token': workerToken }
+      : agentToken ? { 'X-PINE-Agent-Token': agentToken } : { 'X-PINE-Backup-Token': backupToken };
     if (process.env.PINE_SITE_PASSWORD) headers.Authorization = `Basic ${Buffer.from(`pine:${process.env.PINE_SITE_PASSWORD}`).toString('base64')}`;
-    url.pathname = agentToken ? '/api/agent/player-context' : '/api/backup';
-    if (agentToken) url.search = new URLSearchParams(filters).toString();
+    url.pathname = workerToken ? '/api/worker/player-context' : agentToken ? '/api/agent/player-context' : '/api/backup';
+    if (useContext) url.search = new URLSearchParams(filters).toString();
     const started = new Date().toISOString();
-    const response = await fetch(url, { headers, signal: AbortSignal.timeout(agentToken ? 60000 : 300000), redirect: 'error' });
+    const response = await fetch(url, { headers, signal: AbortSignal.timeout(useContext ? 60000 : 300000), redirect: 'error' });
     if (!response.ok) throw new Error(`PINE returned HTTP ${response.status}; check the URL, credentials and deployed version`);
-    if (agentToken) {
+    if (useContext) {
       result = await response.json();
       if (result.schema_version !== 1 || !Array.isArray(result.players) || !result.pagination) throw new Error('Unexpected player context response');
       result.source = { kind: 'live_api', origin: url.origin, requested_at: started };
