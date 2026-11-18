@@ -34,6 +34,7 @@ import {
 import { startDailyBackups, snapshotBuffer, listSnapshots } from "./lib/backup.js";
 import { registerStorage } from "./lib/storage_maintenance.js";
 import { registerScoutingContext } from "./lib/scouting_context.js";
+import { registerPlayerContext } from "./lib/player_context.js";
 import { registerAnalysis } from "./lib/analysis.js";
 import { gatesEligible, moveDate as gatesMoveDate, registerGates } from "./lib/mlsnp_gates.js";
 import { hasLongThrow, longThrowOverride, longThrowSyncStatus, registerLongThrows } from "./lib/long_throw.js";
@@ -371,6 +372,13 @@ const workerSeen = { any: null, maps: null };
 app.use("/api/*", async (c, next) => {
   if (c.req.method !== "GET" && c.req.header("X-PINE") !== "1") return c.json({ error: "Bad request" }, 400);
   if (c.req.path.startsWith("/api/auth/")) return next();
+  // Dedicated read-only club evidence access; the worker/backup keys and staff sessions do not open it.
+  if (c.req.path.startsWith("/api/agent/")) {
+    c.header("Cache-Control", "private, no-store");
+    if (!tokenMatches(c.req.header("X-PINE-Agent-Token"), process.env.PINE_AGENT_TOKEN || "")) return c.json({ error: "Agent token missing or wrong" }, 401);
+    if (c.req.method !== "GET") return c.json({ error: "Agent access is read-only" }, 405);
+    return next();
+  }
   if (c.req.path.startsWith("/api/worker/")) {
     if (!tokenMatches(c.req.header("X-PINE-Worker-Token"), WORKER_TOKEN)) return c.json({ error: "Worker token missing or wrong" }, 401);
     workerSeen.any = new Date();
@@ -386,6 +394,7 @@ app.use("/api/*", async (c, next) => {
 });
 
 registerScoutingContext(app, { db, token: WORKER_TOKEN });
+registerPlayerContext(app, { db, token: process.env.PINE_AGENT_TOKEN || "" });
 registerStorage(app, { root: dirname(DB_FILE), db, token: WORKER_TOKEN });
 registerAnalysis(app, { db });
 registerGates(app, { db, token: WORKER_TOKEN, getPlayer });

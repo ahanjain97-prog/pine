@@ -548,6 +548,14 @@ To stop both: `lsof -ti tcp:8787 | xargs kill; pkill -f "bin/cloudflared tunnel"
 
 ## Automatic match preparation
 
+For trusted agents summarizing **staff input**, use the separate [player context workflow](docs/agent-player-context.md):
+`npm run --silent player-context -- --board big --role FWD2` reads all saved evidence for the second
+Forward role (Target), including notes, verdicts, summaries, War Room threads, board reasons, college
+reports and stored history. It supports live API access, a fresh backup using existing backup access,
+or an explicit read-only local snapshot. Retrieve every page; overwritten/deleted text that was never
+saved cannot be reconstructed. `PINE_AGENT_TOKEN` grants the new API read access to all saved club
+player input, including private watches; it is separate from the match-prep worker key below.
+
 The match-prep reader calls `GET /api/worker/scouting-context` with the existing
 `X-PINE-Worker-Token`. The response contains player identities, Big Board roles,
 the Short Board flag for each role, and list membership, with a check time.
