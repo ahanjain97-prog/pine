@@ -393,6 +393,10 @@ export function openDb(file) {
   if (!raw.prepare("PRAGMA table_info(users)").all().some((c) => c.name === "review_assigner")) {
     raw.exec("ALTER TABLE users ADD COLUMN review_assigner INTEGER NOT NULL DEFAULT 0");
   }
+  // A scout who doesn't take college players: assignments of NCAA players skip them (Ford, asked 2026-11-19).
+  if (!raw.prepare("PRAGMA table_info(users)").all().some((c) => c.name === "review_no_ncaa")) {
+    raw.exec("ALTER TABLE users ADD COLUMN review_no_ncaa INTEGER NOT NULL DEFAULT 0");
+  }
   // Entries kept for the record but left out of the Activity feed and player histories.
   if (!raw.prepare("PRAGMA table_info(activity)").all().some((c) => c.name === "hidden")) {
     raw.exec("ALTER TABLE activity ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0");
@@ -449,6 +453,10 @@ export function openDb(file) {
   // Bobby assigns players to the scouts too (asked 2026-11-12).
   db.once("review_assigner_bobby_2026_11_12", () => {
     db.run("UPDATE users SET review_assigner = 1 WHERE name = 'Bobby' AND review_role IS NULL");
+  });
+  // NCAA players are assigned to Ahan only: Ford is bypassed on them (asked 2026-11-19).
+  db.once("review_ncaa_bypass_ford_2026_11_19", () => {
+    db.run("UPDATE users SET review_no_ncaa = 1 WHERE name = 'Ford' AND review_role = 'scout'");
   });
   // "Out of our range" became an exit reason; removals saved before it as "Unwilling to play in League One" with
   // the note "Out of range" move to it (in the board history and the Activity entry), and the note goes.

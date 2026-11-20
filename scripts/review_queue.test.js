@@ -4,7 +4,7 @@ import { openDb } from '../src/db.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { REVIEW_ROLE, addNote, copyReviewNotesToEvals, createItem, markBacklogRead, markRead, nudgeAssignees as nudge, resolveItem, reviewBoard, reviewCount, reviewTeam, seedNoteReads, syncReviewNote } from '../src/lib/review_queue.js';
+import { REVIEW_ROLE, addNote, registerReviewQueue, copyReviewNotesToEvals, createItem, markBacklogRead, markRead, nudgeAssignees as nudge, resolveItem, reviewBoard, reviewCount, reviewTeam, seedNoteReads, syncReviewNote } from '../src/lib/review_queue.js';
 
 // openDb seeds Ray (1, lead), Ahan (2, scout), Ford (3, scout), Bobby (4, assigner), Alex (5, not on the review team).
 const RAY = { id: 1 }, AHAN = { id: 2 }, FORD = { id: 3 }, BOBBY = { id: 4 }, ALEX = { id: 5 };
@@ -406,4 +406,36 @@ test('notes written before read marks are given their kind and all count as read
   assert.equal(unread(db, AHAN).length, 3);
   markBacklogRead(db, db.get("SELECT datetime('now', '-1 day') AS t").t);
   assert.deepEqual([unread(db, AHAN), unread(db, FORD), unread(db, RAY)], [[old], [old], []], 'only the note written since is still new');
+});
+
+test('an NCAA player is assigned to Ahan only: Ford is bypassed, whoever assigns him', (t) => {
+  const db = setup(t);
+  db.run("UPDATE players SET league = 'NCAA' WHERE id IN (1, 2)");
+  const who = (id) => db.all('SELECT user_id FROM review_assignees WHERE item_id = ? ORDER BY user_id', id).map((r) => r.user_id);
+  const college = createItem(db, RAY, { kind: 'assignment', player_id: 1, note: 'Senior year film.' });
+  assert.deepEqual(who(college), [2]);
+  assert.deepEqual(who(createItem(db, BOBBY, { kind: 'assignment', player_id: 2 })), [2], 'Bobby too');
+  assert.deepEqual(who(createItem(db, RAY, { kind: 'assignment', player_id: 3 })), [2, 3], 'a pro player still goes to both');
+  assert.equal(reviewBoard(db, FORD).items.some((i) => i.id === college), false, 'Ford never sees it');
+  assert.equal(reviewBoard(db, RAY).items.find((i) => i.id === college).to_name, 'Ahan');
+  resolveItem(db, AHAN, college, { outcome: 'reviewed', verdict: 'pass', note: 'Ready for USL1.' });
+  assert.equal(db.get('SELECT status FROM review_items WHERE id = ?', college).status, 'reviewed', 'his answer alone settles it for Ray');
+  db.run('UPDATE users SET review_no_ncaa = 1 WHERE id = 2');
+  db.run("UPDATE players SET league = 'NCAA' WHERE id = 4");
+  assert.deepEqual(who(createItem(db, RAY, { kind: 'assignment', player_id: 4 })), [2, 3], 'if no scout would be left, both get him');
+});
+
+test('open NCAA assignments drop Ford once: one Ahan has answered goes to Ray, one he has not stays with him', (t) => {
+  const db = setup(t);
+  const answered = createItem(db, RAY, { kind: 'assignment', player_id: 1 });
+  const waiting = createItem(db, RAY, { kind: 'assignment', player_id: 2 });
+  const pro = createItem(db, RAY, { kind: 'assignment', player_id: 3 });
+  resolveItem(db, AHAN, answered, { outcome: 'reviewed', verdict: 'hold' });
+  db.run("UPDATE players SET league = 'NCAA' WHERE id IN (1, 2)"); // assigned before the bypass, to both scouts
+  db.run("DELETE FROM done_migrations WHERE name = 'review_ncaa_bypass_open_2026_11_19'");
+  registerReviewQueue(new Proxy({}, { get: () => () => {} }), { db });
+  const who = (id) => db.all('SELECT user_id, status FROM review_assignees WHERE item_id = ? ORDER BY user_id', id).map((r) => `${r.user_id}:${r.status}`);
+  assert.deepEqual([who(answered), who(waiting), who(pro)], [['2:reviewed'], ['2:open'], ['2:open', '3:open']]);
+  assert.deepEqual(statuses(db), ['assignment:reviewed', 'assignment:open', 'assignment:open']);
+  assert.equal(reviewCount(db, RAY), 1, 'the answered one now waits on Ray');
 });

@@ -1503,7 +1503,7 @@ async function renderPlayer(main, idArg) {
           <button type="button" class="btn sm ghost" id="mark-reviewed">Mark reviewed</button>
           ${reviewRole() ? `<button type="button" class="btn sm ghost" data-rv-player="watch">Watch</button>` : ""}
           ${reviewRole() === "scout" ? `<button type="button" class="btn sm ghost" data-rv-player="sb_review">Send to ${esc(reviewLead()?.name || "the lead")}</button>` : ""}
-          ${canAssign() ? `<button type="button" class="btn sm ghost" data-rv-player="assignment">${esc(assignLabel())}</button>` : ""}
+          ${canAssign() ? `<button type="button" class="btn sm ghost" data-rv-player="assignment">${esc(assignLabel(p))}</button>` : ""}
           ${S.me.is_admin ? `<button type="button" class="btn sm ghost danger" id="del-p">Delete</button>` : ""}
         </div>
       </div>
@@ -3937,8 +3937,8 @@ async function renderReview(main) {
   const sb = d.items.filter((i) => i.kind === "sb_review"), asg = d.items.filter((i) => i.kind === "assignment");
   const watch = d.items.filter((i) => i.kind === "watch" && open(i));
   const rows = (list, actions, always = false) => list.map((i) => reviewCard(i, actions(i), always)).join("");
-  const watchActions = () => [
-    ...(canAssign() ? [`<button type="button" class="btn sm" data-rv-assign="1">${esc(assignLabel())}</button>`] : []),
+  const watchActions = (i) => [
+    ...(canAssign() ? [`<button type="button" class="btn sm" data-rv-assign="1">${esc(assignLabel(S.byId.get(i.player_id)))}</button>`] : []),
     role === "scout" ? `<button type="button" class="btn sm" data-rv-send>Send to ${esc(leadName)}</button>` : "",
     `<button type="button" class="btn sm ghost" data-rv-resolve="removed" title="Remove from your watch list">Remove</button>`].join("");
   const myAnswer = (i) => i.assignees?.find((x) => x.user_id === S.me.id)?.status;
@@ -4089,14 +4089,19 @@ async function reviewCreate(kind, playerId, extra = {}) {
   toast(kind === "watch" ? "Added to your watch list" : kind === "sb_review" ? `Sent to ${reviewLead()?.name || "the lead"}` : "Assigned");
 }
 
-// Assignments always go to every scout (the server sees to that); the item and its thread are shared.
-const assignLabel = () => `Assign to ${reviewScouts().map((s) => s.name).join(" and ") || "the scouts"}`;
+// Assignments go to every scout (the server sees to that), but an NCAA player skips scouts who don't take college
+// players (Ford); the item and its thread are shared. Mirrors assignScouts in src/lib/review_queue.js.
+const assignScoutsFor = (p) => {
+  const takers = p && isNcaa(p) ? reviewScouts().filter((s) => !s.no_ncaa) : reviewScouts();
+  return takers.length ? takers : reviewScouts();
+};
+const assignLabel = (p) => `Assign to ${assignScoutsFor(p).map((s) => s.name).join(" and ") || "the scouts"}`;
 
 async function reviewSendDialog(p, kind, note = "") {
   const lead = reviewLead()?.name || "the lead";
   const v = await reviewDialog({ player: p.name, note,
     submit: kind === "watch" ? "Add" : kind === "sb_review" ? `Send to ${lead}` : "Assign",
-    title: kind === "watch" ? "Add to your watch list" : kind === "sb_review" ? `Send to ${lead} for a Short Board decision` : assignLabel(),
+    title: kind === "watch" ? "Add to your watch list" : kind === "sb_review" ? `Send to ${lead} for a Short Board decision` : assignLabel(p),
     noteLabel: kind === "assignment" ? "Why are you assigning him?" : kind === "sb_review" ? "Why should he go on the Short Board?" : "What to follow up on" });
   if (!v) return false;
   await reviewCreate(kind, p.id, { note: v.note || undefined });
@@ -4113,8 +4118,12 @@ function wireReview(root, d) {
       box.hidden = !results.length;
       box.innerHTML = results.map((p, i) => `<a href="#" data-pick="${p.id}" class="${i === hl ? "hl" : ""}">${photo(p)}<span class="ci">${nameWithMark(p)}<div class="csub">${esc([p.position, p.club, p.age].filter((x) => x != null && x !== "").join(" · "))}</div></span></a>`).join("");
     };
-    const pick = (p) => { picked = p; inp.value = p.name; results = []; draw(); $("#rv-note", form).focus(); };
+    // The assign button names who the picked player goes to (an NCAA player skips Ford).
+    const assignBtn = $('[data-rv-target="assignment"]', form);
+    const label = (p) => { if (assignBtn) assignBtn.textContent = assignLabel(p); };
+    const pick = (p) => { picked = p; inp.value = p.name; results = []; draw(); label(p); $("#rv-note", form).focus(); };
     inp.addEventListener("input", () => {
+      if (picked) label(null);
       picked = null;
       const q = inp.value.trim();
       results = q && !TM_LINK.test(q) ? S.players.filter((p) => matchText(p, q)).slice(0, 8) : [];

@@ -4,8 +4,8 @@
 //   sb_review   a scout asks the lead whether a player goes on the Short Board: the lead adds him (picking the
 //               role) or says not for now. The scout who sent it can withdraw it while it waits: it leaves the
 //               lead's queue, the Review tab and Activity, as if never sent
-//   assignment  the lead (or an assigner: users.review_assigner) asks the scouts to review a player. It always goes to every scout: one item and note
-//               thread they share, each scout reviewing (optionally with a verdict) or declining on their own
+//   assignment  the lead (or an assigner: users.review_assigner) asks the scouts to review a player. It goes to every scout (an NCAA
+//               player skips scouts flagged users.review_no_ncaa): one item and note thread they share, each scout reviewing (optionally with a verdict) or declining on their own
 //               (review_assignees); it settles once every scout has answered, and only then waits in the lead's
 //               Decisions beside the scouts' requests. His call closes it: Short Board, Big Board (add him, or move
 //               him if he's already on it), or not for now. Whoever has answered (or the lead) can nudge a scout
@@ -46,7 +46,17 @@ export const REVIEW_ROLE = "coalesce(review_role, CASE WHEN review_assigner = 1 
 const ASSIGNS = ["lead", "assigner"];
 
 export const reviewTeam = (db) =>
-  db.all(`SELECT id, name, ${REVIEW_ROLE} AS role FROM users WHERE ${REVIEW_ROLE} IS NOT NULL ORDER BY sort, id`);
+  db.all(`SELECT id, name, ${REVIEW_ROLE} AS role, review_no_ncaa AS no_ncaa FROM users WHERE ${REVIEW_ROLE} IS NOT NULL ORDER BY sort, id`);
+
+// A college player (Transfermarkt sync files them under the league "NCAA"); the front end's isNcaa is the same test.
+export const isCollege = (p) => /\bncaa\b/i.test(p?.league || "");
+// The scouts an assignment of this player goes to: every scout, less those who don't take NCAA players when he's one
+// (all of them, if that would leave no one).
+export function assignScouts(team, player) {
+  const scouts = team.filter((u) => u.role === "scout");
+  const takers = isCollege(player) ? scouts.filter((u) => !u.no_ncaa) : scouts;
+  return takers.length ? takers : scouts;
+}
 
 function member(db, user) {
   const m = user && db.get(`SELECT id, name, ${REVIEW_ROLE} AS role FROM users WHERE id = ?`, user.id);
@@ -142,7 +152,7 @@ export function createItem(db, user, input) {
   const me = member(db, user);
   const kind = input?.kind;
   if (!KINDS.includes(kind)) fail(400, "Choose watch, sb_review or assignment");
-  const player = db.get("SELECT id, name FROM players WHERE id = ?", Number(input.player_id)) || fail(404, "Player not found");
+  const player = db.get("SELECT id, name, league FROM players WHERE id = ?", Number(input.player_id)) || fail(404, "Player not found");
   const note = text(input.note, "Note");
   const team = reviewTeam(db);
   let to = null;
@@ -158,8 +168,9 @@ export function createItem(db, user, input) {
   let scouts = [];
   if (kind === "assignment") {
     if (!ASSIGNS.includes(me.role)) fail(403, "Only the review lead or an assigner assigns players");
-    // Every scout, whatever the request names: a page open since before shared assignments still sends one scout.
-    scouts = team.filter((u) => u.role === "scout");
+    // Every scout (less any who skip NCAA players, for a college player), whatever the request names: a page open
+    // since before shared assignments still sends one scout.
+    scouts = assignScouts(team, player);
     if (!scouts.length) fail(400, "No one is set as a review scout");
     if (db.get("SELECT 1 FROM review_items WHERE kind = 'assignment' AND status = 'open' AND player_id = ?", player.id))
       fail(409, `${player.name} is already out for review`);
@@ -384,6 +395,27 @@ export function registerReviewQueue(app, { db }) {
     for (const s of db.all("SELECT player_id, status, resolved_by, resolved_at FROM review_items WHERE kind = 'sb_review' AND status IN ('added_sb', 'not_sb') ORDER BY resolved_at")) {
       db.run(`UPDATE review_items SET status = ?, resolved_by = ?, resolved_at = ? WHERE kind = 'assignment' AND player_id = ?
         AND status IN ('open', 'reviewed', 'declined') AND created_at <= ?`, s.status, s.resolved_by, s.resolved_at, s.player_id, s.resolved_at);
+    }
+  });
+  // Ford is bypassed on NCAA players (2026-11-19): open assignments of them drop scouts who skip college players and
+  // haven't answered; one whose other scouts have all answered settles and goes to the lead (Pablo Pozos, with Ahan
+  // reviewed, did).
+  db.once("review_ncaa_bypass_open_2026_11_19", () => {
+    const open = db.all(`SELECT i.id, p.league FROM review_items i JOIN players p ON p.id = i.player_id
+      WHERE i.kind = 'assignment' AND i.status = 'open'`).filter(isCollege);
+    const skip = new Set(db.all("SELECT id FROM users WHERE review_no_ncaa = 1").map((u) => u.id));
+    for (const it of open) {
+      const left = assigneesOf(db, it.id);
+      const keep = left.filter((a) => !(skip.has(a.user_id) && a.status === "open"));
+      if (!keep.length || keep.length === left.length) continue;
+      db.tx(() => {
+        for (const a of left) if (!keep.includes(a)) db.run("DELETE FROM review_assignees WHERE item_id = ? AND user_id = ?", it.id, a.user_id);
+        if (!keep.some((a) => a.status === "open")) {
+          const last = keep.filter((a) => a.resolved_at).sort((a, b) => (a.resolved_at < b.resolved_at ? -1 : 1)).at(-1);
+          db.run("UPDATE review_items SET status = ?, resolved_by = ?, resolved_at = ? WHERE id = ?",
+            keep.some((a) => a.status === "reviewed") ? "reviewed" : "declined", last?.user_id ?? null, last?.resolved_at ?? null, it.id);
+        }
+      });
     }
   });
   // Ahan withdrew his Short Board request on Lukas Kamrath (asked 2026-11-08, before scouts could withdraw in the app).
