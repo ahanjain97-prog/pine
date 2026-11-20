@@ -424,6 +424,18 @@ export function registerReviewQueue(app, { db }) {
       WHERE i.kind = 'sb_review' AND i.status = 'open' AND p.name = 'Lukas Kamrath' AND u.name = 'Ahan'`);
     if (it) resolveItem(db, { id: it.from_user }, it.id, { outcome: "removed" });
   });
+  // Jack Clarkson's assignment had waited on the lead since both scouts reviewed him (2026-11-11); Ahan asked
+  // (2026-11-19) for it to leave the War Room. Withdrawn, not decided: no Short Board call is recorded for Ray.
+  db.once("withdraw_clarkson_assignment_2026_11_19", () => {
+    const it = db.get(`SELECT i.id, i.player_id FROM review_items i JOIN players p ON p.id = i.player_id
+      WHERE i.kind = 'assignment' AND i.status IN ('open', 'reviewed', 'declined') AND p.name = 'Jack Clarkson'`);
+    const ahan = db.get("SELECT id FROM users WHERE name = 'Ahan'");
+    if (!it || !ahan) return;
+    db.tx(() => {
+      db.run("UPDATE review_items SET status = 'removed', resolved_by = ?, resolved_at = datetime('now') WHERE id = ?", ahan.id, it.id);
+      logActivity(db, ahan.id, it.player_id, "review_resolved", { kind: "assignment", outcome: "removed" });
+    });
+  });
   const actor = (c) => c.get("user") || fail(401, "Not signed in");
   app.get("/api/review", (c) => c.json(reviewBoard(db, actor(c))));
   app.post("/api/review/items", async (c) => {
