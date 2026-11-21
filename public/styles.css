@@ -6,6 +6,7 @@
   --none: #A9B0AB; --none-bg: #ECEEEC;
   --signed: #B91E79; --signed-bg: #FFF1F9; --signed-fill: #B91E79; --signed-ink: #FFFFFF;
   --pitch-a: #3B8A4C; --pitch-b: #429359; --pitch-line: rgba(255, 255, 255, .5); --pos-bg: rgba(255, 255, 255, .95);
+  --hop-navy: #141D33; --hop-cream: #D9CFBB; /* Hearts of Pine navy and cream, from the club site's theme */
   --b0: #DA3A3F; --b1: #EF9C9F; --b2: #9AA1AC; --b3: #7ED289; --b4: #39B15A;
   --pc-att: #A3192F; --pc-mid: #0B8599; --pc-def: #2D5BC8; --pc-gk: #7A47C2;
   --pc-att-ink: #FFFFFF; --pc-mid-ink: #FFFFFF; --pc-def-ink: #FFFFFF; --pc-gk-ink: #FFFFFF; /* text on each code pill */
@@ -228,6 +229,18 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .pcard.v-hold { border-left-color: var(--hold); background: color-mix(in srgb, var(--hold) 11%, var(--surface)); }
 .pcard.v-fail { border-left-color: var(--fail); background: color-mix(in srgb, var(--fail) 7%, var(--surface)); }
 .pcard.v-fail .nm { color: var(--muted); }
+/* Board cards (Big Board, Short Board, Roster) are club navy outlined in cream, in light and dark mode alike; they carry
+   dark-surface text and status colours so they read on navy. Signed cards keep their pink; the NCAA rows are untouched. */
+:is(.pitch:not(.npitch), .roster-unplaced) .pcard:not(.is-signed) { background: var(--hop-navy); color: var(--ink);
+  border-top-color: color-mix(in srgb, var(--hop-cream) 50%, var(--hop-navy)); border-right-color: color-mix(in srgb, var(--hop-cream) 50%, var(--hop-navy));
+  border-bottom-color: color-mix(in srgb, var(--hop-cream) 50%, var(--hop-navy));
+  --ink: #EEF1F6; --ink-2: #C3CAD6; --muted: #A3ACBD; --line-2: rgba(255, 255, 255, .16); --none-bg: rgba(255, 255, 255, .07);
+  --accent: var(--hop-cream); --pass: #3CC27A; --hold: #E6AF43; --fail: #EE6C61; }
+:is(.pitch:not(.npitch), .roster-unplaced) .pcard:not(.is-signed):hover { background: #1B2745;
+  border-top-color: var(--hop-cream); border-right-color: var(--hop-cream); border-bottom-color: var(--hop-cream); }
+:is(.pitch:not(.npitch), .roster-unplaced) .pcard.v-pass:not(.is-signed) { background: color-mix(in srgb, #3CC27A 14%, var(--hop-navy)); }
+:is(.pitch:not(.npitch), .roster-unplaced) .pcard.v-hold:not(.is-signed) { background: color-mix(in srgb, #E6AF43 14%, var(--hop-navy)); }
+:is(.pitch:not(.npitch), .roster-unplaced) .pcard.v-fail:not(.is-signed) { background: color-mix(in srgb, #EE6C61 10%, var(--hop-navy)); }
 .pcard.dragging { opacity: .4; }
 /* Shortlist star: dim on the card until hovered or set, so it doesn't compete with the name. */
 .pcard .star { flex: none; font-size: 14px; line-height: 1; color: var(--muted); opacity: 0; cursor: pointer; padding: 0 1px; }
