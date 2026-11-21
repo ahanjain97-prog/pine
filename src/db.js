@@ -132,6 +132,14 @@ CREATE TABLE IF NOT EXISTS ncaa_reports(
   year INTEGER, author TEXT, body TEXT
 );
 CREATE INDEX IF NOT EXISTS ncaa_reports_prospect ON ncaa_reports(prospect_key);
+-- College-database reports an admin deleted in PINE, by content, so the next import doesn't bring them back.
+CREATE TABLE IF NOT EXISTS ncaa_report_dismissed(
+  prospect_key TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  dismissed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  dismissed_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (prospect_key, fingerprint)
+);
 CREATE TABLE IF NOT EXISTS ncaa_board(
   player_id INTEGER PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
   position TEXT NOT NULL,

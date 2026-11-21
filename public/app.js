@@ -2172,7 +2172,9 @@ function wirePlayer(root, d) {
       }
       if (t.dataset.reportCancel !== undefined) return render();
       if (t.dataset.reportDel) {
-        if (!confirm("Delete this report? The player's grade is worked out again from the rest.")) return;
+        if (!confirm(t.dataset.imported
+          ? "Delete this college-database report from PINE? It won't come back when the college database is imported again. The player's grade is worked out again from the rest."
+          : "Delete this report? The player's grade is worked out again from the rest.")) return;
         await api("DELETE", `/api/college/reports/${t.dataset.reportDel}`);
         return await afterMutation();
       }
@@ -3399,22 +3401,26 @@ function collegeFacts(x) {
     ${fact("Where now", x.status)}
   </dl>`;
 }
-// Reports written in PINE (origin "pine") can be changed by their author or an admin; imported ones can't.
+// Reports written in PINE (origin "pine") can be changed by their author or an admin. Imported ones are edited in the
+// college database, but an admin can delete one here (later imports leave it out).
 const canEditReport = (r) => r.origin === "pine" && (r.created_by === S.me.id || S.me.is_admin);
-function reportHTML(r) {
+const canDeleteReport = (r) => canEditReport(r) || (r.origin !== "pine" && S.me.is_admin);
+function reportHTML(r, actions = true) {
   const when = r.dates?.length ? r.dates.join(", ") : r.year;
   const head = [when, r.match, r.source].filter((v) => v != null && v !== "").map((v) => esc(String(v))).join(" · ");
-  const edit = canEditReport(r) ? `<button type="button" class="btn link sm" data-report-edit="${r.id}">Edit</button><button type="button" class="btn link sm danger" data-report-del="${r.id}">Delete</button>` : "";
+  const edit = !actions ? "" : `${canEditReport(r) ? `<button type="button" class="btn link sm" data-report-edit="${r.id}">Edit</button>` : ""}${
+    canDeleteReport(r) ? `<button type="button" class="btn link sm danger" data-report-del="${r.id}" data-imported="${r.origin !== "pine" ? 1 : ""}">Delete</button>` : ""}`;
   return `<article class="report" data-report="${r.id}">
     <header class="report-h">${gradeBadge(r.grade)}<span class="report-t">${head || "Report"}</span>${r.class ? `<span class="chip">${esc(r.class)}</span>` : ""}${r.role_name ? `<span class="chip">${esc(r.role_name)}</span>` : ""}${r.author ? `<span class="muted sm">${esc(r.author)}${r.origin === "pine" ? " · PINE" : ""}</span>` : ""}${edit}</header>
     ${r.body ? `<div class="report-body">${esc(r.body)}</div>` : ""}
   </article>`;
 }
-function reportsHTML(reports, shown = 3) {
+// `actions` false: read-only (the college profile pop-up has no edit or delete handlers).
+function reportsHTML(reports, shown = 3, actions = true) {
   if (!reports.length) return `<p class="empty">No written reports.</p>`;
-  const rest = reports.slice(shown);
-  return `<div class="reports">${reports.slice(0, shown).map(reportHTML).join("")}</div>${rest.length
-    ? `<details class="more-reports"><summary>${rest.length} more report${rest.length === 1 ? "" : "s"}</summary><div class="reports">${rest.map(reportHTML).join("")}</div></details>` : ""}`;
+  const rest = reports.slice(shown), one = (r) => reportHTML(r, actions);
+  return `<div class="reports">${reports.slice(0, shown).map(one).join("")}</div>${rest.length
+    ? `<details class="more-reports"><summary>${rest.length} more report${rest.length === 1 ? "" : "s"}</summary><div class="reports">${rest.map(one).join("")}</div></details>` : ""}`;
 }
 
 // The college report form: on the player page (add / edit) and in Add player for college players. Grades are the
@@ -3447,7 +3453,7 @@ async function openProspect(key) {
     m.innerHTML = `<header class="m-h"><h2>${esc(x.name)}</h2>${gradeBadge(x.grade, "lg")}<button type="button" class="icon-btn" data-close aria-label="Close">×</button></header>
       ${collegeFacts(x)}
       <div class="row" style="margin:12px 0">${x.player_id ? `<a class="btn sm" href="#/player/${x.player_id}" data-close>Open PINE profile</a>` : `<span class="muted sm">Not in PINE: only players on the current college board are added.</span>`}</div>
-      ${reportsHTML(x.reports, 99)}`;
+      ${reportsHTML(x.reports, 99, false)}`;
   } catch (e) { m.innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
 }
 

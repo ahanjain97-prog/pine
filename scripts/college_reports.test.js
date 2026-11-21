@@ -70,3 +70,26 @@ test("PINE reports on an imported profile survive a re-import and count toward i
   assert.equal(p.grade, "B/B+");
   assert.equal(ncaaBoardView(db).info[1].class_now, "Senior", "class still follows the college database (Junior in 2025)");
 });
+
+test("an admin deletes a college-database report; it stays gone after the next import and the grade follows the rest", () => {
+  const { db, scout, boss } = setup();
+  const data = {
+    boards: { 2026: { p4: ["william lawson"] } },
+    players: [{ key: "william lawson", name: "William Lawson", class: "Junior", year: 2025, grade: "B/A", grade_present: "B", grade_future: "A", grade_val: 9,
+      reports: [
+        { year: 2025, grade: "B/A", grade_present: "B", grade_future: "A", class: "Junior", dates: ["9/1/2025"], body: "Outstanding. (AJ)" },
+        { year: 2025, grade: "C/C", grade_present: "C", grade_future: "C", class: "Junior", dates: ["10/1/2025"], body: "Ordinary game. (AJ)" },
+      ] }],
+  };
+  importCollege(db, data, { insertPlayer: () => 0 });
+  const best = db.get("SELECT id FROM ncaa_reports WHERE body LIKE 'Outstanding%'").id;
+  assert.throws(() => deleteCollegeReport(db, best, scout), /Only an admin/);
+  deleteCollegeReport(db, best, boss);
+  assert.deepEqual(prospectDetail(db, { playerId: 1 }).reports.map((r) => r.body), ["Ordinary game. (AJ)"]);
+  assert.equal(prospectDetail(db, { playerId: 1 }).grade, "C/C", "the grade is worked out from what is left");
+  importCollege(db, data, { insertPlayer: () => 0 });
+  const p = prospectDetail(db, { playerId: 1 });
+  assert.deepEqual(p.reports.map((r) => r.body), ["Ordinary game. (AJ)"], "the import leaves the deleted report out");
+  assert.equal(p.grade, "C/C");
+  assert.equal(p.origin, "college_db", "the imported profile stays even with its reports deleted");
+});

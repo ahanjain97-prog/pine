@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 // The NCAA section: the college scouting database (players, grades, reports and its position-ranked
 // boards), imported from the college-soccer-scouting repository's data.json, plus the NCAA board.
 //
@@ -214,7 +215,9 @@ export function importCollege(db, data, { insertPlayer }) {
       stats.prospects++;
 
       db.run("DELETE FROM ncaa_reports WHERE prospect_key = ? AND origin = 'college_db'", x.key); // PINE's own reports stay
+      const dismissed = new Set(db.all("SELECT fingerprint FROM ncaa_report_dismissed WHERE prospect_key = ?", x.key).map((d) => d.fingerprint));
       for (const r of Array.isArray(x.reports) ? x.reports : []) {
+        if (dismissed.has(reportFingerprint(r))) continue; // deleted in PINE by an admin
         db.run(`INSERT INTO ncaa_reports(prospect_key, dates, match, team, source, grade, grade_present, grade_future,
             role_code, role_name, position, year, author, body, class) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           x.key, JSON.stringify(r.dates || []), r.match ?? null, r.team ?? null, r.source ?? null, r.grade ?? null,
@@ -223,7 +226,7 @@ export function importCollege(db, data, { insertPlayer }) {
         stats.reports++;
       }
 
-      if (db.get("SELECT 1 FROM ncaa_reports WHERE prospect_key = ? AND origin = 'pine'", x.key)) recomputeProspect(db, x.key);
+      if (dismissed.size || db.get("SELECT 1 FROM ncaa_reports WHERE prospect_key = ? AND origin = 'pine'", x.key)) recomputeProspect(db, x.key);
       let playerId = existing?.player_id ?? null;
       if (!playerId && !existing?.no_link) { // "Not this player" turns name matching off for this prospect
         // An exact name may join a player already linked (the college database lists some players twice);
@@ -540,6 +543,12 @@ export function addCollegeReport(db, player, body, user) {
 }
 const cap = (s) => (s ? String(s)[0].toUpperCase() + String(s).slice(1) : s);
 
+// An imported report by what it says (dates, match, source, season, text), so a deleted one is known at the next import.
+export function reportFingerprint(r) {
+  const dates = typeof r.dates === "string" ? JSON.parse(r.dates || "[]") : r.dates || [];
+  return createHash("sha1").update(JSON.stringify([dates, r.match ?? null, r.source ?? null, Number.isFinite(r.year) ? r.year : null, r.body ?? null])).digest("hex");
+}
+
 // PINE reports only (imported ones belong to the college database), by their author or an admin.
 function ownReport(db, id, user) {
   const r = db.get("SELECT * FROM ncaa_reports WHERE id = ?", id);
@@ -559,7 +568,20 @@ export function updateCollegeReport(db, id, body, user) {
   });
   return r.prospect_key;
 }
+// A PINE report goes by its author or an admin. A college-database report goes by an admin only, and is remembered
+// so the next import leaves it out; the player's college grade is worked out again from what is left.
 export function deleteCollegeReport(db, id, user) {
+  const found = db.get("SELECT * FROM ncaa_reports WHERE id = ?", id);
+  if (found && found.origin !== "pine") {
+    if (!user.is_admin) throw Object.assign(new Error("Only an admin can delete a report from the college database"), { status: 403 });
+    db.tx(() => {
+      db.run("INSERT OR IGNORE INTO ncaa_report_dismissed(prospect_key, fingerprint, dismissed_by) VALUES (?,?,?)",
+        found.prospect_key, reportFingerprint(found), user.id);
+      db.run("DELETE FROM ncaa_reports WHERE id = ?", id);
+      recomputeProspect(db, found.prospect_key);
+    });
+    return found.prospect_key;
+  }
   const r = ownReport(db, id, user);
   db.tx(() => {
     db.run("DELETE FROM ncaa_reports WHERE id = ?", id);
