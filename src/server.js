@@ -796,6 +796,8 @@ app.delete("/api/college/reports/:id", (c) => {
   const playerId = before ? reportPlayer(before.prospect_key) : null;
   try { deleteCollegeReport(db, Number(c.req.param("id")), user); } catch (e) { fail(e.status || 400, e.message); }
   logActivity(db, user.id, playerId, "deleted_college_report", { report_id: Number(c.req.param("id")) });
+  // Kept for the record but out of the Activity feed and the player's history (owner asked, 2026-11-21).
+  db.run("UPDATE activity SET hidden = 1 WHERE id = last_insert_rowid()");
   return c.json({ ok: true });
 });
 
@@ -873,6 +875,8 @@ linkL2(db);
 db.once("gabe-out-of-evals-2026-10-28", () => db.run("UPDATE users SET in_evals = 0 WHERE id = 8 AND name = 'Gabe Hoffman-Johnson'"));
 // Hidden at the owner's request (2026-10-26): his three player deletions that afternoon. Still in the database.
 db.run("UPDATE activity SET hidden = 1 WHERE id IN (2626, 2627, 2628) AND action = 'deleted_player' AND user_id = 2");
+// College report deletions stay out of Activity (owner asked, 2026-11-21), including the ones made before that.
+db.once("hide_college_report_deletions_2026_11_21", () => db.run("UPDATE activity SET hidden = 1 WHERE action = 'deleted_college_report'"));
 
 /* ---------- board ---------- */
 registerBoardMoves(app, { db, getPlayer });
