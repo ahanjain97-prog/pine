@@ -439,3 +439,36 @@ test('open NCAA assignments drop Ford once: one Ahan has answered goes to Ray, o
   assert.deepEqual(statuses(db), ['assignment:reviewed', 'assignment:open', 'assignment:open']);
   assert.equal(reviewCount(db, RAY), 1, 'the answered one now waits on Ray');
 });
+
+test("the lead's decisions carry each scout's verdict and latest report; the scouts' boards don't", (t) => {
+  const db = setup(t);
+  const sent = createItem(db, AHAN, { kind: 'sb_review', player_id: 1, note: 'Best 9 we have seen this year.' });
+  db.run("INSERT INTO verdicts(player_id, user_id, verdict) VALUES (1, 2, 'pass'), (1, 3, 'hold')");
+  db.run("INSERT INTO notes(player_id, user_id, body, created_at) VALUES (1, 3, 'Good feet, worried about his pace.', datetime('now', '+1 minute'))");
+  const asg = createItem(db, RAY, { kind: 'assignment', player_id: 2 });
+  resolveItem(db, AHAN, asg, { outcome: 'reviewed', verdict: 'fail', note: 'Too slow for us.' });
+  resolveItem(db, FORD, asg, { outcome: 'declined' });
+  const byId = (id) => reviewBoard(db, RAY).items.find((i) => i.id === id);
+  const take = (id, name) => byId(id).takes.find((x) => x.name === name);
+  assert.equal(take(sent, 'Ahan').verdict, 'pass');
+  assert.equal(take(sent, 'Ahan').sent, true);
+  assert.equal(take(sent, 'Ahan').note.body, 'Best 9 we have seen this year.');
+  assert.equal(take(sent, 'Ford').verdict, 'hold', 'a scout with a verdict has a place even if he did not send it');
+  assert.equal(take(sent, 'Ford').note.body, 'Good feet, worried about his pace.');
+  assert.deepEqual([take(asg, 'Ahan').verdict, take(asg, 'Ahan').note.body, take(asg, 'Ford').answer, take(asg, 'Ford').note], ['fail', 'Too slow for us.', 'declined', null]);
+  assert.equal(reviewBoard(db, AHAN).items.some((i) => i.takes), false);
+  createItem(db, AHAN, { kind: 'sb_review', player_id: 3 });
+  assert.deepEqual(reviewBoard(db, RAY).items.find((i) => i.player_id === 3).takes.map((x) => x.name), ['Ahan'], 'a scout with nothing on him and no part in it is left out');
+});
+
+test("a scout's college report written in PINE shows when it is newer than their Staff reports", (t) => {
+  const db = setup(t);
+  db.run("INSERT INTO ncaa_prospects(key, name, player_id) VALUES ('p1', 'Example 1', 1)");
+  db.run("INSERT INTO notes(player_id, user_id, body, created_at) VALUES (1, 2, 'Old staff note.', datetime('now', '-3 days'))");
+  db.run("INSERT INTO ncaa_reports(prospect_key, body, grade, source, origin, created_by, created_at) VALUES ('p1', 'Senior film: dominant in the air.', 'B/A', 'Video', 'pine', 2, datetime('now', '-1 day'))");
+  const id = createItem(db, AHAN, { kind: 'sb_review', player_id: 1 });
+  const take = reviewBoard(db, RAY).items.find((i) => i.id === id).takes.find((x) => x.name === 'Ahan');
+  assert.equal(take.note.body, 'Senior film: dominant in the air.');
+  assert.equal(take.note.context, 'College report · B/A · Video');
+  assert.equal(take.reports, 2);
+});

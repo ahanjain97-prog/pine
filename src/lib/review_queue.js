@@ -336,13 +336,43 @@ export function reviewBoard(db, user) {
       resolved_by_name: r.resolved_by ? name(r.resolved_by) : null, notes: thread, ask_note_id: ask,
       unread: r.kind === "watch" ? [] : thread.filter((n) => fresh.has(n.id)).map((n) => n.id) };
   });
-  // Players every scout has passed, not on the Short Board, and never sent up (or decided) before.
   const scouts = team.filter((u) => u.role === "scout");
+  // What the lead decides on carries each scout's take on the player: their verdict and their latest Staff report
+  // (War Room notes are copied there, so it is usually the note they sent or reviewed with), shown in full on the row.
+  if (me.role === "lead") {
+    for (const it of items) if ((it.kind === "sb_review" && it.status === "open") || it.awaiting_lead) it.takes = scoutTakes(db, scouts, it);
+  }
+  // Players every scout has passed, not on the Short Board, and never sent up (or decided) before.
   const suggestions = me.role === "scout" && scouts.length >= 2 ? db.all(`SELECT p.id AS player_id FROM players p
     WHERE ${scouts.map(() => "EXISTS (SELECT 1 FROM verdicts v WHERE v.player_id = p.id AND v.user_id = ? AND v.verdict = 'pass')").join(" AND ")}
       AND NOT EXISTS (SELECT 1 FROM board_entries b WHERE b.player_id = p.id AND b.shortlist = 1)
       AND NOT EXISTS (SELECT 1 FROM review_items r WHERE r.player_id = p.id AND r.kind = 'sb_review')`, ...scouts.map((u) => u.id)).map((r) => r.player_id) : [];
   return { me, team, items, suggestions };
+}
+
+// Each scout's verdict and latest Staff report on an item's player. A scout who sent it or was assigned it always
+// has a place (even with nothing written yet); anyone else only once they have a verdict or a report.
+function scoutTakes(db, scouts, item) {
+  const involved = new Set([item.from_user, ...(item.assignees || []).map((a) => a.user_id)]);
+  return scouts.map((u) => {
+    const v = db.get("SELECT verdict, updated_at FROM verdicts WHERE player_id = ? AND user_id = ?", item.player_id, u.id);
+    const staff = db.get(`SELECT id, body, context, created_at, updated_at, review_note_id FROM notes WHERE player_id = ? AND user_id = ?
+      ORDER BY created_at DESC, id DESC LIMIT 1`, item.player_id, u.id);
+    // College reports written in PINE count too (an NCAA player's write-up lives there, not in Staff reports).
+    const college = db.get(`SELECT r.id, r.body, r.grade, r.source, r.created_at FROM ncaa_reports r JOIN ncaa_prospects np ON np.key = r.prospect_key
+      WHERE np.player_id = ? AND r.origin = 'pine' AND r.created_by = ? AND r.created_at IS NOT NULL ORDER BY r.created_at DESC, r.id DESC LIMIT 1`, item.player_id, u.id);
+    const n = college && (!staff || college.created_at > staff.created_at)
+      ? { body: college.body || "", created_at: college.created_at, review_note_id: null,
+        context: ["College report", college.grade, college.source].filter(Boolean).join(" · ") }
+      : staff;
+    const reports = db.get("SELECT count(*) AS n FROM notes WHERE player_id = ? AND user_id = ?", item.player_id, u.id).n
+      + db.get(`SELECT count(DISTINCT r.id) AS n FROM ncaa_reports r JOIN ncaa_prospects np ON np.key = r.prospect_key
+        WHERE np.player_id = ? AND r.origin = 'pine' AND r.created_by = ?`, item.player_id, u.id).n;
+    const answer = (item.assignees || []).find((a) => a.user_id === u.id)?.status ?? null;
+    if (!v && !n && !involved.has(u.id)) return null;
+    return { user_id: u.id, name: u.name, verdict: v?.verdict ?? null, verdict_at: v?.updated_at ?? null, answer,
+      sent: item.kind === "sb_review" && item.from_user === u.id, note: n || null, reports };
+  }).filter(Boolean);
 }
 
 // How many open items are waiting on this member (the War Room badge). Notes new to him aren't counted: they have

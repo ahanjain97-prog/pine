@@ -1043,6 +1043,21 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
 .rv-new { font-size: 11.5px; font-weight: 700; padding: 1px 8px; border-radius: 10px; color: var(--hold); background: var(--hold-bg); border: 1px solid color-mix(in srgb, var(--hold) 55%, transparent); }
 .rv-notes li.new { box-shadow: inset 3px 0 0 var(--hold); background: var(--hold-bg); }
 .rv-ask { color: var(--ink-2); }
+/* The scouts' takes on a player waiting for the lead: one card each, verdict and report in full. */
+.rv-takes { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; margin-top: 4px; }
+.rv-take { background: var(--surface-2); border: 1px solid var(--line); border-left: 4px solid var(--none); border-radius: 9px; padding: 10px 12px 9px; min-width: 0; }
+.rv-take.v-pass { border-left-color: var(--pass); } .rv-take.v-hold { border-left-color: var(--hold); } .rv-take.v-fail { border-left-color: var(--fail); }
+.rv-take-h { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; font-size: 13.5px; }
+.rv-take-tag { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+.rv-take-body { margin: 7px 0 6px; font-size: 13.5px; line-height: 1.5; white-space: pre-line; overflow-wrap: anywhere; }
+.rv-take-body.clamp { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.rv-take.open .rv-take-body.clamp { display: block; }
+.rv-take-f { font-size: 11.5px; }
+.rv-take-f .btn.link { padding: 0; font-size: 11.5px; }
+.rv-extras { grid-column: 1 / -1; list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.rv-extras li { font-size: 13px; line-height: 1.45; background: var(--surface-2); border-radius: 7px; padding: 6px 10px; white-space: pre-line; overflow-wrap: anywhere; }
+.rv-extras li.new { box-shadow: inset 3px 0 0 var(--hold); background: var(--hold-bg); }
+.rv-extras .when { float: right; margin-left: 10px; font-size: 11.5px; color: var(--muted); }
 .rv-list-h { display: flex; justify-content: flex-end; padding: 0 0 6px; }
 .rv-asked { margin: 0 0 12px; padding: 8px 10px; border-left: 3px solid var(--line-2); background: var(--surface-2); border-radius: 0 7px 7px 0; font-size: 13px; white-space: pre-line; }
 .rv-note-form input { flex: 1; min-width: 0; }

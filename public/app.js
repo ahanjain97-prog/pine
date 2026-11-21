@@ -3861,6 +3861,35 @@ function reviewPlayerHead(p) {
 
 const rvWhen = (s) => `<span title="${esc(fmtDateTime(s))}">${esc(relTime(s))}</span>`;
 
+// For the lead's decisions: each scout's verdict and latest Staff report, side by side and in full, so he reads what
+// they think without opening the thread. A long report folds after a few lines.
+function reviewTakes(item) {
+  if (!item.takes?.length) return "";
+  const tag = (t) => t.sent ? "Sent him up" : t.answer === "declined" ? "Declined to review" : t.answer === "open" ? "Still to review" : "";
+  return `<div class="rv-takes">${item.takes.map((t) => {
+    const n = t.note, long = n && (n.body.length > 420 || n.body.split("\n").length > 6);
+    return `<section class="rv-take ${t.verdict ? "v-" + t.verdict : ""}">
+      <header class="rv-take-h"><b>${esc(t.user_id === S.me.id ? "You" : t.name)}</b>${t.verdict ? verdictChip(t.verdict) : `<span class="muted sm">No verdict</span>`}
+        ${tag(t) ? `<span class="rv-take-tag">${esc(tag(t))}</span>` : ""}</header>
+      ${n ? `<p class="rv-take-body ${long ? "clamp" : ""}">${esc(n.body)}</p>
+        <div class="rv-take-f muted">${n.context ? `${esc(n.context.replace(/^Review: /, ""))} · ` : ""}${rvWhen(n.created_at)}${
+          long ? ` · <button type="button" class="btn link" data-take-more>Show all</button>` : ""}${
+          t.reports > 1 ? ` · <a href="#/player/${item.player_id}">${t.reports - 1} earlier report${t.reports > 2 ? "s" : ""}</a>` : ""}</div>`
+        : `<p class="rv-take-body muted">No report written yet.</p>`}
+    </section>`;
+  }).join("")}</div>${reviewExtras(item)}`;
+}
+// Notes in the thread that the takes don't already show (replies, the lead's own note when assigning, a send note
+// since overtaken by a newer report), in full under the takes rather than folded away.
+function reviewExtras(item) {
+  const shown = new Set(item.takes.map((t) => t.note?.review_note_id).filter(Boolean));
+  const extra = item.notes.filter((n) => !shown.has(n.id));
+  if (!extra.length) return "";
+  const what = (n) => n.id === item.ask_note_id ? (item.kind === "assignment" ? "assigning" : "sending") : n.kind === "answer" ? "reviewing" : "replied";
+  return `<ol class="rv-extras">${extra.map((n) => `<li class="${item.unread?.includes(n.id) ? "new" : ""}"><b>${esc(n.user_id === S.me.id ? "You" : n.user_name)}, ${what(n)}:</b> ${esc(n.body)}
+    <span class="when">${rvWhen(n.created_at)}</span></li>`).join("")}</ol>`;
+}
+
 // One row per item: the player, where it came from and the latest note, the actions; the note thread folds open.
 function reviewCard(item, actions, always = false, openThread = false) {
   const p = S.byId.get(item.player_id);
@@ -3893,11 +3922,12 @@ function reviewCard(item, actions, always = false, openThread = false) {
       <div class="rv-route">${route} · ${rvWhen(item.created_at)}${settled ? ` <span class="dchip ${tone ? "v-" + tone : ""}">${esc(label)}</span>
         <span class="muted">${by ? `${by} · ` : ""}${rvWhen(item.resolved_at)}</span>` : ""}${
         fresh.length ? ` <span class="rv-new">New from ${esc(newFrom)}</span>` : ""}</div>
-      ${openThread ? "" /* the open thread below says it all */ : `${ask && ask !== last ? `<div class="rv-last rv-ask" title="${esc(ask.body)}"><b>${esc(who(ask))}, ${item.kind === "assignment" ? "assigning" : "sending"}:</b> ${esc(ask.body)}</div>` : ""}
+      ${openThread || item.takes?.length ? "" /* the open thread, or the takes below, say it all */ : `${ask && ask !== last ? `<div class="rv-last rv-ask" title="${esc(ask.body)}"><b>${esc(who(ask))}, ${item.kind === "assignment" ? "assigning" : "sending"}:</b> ${esc(ask.body)}</div>` : ""}
       ${last ? `<div class="rv-last" title="${esc(last.body)}"><b>${esc(who(last))}:</b> ${esc(last.body)}</div>` : `<div class="rv-last muted">No notes</div>`}`}
       ${answers}
     </div>
     <div class="rv-actions">${settled && !always ? "" : actions}${verdictDots(p.verdicts)}</div>
+    ${reviewTakes(item)}
     <details class="rv-thread" ${openThread ? "open" : ""}><summary>${item.notes.length ? `${item.notes.length} note${item.notes.length === 1 ? "" : "s"}` : "Add a note"}</summary>
       ${item.notes.length ? `<ol class="rv-notes">${item.notes.map((n) => `<li class="${fresh.includes(n) ? "new" : ""}"><b>${esc(n.user_name)}</b> ${esc(n.body)}<span class="when">${rvWhen(n.created_at)}${n.updated_at ? ` · edited ${rvWhen(n.updated_at)}` : ""}</span></li>`).join("")}</ol>` : ""}
       <form class="rv-note-form"><input name="body" maxlength="4000" placeholder="${item.notes.length ? "Reply…" : "Add a note…"}" aria-label="${item.notes.length ? "Reply" : "Add a note"}"><button class="btn sm" type="submit">${item.notes.length ? "Reply" : "Add"}</button></form>
@@ -4186,6 +4216,14 @@ function wireReview(root, d) {
     const body = f.elements.body.value.trim();
     if (!body) return;
     try { await api("POST", `/api/review/items/${f.closest("[data-item]").dataset.item}/notes`, { body }); await afterMutation(); } catch (err) { oops(err); }
+  });
+
+  // A long scout report on a decision row unfolds in place.
+  root.addEventListener("click", (e) => {
+    const more = e.target.closest("[data-take-more]");
+    if (!more) return;
+    const take = more.closest(".rv-take");
+    more.textContent = take.classList.toggle("open") ? "Show less" : "Show all";
   });
 
   root.addEventListener("click", async (e) => {
