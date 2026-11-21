@@ -1012,6 +1012,8 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
 .p-head.is-signed { border: 2px solid var(--signed); background: linear-gradient(115deg, var(--surface) 25%, var(--signed-bg)); }
 .pcard.is-signed, .nrow.past.is-signed { border-top-color: var(--signed); border-right-color: var(--signed); border-bottom-color: var(--signed);
   background: var(--signed-bg); box-shadow: 0 0 0 1px var(--signed); }
+/* With no verdict to show, the pink runs down the left edge too instead of the grey "no verdict" stripe. */
+.pcard.is-signed:not(.v-pass, .v-hold, .v-fail), .nrow.is-signed:not(.v-pass, .v-hold, .v-fail) { border-left-color: var(--signed); }
 .pcard.is-signed:hover, .nrow.past.is-signed:hover { box-shadow: 0 0 0 2px var(--signed); }
 .pcard.is-signed .nm { color: var(--ink); }
 /* A card needing review is flagged by its Review pill and the red "Last review" line only; the card itself stays plain. */
