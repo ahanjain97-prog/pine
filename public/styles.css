@@ -16,8 +16,10 @@
   --body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color-scheme: light;
 }
+/* Dark mode follows the system setting unless the top-bar switch picks one (html[data-theme]); every dark rule comes
+   twice: under the media query for system dark, and under [data-theme="dark"] when dark is picked by hand. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0E1411; --surface: #151D19; --surface-2: #1A241F; --line: #25302A; --line-2: #34413A;
     --ink: #E7EDE9; --ink-2: #B3BFB8; --muted: #86938B;
     --navy: #0D1F3B; --navy-2: #2A5698; --accent: #6FA2EE; --accent-ink: #0B1526;
@@ -30,6 +32,19 @@
     --shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 6px 18px rgba(0, 0, 0, .3);
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #0E1411; --surface: #151D19; --surface-2: #1A241F; --line: #25302A; --line-2: #34413A;
+  --ink: #E7EDE9; --ink-2: #B3BFB8; --muted: #86938B;
+  --navy: #0D1F3B; --navy-2: #2A5698; --accent: #6FA2EE; --accent-ink: #0B1526;
+  --pass: #3CC27A; --pass-bg: rgba(60, 194, 122, .15); --hold: #E6AF43; --hold-bg: rgba(230, 175, 67, .15);
+  --fail: #EE6C61; --fail-bg: rgba(238, 108, 97, .15); --none: #66716B; --none-bg: rgba(255, 255, 255, .06);
+  --signed: #FF86CF; --signed-bg: #302031; --signed-fill: #F5A3D8; --signed-ink: #361426;
+  --pitch-a: #1F4A2A; --pitch-b: #245231; --pitch-line: rgba(255, 255, 255, .22); --pos-bg: rgba(21, 29, 25, .96);
+  --pc-att: #C8344B; --pc-mid: #4CC9DA; --pc-def: #86A8F6; --pc-gk: #B994F2;
+  --pc-att-ink: #FFFFFF; --pc-mid-ink: #0B1220; --pc-def-ink: #0B1220; --pc-gk-ink: #0B1220;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 6px 18px rgba(0, 0, 0, .3);
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -107,6 +122,11 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .brand svg { width: 26px; height: 26px; }
 /* hop-crest.png is versioned in its URL (?v=1): bump it if the file changes. */
 .club-crest { width: 31px; height: 36px; flex: none; }
+/* Light / dark switch in the top bar: a sun when dark (click for light), a moon when light. */
+.theme-btn { flex: none; width: 34px; height: 34px; display: inline-grid; place-items: center; border-radius: 8px; cursor: pointer;
+  background: transparent; color: rgba(255, 255, 255, .85); border: 1px solid rgba(255, 255, 255, .22); padding: 0; }
+.theme-btn:hover { background: rgba(255, 255, 255, .1); color: #fff; }
+.theme-btn svg { width: 17px; height: 17px; }
 .brand-divider { width: 1px; height: 28px; background: rgba(255, 255, 255, .25); flex: none; }
 .wordmark { font-family: var(--disp); font-weight: 700; font-size: 26px; letter-spacing: .08em; line-height: 1; }
 .tagline { font-size: 11px; color: rgba(255, 255, 255, .62); max-width: 120px; line-height: 1.15; }
@@ -238,6 +258,7 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
   --accent: var(--hop-cream); --pass: #3CC27A; --hold: #E6AF43; --fail: #EE6C61; }
 :is(.pitch:not(.npitch), .roster-unplaced) .pcard:not(.is-signed):hover { background: #1B2745;
   border-top-color: var(--hop-cream); border-right-color: var(--hop-cream); border-bottom-color: var(--hop-cream); }
+:is(.pitch:not(.npitch), .roster-unplaced) .pcard:not(.is-signed) .rank { color: color-mix(in srgb, var(--pc, var(--muted)) 55%, #fff); }
 :is(.pitch:not(.npitch), .roster-unplaced) .pcard.v-pass:not(.is-signed) { background: color-mix(in srgb, #3CC27A 14%, var(--hop-navy)); }
 :is(.pitch:not(.npitch), .roster-unplaced) .pcard.v-hold:not(.is-signed) { background: color-mix(in srgb, #E6AF43 14%, var(--hop-navy)); }
 :is(.pitch:not(.npitch), .roster-unplaced) .pcard.v-fail:not(.is-signed) { background: color-mix(in srgb, #EE6C61 10%, var(--hop-navy)); }
@@ -253,7 +274,8 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .ph { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; object-position: 50% 12%; background: var(--none-bg); flex: none; }
 .ph.ini { display: grid; place-items: center; font-size: 10.5px; font-weight: 700;
   background: hsl(var(--av, 220) 60% 88%); color: hsl(var(--av, 220) 45% 30%); }
-@media (prefers-color-scheme: dark) { .ph.ini { background: hsl(var(--av, 220) 32% 26%); color: hsl(var(--av, 220) 75% 84%); } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ph.ini { background: hsl(var(--av, 220) 32% 26%); color: hsl(var(--av, 220) 75% 84%); } }
+:root[data-theme="dark"] .ph.ini { background: hsl(var(--av, 220) 32% 26%); color: hsl(var(--av, 220) 75% 84%); }
 .ph.lg { width: 72px; height: 72px; font-size: 20px; }
 .ph.xl { width: 112px; height: 112px; font-size: 30px; border-radius: 14px; }
 .ci { min-width: 0; flex: 1; }
@@ -326,7 +348,8 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 
 /* NCAA page: its own look. College purple instead of the pitch, position columns grouped by line, plain rows. */
 .ncaa-page { --nc: #4a2380; --nc-ink: #ffffff; --nc-soft: #f4effc; --nc-line: #e6dcf6; }
-@media (prefers-color-scheme: dark) { .ncaa-page { --nc: #b99cf2; --nc-ink: #1a0f2e; --nc-soft: rgba(185, 156, 242, .08); --nc-line: rgba(185, 156, 242, .22); } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ncaa-page { --nc: #b99cf2; --nc-ink: #1a0f2e; --nc-soft: rgba(185, 156, 242, .08); --nc-line: rgba(185, 156, 242, .22); } }
+:root[data-theme="dark"] .ncaa-page { --nc: #b99cf2; --nc-ink: #1a0f2e; --nc-soft: rgba(185, 156, 242, .08); --nc-line: rgba(185, 156, 242, .22); }
 .nhero { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; padding: 20px 24px 22px; border-radius: 16px; color: #fff; margin-bottom: 14px;
   background: radial-gradient(120% 140% at 100% 0%, #6a3bb3 0%, rgba(106, 59, 179, 0) 55%), linear-gradient(120deg, #1e0d3d 0%, #34185f 60%, #45227d 100%);
   box-shadow: 0 10px 30px rgba(30, 13, 61, .25); }
@@ -349,7 +372,8 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .nnote { color: var(--muted); font-size: 12.5px; margin: 0 0 16px; }
 /* The board itself: the Big Board's pitch formation, striped in college purple, one ranked list per position. */
 .ncaa-page .npitch { --pitch-line: rgba(255, 255, 255, .28); background: repeating-linear-gradient(180deg, #3b2066 0 70px, #42246f 70px 140px); }
-@media (prefers-color-scheme: dark) { .ncaa-page .npitch { --pitch-line: rgba(255, 255, 255, .14); background: repeating-linear-gradient(180deg, #1f1436 0 70px, #24183d 70px 140px); } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ncaa-page .npitch { --pitch-line: rgba(255, 255, 255, .14); background: repeating-linear-gradient(180deg, #1f1436 0 70px, #24183d 70px 140px); } }
+:root[data-theme="dark"] .ncaa-page .npitch { --pitch-line: rgba(255, 255, 255, .14); background: repeating-linear-gradient(180deg, #1f1436 0 70px, #24183d 70px 140px); }
 .ncol { position: relative; z-index: 1; min-width: 0; background: var(--surface); border-radius: 12px; overflow: hidden;
   border-top: 3px solid var(--pc, var(--nc)); box-shadow: 0 4px 16px rgba(10, 4, 24, .28); }
 .ncol-h { display: flex; align-items: center; gap: 8px; padding: 9px 12px 8px; border-bottom: 1px solid var(--line); }
@@ -379,11 +403,13 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
   font-size: 10.5px; font-weight: 600; color: var(--ink-2); background: var(--nc-soft); border: 1px solid var(--nc-line); border-radius: 4px; padding: 2px 5px; }
 /* BB: on the Big Board, the college players the club is pursuing. Pine green, the club's colour. */
 .bbtag { flex: none; font-size: 9px; font-weight: 800; letter-spacing: .06em; line-height: 1; padding: 3px 5px; border-radius: 4px; color: #fff; background: var(--pine); }
-@media (prefers-color-scheme: dark) { .bbtag { background: #3a9a6b; color: #04140c; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .bbtag { background: #3a9a6b; color: #04140c; } }
+:root[data-theme="dark"] .bbtag { background: #3a9a6b; color: #04140c; }
 .ncaa-page .nrow.is-bb .nname { font-weight: 700; }
 .addbb { flex: none; font-size: 9.5px; font-weight: 700; line-height: 1; padding: 3px 5px; border-radius: 4px; cursor: pointer; white-space: nowrap;
   color: var(--pine); border: 1px dashed currentColor; opacity: 0; }
-@media (prefers-color-scheme: dark) { .addbb { color: #5cc08f; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .addbb { color: #5cc08f; } }
+:root[data-theme="dark"] .addbb { color: #5cc08f; }
 .ncaa-page .nrow:hover .addbb, .addbb:focus-visible { opacity: 1; }
 .addbb:hover { background: color-mix(in srgb, var(--pine) 12%, transparent); }
 .addbb.busy { opacity: .4; pointer-events: none; }
@@ -631,7 +657,8 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--accent);
 .newrpt { flex: none; display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; font-size: 10px; line-height: 1; font-weight: 700;
   color: #fff; background: var(--accent); cursor: help; }
 .newrpt.mine { background: var(--pine); }
-@media (prefers-color-scheme: dark) { .rtag.mine, .rtag.new.mine { background: #3a9a6b; border-color: #3a9a6b; color: #04140c; } .newrpt.mine { background: #3a9a6b; color: #04140c; } .rtag.new:not(.mine), .newrpt:not(.mine) { color: #0b1526; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .rtag.mine, :root:not([data-theme="light"]) .rtag.new.mine { background: #3a9a6b; border-color: #3a9a6b; color: #04140c; } :root:not([data-theme="light"]) .newrpt.mine { background: #3a9a6b; color: #04140c; } :root:not([data-theme="light"]) .rtag.new:not(.mine), :root:not([data-theme="light"]) .newrpt:not(.mine) { color: #0b1526; } }
+:root[data-theme="dark"] .rtag.mine, :root[data-theme="dark"] .rtag.new.mine { background: #3a9a6b; border-color: #3a9a6b; color: #04140c; } :root[data-theme="dark"] .newrpt.mine { background: #3a9a6b; color: #04140c; } :root[data-theme="dark"] .rtag.new:not(.mine), :root[data-theme="dark"] .newrpt:not(.mine) { color: #0b1526; }
 .act-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--ink-2); }
 @media (max-width: 680px) { .act-h { grid-template-columns: auto minmax(0, 1fr); } .act-badges, .act-meta { grid-column: 2; justify-content: flex-start; align-items: flex-start; } }
 
@@ -951,7 +978,8 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
 
 /* Player career: one compact row per season, fixture marks on a shared calendar. */
 .playing-time { --pt-team-0: var(--pine); --pt-team-1: var(--accent); --pt-team-2: #8576a8; --pt-team-3: #a27720; }
-@media (prefers-color-scheme: dark) { .playing-time { --pt-team-0: #70bea0; --pt-team-2: #bbacdf; --pt-team-3: #e1b75d; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .playing-time { --pt-team-0: #70bea0; --pt-team-2: #bbacdf; --pt-team-3: #e1b75d; } }
+:root[data-theme="dark"] .playing-time { --pt-team-0: #70bea0; --pt-team-2: #bbacdf; --pt-team-3: #e1b75d; }
 .playing-time .panel-h { gap: 8px; flex-wrap: wrap; }
 .pt-months { margin-left: 138px; margin-right: 78px; display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
 .pt-season { padding: 8px 0; border-bottom: 1px solid var(--line); }
@@ -1172,7 +1200,8 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
 .al-figure { margin: 25px 0; }
 .al-figure img { width: 100%; background: white; border-radius: 8px; }
 .al-figure figcaption { font-size: 11px; color: var(--muted); }
-@media (prefers-color-scheme: dark) { .al-eyebrow { color: #84b59a; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .al-eyebrow { color: #84b59a; } }
+:root[data-theme="dark"] .al-eyebrow { color: #84b59a; }
 @media (max-width: 1000px) {
   .al-page { padding: 28px 22px 60px; }
   .al-layout { grid-template-columns: 180px minmax(0, 1fr); gap: 22px; }
@@ -1208,7 +1237,8 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
 
 /* Two-player comparisons use Pine's panels, tabs and controls. Color and shape identify each player. */
 .cmp-page { --cmp-a: var(--accent); --cmp-b: color-mix(in srgb, var(--hold) 70%, var(--ink)); max-width: 1400px; }
-@media (prefers-color-scheme: dark) { .cmp-page { --cmp-b: var(--hold); } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .cmp-page { --cmp-b: var(--hold); } }
+:root[data-theme="dark"] .cmp-page { --cmp-b: var(--hold); }
 .cmp-0 { --cmp-color: var(--cmp-a); }
 .cmp-1 { --cmp-color: var(--cmp-b); }
 .cmp-heading { justify-content: space-between; margin-bottom: 18px; }

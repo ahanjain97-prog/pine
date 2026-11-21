@@ -365,6 +365,29 @@ async function showWelcome(token) {
 const welcomeToken = () => (location.hash.match(/^#\/welcome\/([\w-]+)/) || [])[1];
 
 /* ---------- shell + routing ---------- */
+/* ---------- light / dark ---------- */
+// The system setting decides until someone picks with the switch; the pick is kept in this browser.
+const THEME_KEY = "pine-theme";
+const systemDark = () => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+const themeNow = () => document.documentElement.dataset.theme || (systemDark() ? "dark" : "light");
+const SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>';
+const MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5a8.5 8.5 0 1 0 10.7 10.7z"/></svg>';
+function paintThemeButton() {
+  const b = $("#theme-btn");
+  if (!b) return;
+  const dark = themeNow() === "dark", label = dark ? "Switch to light mode" : "Switch to dark mode";
+  b.innerHTML = dark ? SUN : MOON;
+  b.title = label;
+  b.setAttribute("aria-label", label);
+}
+function toggleTheme() {
+  const next = themeNow() === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem(THEME_KEY, next); } catch { /* private window: it lasts for this visit */ }
+  paintThemeButton();
+}
+window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", paintThemeButton);
+
 function renderShell() {
   $("#app").innerHTML = `
   <header class="top">
@@ -388,6 +411,7 @@ function renderShell() {
     <div class="top-r">
       <div class="gsearch"><input id="gs" type="search" placeholder="Find a player  ( / )" autocomplete="off" aria-label="Find a player"><div class="gs-res" id="gs-res" hidden></div></div>
       <button class="btn primary" id="add-btn" type="button">+ Add player</button>
+      <button class="theme-btn" id="theme-btn" type="button"></button>
       ${S.config.auth === "off"
         ? `<label class="me" title="Notes, verdicts and changes are recorded under this name"><span class="avatar">${esc(S.me.name[0])}</span>
             <select id="act-as" aria-label="Acting as">${S.config.staff.map((s) => `<option value="${s.id}" ${s.id === S.me.id ? "selected" : ""}>${esc(s.name)}</option>`).join("")}</select></label>`
@@ -398,6 +422,8 @@ function renderShell() {
   <div class="update-pill" id="upd" hidden><button class="btn sm" type="button">New changes from staff · refresh</button></div>
   <main id="main"></main>`;
   $("#add-btn").addEventListener("click", () => openAddPlayer());
+  $("#theme-btn").addEventListener("click", toggleTheme);
+  paintThemeButton();
   $("#logout")?.addEventListener("click", async () => { try { await api("POST", "/api/auth/logout", {}); } catch {} showLogin(); });
   if (!S.meMenuWired) { // once: clicking anywhere else closes the account menu
     S.meMenuWired = true;
