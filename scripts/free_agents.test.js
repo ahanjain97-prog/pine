@@ -7,7 +7,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { openDb } from "../src/db.js";
-import { clubsAgree, entriesFromDecisions, linkFreeAgents, saveFreeAgents } from "../src/lib/free_agents.js";
+import { clubsAgree, entriesFromDecisions, freeAgentFor, freeAgentOverride, linkFreeAgents, saveFreeAgents } from "../src/lib/free_agents.js";
+import { mergePlayer } from "../src/lib/ncaa.js";
+import { tmSyncFields } from "../src/lib/tm_sync.js";
 import { parseCsv } from "./free-agents.mjs";
 
 // Made-up players in the research CSV's shape.
@@ -77,6 +79,42 @@ test("an upload replaces only the clubs it covers, keeps links when a club chang
   assert.throws(() => saveFreeAgents(db, { season: 2026, clubs: ["A FC"], entries: [entry("Zed", "A FC", "option_declined", { source_url: "javascript:alert(1)" })] }), /web link/);
 });
 
+test("Edit details can set it by hand: Yes without a list entry, No to hide one, never once he's signed", () => {
+  const listed = { reason: "option_declined", club: "Toronto FC II" };
+  assert.deepEqual(freeAgentFor({ free_agent_override: null }, listed), listed);
+  assert.equal(freeAgentFor({ free_agent_override: null }, null), null);
+  assert.deepEqual(freeAgentFor({ free_agent_override: 1 }, null), { manual: true });
+  assert.deepEqual(freeAgentFor({ free_agent_override: 1 }, listed), listed, "the release's details still show");
+  assert.equal(freeAgentFor({ free_agent_override: 0 }, listed), null);
+  assert.equal(freeAgentFor({ free_agent_override: 1, is_signed: true }, listed), null);
+  assert.deepEqual([freeAgentOverride(true), freeAgentOverride(false), freeAgentOverride(null)], [1, 0, null]);
+  for (const v of ["yes", 1, 0, undefined, {}]) assert.throws(() => freeAgentOverride(v), /Free agent/);
+});
+
+test("a Transfermarkt sync can't change the hand-set answer, and a college merge keeps it", () => {
+  assert.equal("free_agent_override" in tmSyncFields({ free_agent_override: 0, tm_overrides: [] }, { name: "Example", free_agent_override: 1 }), false);
+  const db = openDb(":memory:");
+  db.run("INSERT INTO players(id, name, free_agent_override) VALUES (1, 'Example', null), (2, 'Duplicate', 1), (3, 'Other', 0), (4, 'Other duplicate', 1)");
+  mergePlayer(db, 2, 1);
+  assert.equal(db.get("SELECT free_agent_override FROM players WHERE id = 1").free_agent_override, 1, "the duplicate's Yes carries over");
+  mergePlayer(db, 4, 3);
+  assert.equal(db.get("SELECT free_agent_override FROM players WHERE id = 3").free_agent_override, 0, "the kept profile's own answer wins");
+});
+
+test("a database from before the hand-set column gains it, empty", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pine-fa-col-")), file = join(dir, "pine.db");
+  try {
+    const old = openDb(file);
+    old.run("INSERT INTO players(id, name) VALUES (1, 'Example')");
+    old.raw.exec("ALTER TABLE players DROP COLUMN free_agent_override");
+    old.raw.close();
+    const db = openDb(file);
+    assert.equal(db.get("SELECT free_agent_override FROM players").free_agent_override, null);
+    assert.throws(() => db.run("UPDATE players SET free_agent_override = 2"), /CHECK/);
+    db.raw.close();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("the CSV reader handles quoted commas, quotes and newlines", () => {
   const rows = parseCsv('﻿club,player,decision,notes\r\nMNUFC2,Alan Declined,option_declined,"a, b ""c""\nnext line"\r\nX FC,,,\r\n');
   assert.deepEqual(rows, [{ club: "MNUFC2", player: "Alan Declined", decision: "option_declined", notes: 'a, b "c"\nnext line' }, { club: "X FC", player: "", decision: "", notes: "" }]);
@@ -86,6 +124,7 @@ test("HTTP: the worker uploads the list, players carry it, and it's hidden once 
   const dir = mkdtempSync(join(tmpdir(), "pine-free-agents-")), file = join(dir, "pine.db");
   const db = openDb(file);
   db.run("INSERT INTO players(id, name, club, league) VALUES (10001, 'Alan Declined', 'Toronto FC II', 'MLS Next Pro')");
+  db.run("INSERT INTO players(id, name, club, league) VALUES (10002, 'Manny Manual', 'Unlisted Town FC', 'USL1')");
   db.raw.close();
   const child = spawn(process.execPath, ["--import", "./scripts/fixtures/offline-fetch.mjs", "src/server.js"], {
     cwd: process.cwd(), env: { ...process.env, PINE_DB: file, PINE_AUTH: "off", PORT: "0",
@@ -111,6 +150,15 @@ test("HTTP: the worker uploads the list, players carry it, and it's hidden once 
   assert.deepEqual((await player()).free_agent, { reason: "option_declined", club: "Toronto FC II", announced: "2026-11-17", season: 2026, in_talks: 0, source_url: "https://example.com/release" });
   const everyone = (await (await call("/api/players")).json()).players;
   assert.equal(everyone.find((p) => p.id === 10001).free_agent.club, "Toronto FC II");
+  // By hand, in Edit details.
+  const edit = async (id, v) => { const r = await call(`/api/players/${id}`, "PATCH", { free_agent_override: v }); assert.equal(r.status, 200); return (await r.json()).player; };
+  const manny = await edit(10002, true);
+  assert.deepEqual([manny.free_agent, manny.free_agent_listed, manny.free_agent_override], [{ manual: true }, false, 1]);
+  assert.equal((await edit(10002, null)).free_agent, null);
+  const hidden = await edit(10001, false);
+  assert.deepEqual([hidden.free_agent, hidden.free_agent_listed], [null, true], "No hides a listed player; Auto would still say Yes");
+  assert.equal((await edit(10001, null)).free_agent.club, "Toronto FC II");
+  for (const v of ["yes", 1, 0, {}]) assert.equal((await call("/api/players/10001", "PATCH", { free_agent_override: v })).status, 400);
   assert.equal((await call("/api/players/10001/signing", "PUT", { signed: true })).status, 200);
   assert.equal((await player()).free_agent, null);
 });

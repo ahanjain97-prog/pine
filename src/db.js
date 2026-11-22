@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS players(
   tm_overrides TEXT NOT NULL DEFAULT '[]',
   roster_status TEXT CHECK (roster_status IN ('domestic','international')),
   long_throw_override INTEGER CHECK (long_throw_override IN (0,1)),
+  free_agent_override INTEGER CHECK (free_agent_override IN (0,1)),
   impect_id INTEGER UNIQUE, impect_squad TEXT, impect_competition TEXT,
   phys_keys TEXT NOT NULL DEFAULT '[]',
   phys_confirmed INTEGER NOT NULL DEFAULT 0,
@@ -309,6 +310,9 @@ export function openDb(file) {
   }
   if (!raw.prepare("PRAGMA table_info(players)").all().some((c) => c.name === "long_throw_override")) {
     raw.exec("ALTER TABLE players ADD COLUMN long_throw_override INTEGER CHECK (long_throw_override IN (0,1))");
+  }
+  if (!raw.prepare("PRAGMA table_info(players)").all().some((c) => c.name === "free_agent_override")) {
+    raw.exec("ALTER TABLE players ADD COLUMN free_agent_override INTEGER CHECK (free_agent_override IN (0,1))");
   }
   if (!raw.prepare("PRAGMA table_info(players)").all().some((c) => c.name === "is_signed")) {
     raw.exec("ALTER TABLE players ADD COLUMN is_signed INTEGER NOT NULL DEFAULT 0 CHECK (is_signed IN (0,1))");

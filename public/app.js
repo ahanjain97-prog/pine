@@ -694,7 +694,7 @@ function newReportMark(p) {
 const longThrowBadge = (p) => p.has_long_throw ? `<span class="long-throw" role="img" aria-label="Long throw" title="Long throw · Rory Delap"><img src="/rory-delap-long-throw.png?v=1" alt="" width="56" height="56" aria-hidden="true"></span>` : "";
 // Free agent: his club declined his option or let his contract run out at the end of the season (uploaded from the
 // clubs' own releases; see src/lib/free_agents.js).
-const faWhy = (f) => `${f.reason === "out_of_contract" ? `Out of contract at ${f.club}` : `Option declined by ${f.club}`}${f.announced ? ` (${fmtDate(f.announced)})` : ""}${f.in_talks ? " · still in talks with the club" : ""}`;
+const faWhy = (f) => f.manual ? "Set by hand in Edit details" : `${f.reason === "out_of_contract" ? `Out of contract at ${f.club}` : `Option declined by ${f.club}`}${f.announced ? ` (${fmtDate(f.announced)})` : ""}${f.in_talks ? " · still in talks with the club" : ""}`;
 const faBadge = (p) => p.free_agent ? `<span class="fa-mark" title="Free agent · ${esc(faWhy(p.free_agent))}" aria-label="Free agent">FA</span>` : "";
 const nameWithMark = (p, cls = "nm") => `<span class="name-line"><span class="${cls}">${esc(p.name)}</span>${longThrowBadge(p)}${faBadge(p)}${signedBadge(p)}${newReportMark(p)}</span>`;
 // Picked for a USL League Two Top Prospects report: "L2 '26", or "L2 '25 '26" for both years.
@@ -1145,13 +1145,19 @@ function openEditPlayer(p) {
         <option value="" ${p.long_throw_override == null ? "selected" : ""}>Auto: ${p.long_throw_detected ? "Yes" : "No"}</option>
         <option value="1" ${p.long_throw_override === 1 ? "selected" : ""}>Yes</option>
         <option value="0" ${p.long_throw_override === 0 ? "selected" : ""}>No</option>
-      </select><p class="hint">Yes or No overrides automatic detection. Auto: No means no qualifying throw has been observed.</p></div></div>
+      </select><p class="hint">Yes or No overrides automatic detection. Auto: No means no qualifying throw has been observed.</p></div>
+      <div><label class="lbl" for="ep-free_agent_override">Free agent</label><select id="ep-free_agent_override" name="free_agent_override">
+        <option value="" ${p.free_agent_override == null ? "selected" : ""}>Auto: ${p.free_agent_listed ? "Yes" : "No"}</option>
+        <option value="1" ${p.free_agent_override === 1 ? "selected" : ""}>Yes</option>
+        <option value="0" ${p.free_agent_override === 0 ? "selected" : ""}>No</option>
+      </select><p class="hint">Shows the FA tag by his name. Auto follows the clubs' end-of-season releases (option declined or out of contract); Yes or No overrides them.</p></div></div>
     <p class="hint" style="margin-top:10px">Roster status follows citizenship unless you pick Domestic or International, e.g. for a green-card holder.${p.tm_id ? " Manual changes are preserved when you sync from Transfermarkt later." : ""}</p>
     <div class="m-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>`, { wide: true });
   $("#ep", m).addEventListener("submit", async (e) => {
     e.preventDefault();
     const fields = Object.fromEntries(new FormData(e.target));
     fields.long_throw_override = fields.long_throw_override === "" ? null : fields.long_throw_override === "1";
+    fields.free_agent_override = fields.free_agent_override === "" ? null : fields.free_agent_override === "1";
     try { await api("PATCH", `/api/players/${p.id}`, fields); closeModal(); toast("Saved"); await afterMutation(); } catch (err) { oops(err); }
   });
 }
@@ -3593,7 +3599,8 @@ function describeMove(a, onPlayerPage = false) {
     case "linked_impect": return d.impect_id ? `linked ${who} to Impect` : `unlinked ${who} from Impect`;
     case "requested_card": return `requested a player card for ${who} (${esc(d.position)}, ${esc(d.season)} ${esc(d.competition)})`;
     case "edited_player": return `edited details for ${who}${d.long_throw && d.long_throw.previous !== d.long_throw.value
-      ? ` · long throw: ${d.long_throw.value == null ? "Auto" : d.long_throw.value ? "Yes" : "No"}` : ""}`;
+      ? ` · long throw: ${d.long_throw.value == null ? "Auto" : d.long_throw.value ? "Yes" : "No"}` : ""}${d.free_agent && d.free_agent.previous !== d.free_agent.value
+      ? ` · free agent: ${d.free_agent.value == null ? "Auto" : d.free_agent.value ? "Yes" : "No"}` : ""}`;
     case "deleted_player": return `deleted ${esc(d.name || "a player")}`;
     case "bulk_deleted_players": return `deleted ${d.count} players nobody had placed on the Big Board or NCAA board`;
     case "imported_list": return `imported the Impect list “${esc(d.name)}” (${d.created ?? 0} new)`;

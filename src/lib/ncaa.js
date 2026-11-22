@@ -294,6 +294,8 @@ export function mergePlayer(db, fromId, intoId) {
     // Preserve an explicit signing when an imported college duplicate is folded into the profile.
     db.run(`UPDATE players SET long_throw_override = coalesce(long_throw_override,
       (SELECT long_throw_override FROM players WHERE id = ?)) WHERE id = ?`, fromId, intoId);
+    db.run(`UPDATE players SET free_agent_override = coalesce(free_agent_override,
+      (SELECT free_agent_override FROM players WHERE id = ?)) WHERE id = ?`, fromId, intoId);
     db.run(`UPDATE players SET is_signed = 1,
       signed_by = (SELECT signed_by FROM players WHERE id = ?),
       signed_at = (SELECT signed_at FROM players WHERE id = ?)

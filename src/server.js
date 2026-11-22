@@ -43,7 +43,7 @@ import {
   ncaaSpot, ncaaSummary, ncaaYearBoard, pickCollegeTmMatch, prospectDetail, removeFromNcaaBoard, saveAgent, undoBigBoardAutoLink, unlinkProspect,
 } from "./lib/ncaa.js";
 import { linkL2, saveL2Report } from "./lib/l2.js";
-import { FREE_AGENT_SQL, linkFreeAgents, saveFreeAgents } from "./lib/free_agents.js";
+import { FREE_AGENT_SQL, freeAgentFor, freeAgentOverride, linkFreeAgents, saveFreeAgents } from "./lib/free_agents.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
 import { connectedDuplicate, connectionMergeProblem, mergeConnection, resolvePlayerId } from "./lib/player_connections.js";
@@ -145,7 +145,7 @@ const fail = (status, message, extra) => { throw new HttpError(status, message, 
 
 const EDITABLE = [
   "name", "birthdate", "birthplace", "height_cm", "foot", "position", "club", "league", "joined", "contract_expires",
-  "loan_from", "agent", "market_value_display", "national_team", "photo_url", "summary", "roster_status", "long_throw_override",
+  "loan_from", "agent", "market_value_display", "national_team", "photo_url", "summary", "roster_status", "long_throw_override", "free_agent_override",
 ];
 // Domestic/international is worked out from citizenship in the browser; roster_status pins it by hand
 // (green cards, or Transfermarkt getting citizenship wrong). Syncs never touch it.
@@ -182,8 +182,14 @@ function hydrate(p) {
   // The latest report anyone wrote on them (a staff note or a PINE college report): drives the "new report" mark.
   if ("last_report_json" in p) { p.last_report = p.last_report_json ? JSON.parse(p.last_report_json) : null; delete p.last_report_json; }
   if ("l2_json" in p) { p.l2 = JSON.parse(p.l2_json || "[]").sort((a, b) => b.year - a.year); delete p.l2_json; }
-  // Option declined or out of contract at the end of the season (not shown once he's signed to Hearts of Pine).
-  if ("free_agent_json" in p) { p.free_agent = p.free_agent_json && !p.is_signed ? JSON.parse(p.free_agent_json) : null; delete p.free_agent_json; }
+  // Option declined or out of contract at the end of the season, or set by hand in Edit details (not shown once
+  // he's signed to Hearts of Pine). free_agent_listed is what Auto means for him.
+  if ("free_agent_json" in p) {
+    const listed = p.free_agent_json ? JSON.parse(p.free_agent_json) : null;
+    p.free_agent_listed = Boolean(listed);
+    p.free_agent = freeAgentFor(p, listed);
+    delete p.free_agent_json;
+  }
   // The Roster page's position for a signed player (null for everyone else).
   p.roster_spot = rosterSpot(p);
   return p;
@@ -585,12 +591,14 @@ app.patch("/api/players/:id", async (c) => {
   if ("name" in fields && !String(fields.name || "").trim()) fail(400, "Name is required");
   if (fields.roster_status != null && !ROSTER_STATUSES.includes(fields.roster_status)) fail(400, "Roster status must be domestic or international");
   if ("long_throw_override" in fields) fields.long_throw_override = longThrowOverride(fields.long_throw_override);
+  if ("free_agent_override" in fields) fields.free_agent_override = freeAgentOverride(fields.free_agent_override);
   const edited = Object.keys(fields);
   fields.tm_overrides = manualTmOverrides(p, fields);
   db.tx(() => {
     updatePlayer(p.id, fields);
     logActivity(db, user.id, p.id, "edited_player", { fields: edited,
-      ...("long_throw_override" in fields ? { long_throw: { previous: p.long_throw_override, value: fields.long_throw_override } } : {}) });
+      ...("long_throw_override" in fields ? { long_throw: { previous: p.long_throw_override, value: fields.long_throw_override } } : {}),
+      ...("free_agent_override" in fields ? { free_agent: { previous: p.free_agent_override, value: fields.free_agent_override } } : {}) });
   });
   return c.json({ player: getPlayer(p.id) });
 });

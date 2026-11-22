@@ -53,6 +53,20 @@ export function entriesFromDecisions(rows) {
   return { entries, skipped };
 }
 
+// Edit details can set it by hand: Yes for someone no uploaded list covers, No to hide a listed player (say he
+// re-signed). null is Auto: follow the uploaded lists.
+export function freeAgentOverride(value) {
+  if (value === null) return null;
+  if (typeof value !== "boolean") throw Object.assign(new Error("Free agent must be true, false or null (Auto)"), { status: 400 });
+  return Number(value);
+}
+// What a player shows: nothing once he's signed to Hearts of Pine or set to No; otherwise his uploaded entry, or
+// { manual: true } when Yes was set by hand and no list has him.
+export function freeAgentFor(p, listed) {
+  if (p.is_signed || p.free_agent_override === 0) return null;
+  return listed || (p.free_agent_override === 1 ? { manual: true } : null);
+}
+
 // Checks an upload and replaces what's stored for the clubs it covers (so a later file with only the clubs that
 // have posted since leaves the others alone). Returns counts and the names not in PINE.
 export function saveFreeAgents(db, input) {
