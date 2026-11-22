@@ -669,7 +669,11 @@ function newReportMark(p) {
   return `<span class="newrpt ${mine ? "mine" : ""}" title="New report by ${esc(who)} · ${esc(relTime(r.at))}" aria-label="New report by ${esc(who)}">✎</span>`;
 }
 const longThrowBadge = (p) => p.has_long_throw ? `<span class="long-throw" role="img" aria-label="Long throw" title="Long throw · Rory Delap"><img src="/rory-delap-long-throw.png?v=1" alt="" width="56" height="56" aria-hidden="true"></span>` : "";
-const nameWithMark = (p, cls = "nm") => `<span class="name-line"><span class="${cls}">${esc(p.name)}</span>${longThrowBadge(p)}${signedBadge(p)}${newReportMark(p)}</span>`;
+// Free agent: his club declined his option or let his contract run out at the end of the season (uploaded from the
+// clubs' own releases; see src/lib/free_agents.js).
+const faWhy = (f) => `${f.reason === "out_of_contract" ? `Out of contract at ${f.club}` : `Option declined by ${f.club}`}${f.announced ? ` (${fmtDate(f.announced)})` : ""}${f.in_talks ? " · still in talks with the club" : ""}`;
+const faBadge = (p) => p.free_agent ? `<span class="fa-mark" title="Free agent · ${esc(faWhy(p.free_agent))}" aria-label="Free agent">FA</span>` : "";
+const nameWithMark = (p, cls = "nm") => `<span class="name-line"><span class="${cls}">${esc(p.name)}</span>${longThrowBadge(p)}${faBadge(p)}${signedBadge(p)}${newReportMark(p)}</span>`;
 // Picked for a USL League Two Top Prospects report: "L2 '26", or "L2 '25 '26" for both years.
 const L2_TIER = { First: "Best XI", Second: "Second XI", Third: "Third XI", Fourth: "Fourth XI", Fifth: "Fifth XI" };
 const l2Line = (e) => [e.year, L2_TIER[e.tier] || e.tier, e.position, e.club].filter(Boolean).join(" · ");
@@ -696,6 +700,7 @@ function legendHTML(ncaa = false, reviewAfterDays = null) {
       : item(`<span class="vdots"><i class="vdot v-pass"></i><i class="vdot v-hold"></i><i class="vdot"></i></span>`, "Staff verdicts, one dot per person (shown once anyone has one)")}
     ${item("★", "Top target: on the Short Board")}
     ${item(longThrowBadge({ has_long_throw: true }), "Long throw")}
+    ${item(faBadge({ free_agent: { reason: "option_declined", club: "his club" } }), "Free agent: his club declined his option or his contract ran out at the end of the season; hover for the club and date")}
     ${item(`<span class="roster dom">DOM</span><span class="roster intl">INTL</span>`, "Domestic or international (US citizenship, or set by hand)")}
     ${item(`<span class="roster unk">?</span>`, "Roster status not known yet: set it in Edit details")}
     ${ncaa ? item(`<span class="grade g-a">B/A</span>`, "College grade, now / ceiling, coloured by the ceiling (A green, B blue, C amber, D red)")
@@ -1498,7 +1503,7 @@ async function renderPlayer(main, idArg) {
     <section class="panel p-head ${p.is_signed ? "is-signed" : ""}">
       ${photo(p, "xl")}
       <div style="min-width:0">
-        <div class="p-name-row"><h1>${esc(p.name)}</h1>${longThrowBadge(p)}${p.shirt_number ? `<span class="shirt">#${p.shirt_number}</span>` : ""}${signedBadge(p, true)}${decisionChip(p.decision, true)}</div>
+        <div class="p-name-row"><h1>${esc(p.name)}</h1>${longThrowBadge(p)}${faBadge(p)}${p.shirt_number ? `<span class="shirt">#${p.shirt_number}</span>` : ""}${signedBadge(p, true)}${decisionChip(p.decision, true)}</div>
         <div class="p-sub">${p.club_logo_url ? `<img class="club-logo" src="${esc(p.club_logo_url)}" alt="">` : ""}${esc([p.position, p.club, p.league].filter(Boolean).join(" · "))}</div>
         <dl class="facts">
           ${fact("Age", p.age != null ? `${p.age} <span class="muted">(${esc(fmtDate(p.birthdate))})</span>` : null, true)}
@@ -1511,6 +1516,7 @@ async function renderPlayer(main, idArg) {
             : `<span class="warn">Unknown</span> <span class="muted">· set it in Edit details</span>`, true)}
           ${fact("USL L2 Top Prospects", p.l2?.length ? p.l2.map((e) => esc(l2Line(e))).join("<br>") : null, true)}
           ${fact("Other positions", p.other_positions.join(", "))}
+          ${fact("Free agent", p.free_agent ? `${esc(faWhy(p.free_agent))}${p.free_agent.source_url ? ` · <a href="${esc(p.free_agent.source_url)}" target="_blank" rel="noopener">club release</a>` : ""}` : null, true)}
           ${fact("Contract expires", p.contract_expires ? `<span class="${contractSoon(p.contract_expires) ? "warn" : ""}">${esc(fmtDate(p.contract_expires))}</span>` : null, true)}
           ${fact("Joined", fmtDate(p.joined))}
           ${fact("On loan from", p.loan_from)}
@@ -3493,7 +3499,7 @@ function ncaaBoardPanel(p, d) {
 /* ---------- activity + staff ---------- */
 // Who did it. The backup script downloads with its own key, not as a staff member.
 const actor = (a) => a.user || (a.action === "downloaded_backup" && /backup script/.test(a.detail || "") ? "Backup script"
-  : ["imported_college", "linked_big_board", "unlinked_big_board", "merged_player", "linked_tm", "synced_long_throws"].includes(a.action) ? "PINE" : "Someone");
+  : ["imported_college", "linked_big_board", "unlinked_big_board", "merged_player", "linked_tm", "synced_long_throws", "imported_free_agents"].includes(a.action) ? "PINE" : "Someone");
 
 function describe(a, onPlayerPage = false) {
   const move = describeMove(a, onPlayerPage);
@@ -3509,6 +3515,7 @@ function describeMove(a, onPlayerPage = false) {
   switch (a.action) {
     case "added_player": return `added ${who}${d.list ? ` from the Impect list “${esc(d.list)}”` : d.source === "transfermarkt" ? " from Transfermarkt" : d.source === "impect" ? " from Impect" : ""}`;
     case "synced_long_throws": return `updated long-throw flags`;
+    case "imported_free_agents": return `updated the end-of-season free agents: ${d.entries ?? 0} from ${d.clubs ?? 0} club${d.clubs === 1 ? "" : "s"}, ${d.in_pine ?? 0} in PINE`;
     case "imported_college": return `imported the college scouting database: ${d.prospects ?? 0} prospects, ${d.reports ?? 0} reports${d.created ? `, ${d.created} new player${d.created === 1 ? "" : "s"}` : ""}${d.boarded ? `, ${d.boarded} added to the NCAA board` : ""}${d.big_board ? `, ${d.big_board} added to the Big Board` : ""}`;
     case "merged_player": return `merged the college import “${esc(d.name)}” into ${who}, the same player already in PINE`;
     case "combined_profiles": return `combined a duplicate Transfermarkt profile into ${who}, keeping the connected data and board position`;

@@ -163,6 +163,19 @@ CREATE TABLE IF NOT EXISTS l2_prospects(
   PRIMARY KEY(year, name)
 );
 CREATE INDEX IF NOT EXISTS l2_prospects_player ON l2_prospects(player_id);
+-- End-of-season free agents (option declined / out of contract), uploaded by scripts/free-agents.mjs (never
+-- committed). See src/lib/free_agents.js.
+CREATE TABLE IF NOT EXISTS free_agents(
+  season INTEGER NOT NULL,
+  club TEXT NOT NULL,
+  name TEXT NOT NULL,
+  reason TEXT NOT NULL CHECK (reason IN ('option_declined', 'out_of_contract')),
+  announced TEXT, source_url TEXT,
+  in_talks INTEGER NOT NULL DEFAULT 0,
+  player_id INTEGER REFERENCES players(id) ON DELETE SET NULL,
+  PRIMARY KEY(season, club, name)
+);
+CREATE INDEX IF NOT EXISTS free_agents_player ON free_agents(player_id);
 -- One-time data changes already applied (db.once), so they never run twice.
 CREATE TABLE IF NOT EXISTS done_migrations(name TEXT PRIMARY KEY, at TEXT NOT NULL DEFAULT (datetime('now')));
 -- Taken off the NCAA board by staff: the Big Board sync and later imports don't put them back.

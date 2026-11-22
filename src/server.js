@@ -43,6 +43,7 @@ import {
   ncaaSpot, ncaaSummary, ncaaYearBoard, pickCollegeTmMatch, prospectDetail, removeFromNcaaBoard, saveAgent, undoBigBoardAutoLink, unlinkProspect,
 } from "./lib/ncaa.js";
 import { linkL2, saveL2Report } from "./lib/l2.js";
+import { FREE_AGENT_SQL, linkFreeAgents, saveFreeAgents } from "./lib/free_agents.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
 import { connectedDuplicate, connectionMergeProblem, mergeConnection, resolvePlayerId } from "./lib/player_connections.js";
@@ -179,6 +180,8 @@ function hydrate(p) {
   // The latest report anyone wrote on them (a staff note or a PINE college report): drives the "new report" mark.
   if ("last_report_json" in p) { p.last_report = p.last_report_json ? JSON.parse(p.last_report_json) : null; delete p.last_report_json; }
   if ("l2_json" in p) { p.l2 = JSON.parse(p.l2_json || "[]").sort((a, b) => b.year - a.year); delete p.l2_json; }
+  // Option declined or out of contract at the end of the season (not shown once he's signed to Hearts of Pine).
+  if ("free_agent_json" in p) { p.free_agent = p.free_agent_json && !p.is_signed ? JSON.parse(p.free_agent_json) : null; delete p.free_agent_json; }
   // The Roster page's position for a signed player (null for everyone else).
   p.roster_spot = rosterSpot(p);
   return p;
@@ -215,6 +218,7 @@ const PLAYER_SELECT = `
     (SELECT np.grade FROM ncaa_prospects np WHERE np.player_id = p.id ORDER BY np.year DESC LIMIT 1) AS college_grade,
     (SELECT json_group_array(json_object('year', l.year, 'tier', l.tier, 'position', l.position, 'club', l.club, 'status', l.status))
       FROM l2_prospects l WHERE l.player_id = p.id) AS l2_json,
+    ${FREE_AGENT_SQL},
     (SELECT json_group_array(DISTINCT a.user_id) FROM activity a
       WHERE a.player_id = p.id AND a.user_id IS NOT NULL AND a.action <> 'added_player') AS changed_by_json
   FROM players p`;
@@ -231,6 +235,7 @@ function insertPlayer(fields, userId, source) {
     ...vals, source, userId
   );
   linkL2(db); // a new player may be on a USL League Two Top Prospects report
+  linkFreeAgents(db); // ... or on a club's list of free agents
   return Number(r.lastInsertRowid);
 }
 
@@ -870,6 +875,16 @@ app.put("/api/worker/l2-prospects", bodyLimit({ maxSize: 1024 * 1024 }), async (
   return c.json({ ok: true, year: body.year, ...result });
 });
 linkL2(db);
+
+/* ---------- end-of-season free agents (see src/lib/free_agents.js) ---------- */
+app.put("/api/worker/free-agents", bodyLimit({ maxSize: 1024 * 1024 }), async (c) => {
+  const body = await c.req.json().catch(() => null);
+  let result;
+  try { result = saveFreeAgents(db, body); } catch (e) { fail(400, e.message); }
+  logActivity(db, null, null, "imported_free_agents", { season: result.season, clubs: result.clubs, entries: result.entries, in_pine: result.in_pine });
+  return c.json({ ok: true, ...result });
+});
+linkFreeAgents(db);
 
 // Left out of evaluations at the owner's request (2026-10-28): a staff account that has never signed in or written anything.
 db.once("gabe-out-of-evals-2026-10-28", () => db.run("UPDATE users SET in_evals = 0 WHERE id = 8 AND name = 'Gabe Hoffman-Johnson'"));
