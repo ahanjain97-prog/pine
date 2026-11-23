@@ -31,9 +31,27 @@ pending aggregate groups bounds memory if SQLite is unavailable; further new gro
 
 ## Read and compare
 
-Admins can open **Operations → Monitoring → Performance** to see the slowest p95 first, with sample counts,
-mean, approximate p50/p95, maximum and separate success/error rows. Filters select the current
-release (default), another observed release or all releases, and the last 24 hours, 7 or 14 days.
+Admins can open **Operations → Monitoring → Performance** for two charts:
+
+- **What's slowest?** Up to eight successful measurements, ordered by the approximate upper
+  bound within which 95% finish. Bars show that bound, with a marker for the typical (median)
+  timing. Names describe features rather than endpoint codes. Click a bar to select its trend.
+- **Is it getting better or worse?** Typical and slower timings by hour for the selected
+  measurement. Missing hours have gaps rather than zeros or connecting lines. A single hour
+  shows a point without implying a trend. Hourly values also have an accessible data table.
+
+The view selector separates staff experience (browser), server processing and database work;
+browser is the default, with a server fallback if browser observations have not arrived yet.
+Database time is included in server time; neither charts nor explanations add these stages.
+Success timings appear in charts, with failure counts/rates shown separately for the selected
+view. Sample sizes below 20 are labeled "few samples". Percentiles remain bucket upper bounds:
+equal bounds can hide smaller changes. No statistical significance or regression is inferred.
+
+Filters select the current release (default), another observed release or all releases, and
+the last 24 hours, 7 or 14 days. Hourly histograms from multiple releases are merged by sample
+counts before computing percentiles; their percentiles are never averaged. The original raw
+summary table, including all sources and error rows, remains under **Technical details**.
+
 The panel loads independently and Refresh reads the latest buffered server samples. No prior
 history is backfilled. The release hash includes all server/browser JavaScript, CSS and HTML,
 so fixes inside a backend helper also get a distinct version for comparison.

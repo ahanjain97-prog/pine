@@ -1,0 +1,68 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { hourlyTimings, slowestChart, trendChart, performanceCharts, buildTimingChart, metricLabel } from '../public/performance-charts.js';
+
+const esc = text => String(text).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+const limits = [50, 100, 500, 2000];
+const hour = Date.UTC(2026, 10, 23, 12);
+const row = (hour, count, buckets, extra = {}) => ({ hour, count, buckets, source: 'browser', metric: 'player', outcome: 'ok', ...extra });
+
+test('hourly chart recomputes weighted percentiles across releases and keeps stages/errors separate', () => {
+  const points = hourlyTimings([
+    row(hour, 100, [0, 100, 0, 0], { version: '1234abcd' }),
+    row(hour, 1, [0, 0, 0, 1], { version: 'abcdef12' }),
+    row(hour, 1000, [0, 0, 0, 1000], { source: 'server' }),
+    row(hour, 1000, [0, 0, 0, 1000], { outcome: 'error' }),
+    row(hour, 1000, [0, 0, 0, 1000], { metric: 'cards' }),
+    row(hour + 7200000, 1, [0, 0, 0, 1]),
+  ], limits, 'browser', 'player');
+  assert.deepEqual(points, [
+    { hour, count: 101, typical_ms: 100, slower_ms: 100 },
+    { hour: hour + 7200000, count: 1, typical_ms: 2000, slower_ms: 2000 },
+  ]);
+});
+
+test('time chart leaves missing hours disconnected, shows single hours, and does not invent zeros', () => {
+  const points = [0, 1, 3].map(n => ({ hour: hour + n * 3600000, count: 4, typical_ms: 100, slower_ms: 500 }));
+  const html = trendChart(points, { since: hour, end: hour + 4 * 3600000, label: 'Player details' }, esc);
+  assert.equal((html.match(/<polyline/g) || []).length, 4, 'two segments for each timing line');
+  assert.equal((html.match(/<circle/g) || []).length, 6, 'only observed hourly points');
+  assert.match(html, /Gaps mean no recorded/);
+  assert.match(html, /Hourly chart values/);
+  assert.ok(!html.includes('NaN'));
+  assert.match(trendChart([points[0]], { since: hour, end: hour + 3600000, label: 'Player details' }, esc), /Only one hour/);
+  assert.match(trendChart([], { since: hour }, esc), /No successful timings/);
+});
+
+test('slowest bars sort successful measurements within one stage and show sample counts', () => {
+  const item = (metric, p95, extra = {}) => ({ metric, source: 'browser', outcome: 'ok', count: 9,
+    mean_ms: 80, p50_upper_ms: 100, p95_upper_ms: p95, ...extra });
+  const html = slowestChart([item('player', 500), item('playing-time', 2000),
+    item('cards', 10000, { outcome: 'error' }), item('maps', 10000, { source: 'server' })], 'browser', 'player', esc);
+  assert.ok(html.indexOf('Playing-time stats') < html.indexOf('Player details'));
+  assert.ok(!html.includes('Scouting card list')); assert.ok(!html.includes('Pitch map list'));
+  assert.match(html, /9 samples · few samples/);
+  assert.match(html, /aria-pressed="true"/);
+});
+
+test('build chart keeps independent populations and distinguishes zero duration from no samples', () => {
+  const html = buildTimingChart([
+    { kind: 'cards', queue_samples: 3, mean_queue_ms: 0, build_samples: 2, mean_build_ms: 90000 },
+    { kind: 'maps', queue_samples: 0, mean_queue_ms: null, build_samples: 0, mean_build_ms: null },
+  ]);
+  assert.match(html, /0 ms/); assert.match(html, /1.5 min/);
+  assert.match(html, /3 starts/); assert.match(html, /2 completions/);
+  assert.match(html, /No samples/); assert.match(html, /different jobs/);
+  assert.ok(!html.includes('NaN'));
+  assert.match(buildTimingChart([]), /No starts or completions observed/);
+});
+
+test('plain labels and chart markup escape data; errors remain visible when there are no successes', () => {
+  assert.equal(metricLabel('player-render'), 'Player details · page opening');
+  const data = { summary: [{ metric: 'player', source: 'server', outcome: 'error', count: 3 }], rows: [], bucket_upper_ms: limits, since: hour };
+  assert.match(performanceCharts(data, 'server', '', esc), /3 failures \(100.0%\)/);
+  const malicious = '<img src=x onerror=alert(1)>';
+  const html = slowestChart([{ metric: malicious, source: 'browser', outcome: 'ok', count: 1, p50_upper_ms: 50, p95_upper_ms: 100 }], 'browser', malicious, esc);
+  assert.ok(!html.includes('<img')); assert.match(html, /&lt;img/);
+  assert.match(performanceCharts(data, 'database', '', esc), /do not add them together/);
+});
