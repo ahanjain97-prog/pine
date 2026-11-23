@@ -1,9 +1,14 @@
 // The War Room tab (#/war-room; code and tables keep the name "review"), for the review team (users.review_role): the
 // lead decides the Short Board, scouts send players up.
 //   watch       a member's own follow-up list (players added from the database or a Transfermarkt link)
-//   sb_review   a scout asks the lead whether a player goes on the Short Board: the lead adds him (picking the
-//               role) or says not for now. The scout who sent it can withdraw it while it waits: it leaves the
-//               lead's queue, the Review tab and Activity, as if never sent
+//   sb_review   a scout asks the lead whether a player goes on the Short Board, Pass or Hold on him himself. It goes
+//               first to the other scout (review_assignees; an NCAA player skips scouts flagged review_no_ncaa),
+//               who answers Pass, Hold or Fail: once both are Pass or Hold it goes on to the lead, and a Fail stops
+//               it there (status 'reviewed': it never reached the lead, who doesn't see it). Sent when the other
+//               scout is already Pass or Hold on him (or there's no one to ask), it goes straight to the lead; so do
+//               requests from before this step, which have no assignees. The lead adds him (picking the role) or
+//               says not for now. The scout who sent it can withdraw it while it waits: it leaves the queues, the
+//               Review tab and Activity, as if never sent
 //   assignment  the lead (or an assigner: users.review_assigner) asks the scouts to review a player. It goes to every scout (an NCAA
 //               player skips scouts flagged users.review_no_ncaa): one item and note thread they share, each scout reviewing (optionally with a verdict) or declining on their own
 //               (review_assignees); it settles once every scout has answered, and only then waits in the lead's
@@ -28,10 +33,11 @@ import { spotIn } from "./board.js";
 
 const KINDS = ["watch", "sb_review", "assignment"];
 const VERDICTS = ["pass", "hold", "fail"];
+const SENDS_UP = ["pass", "hold"]; // the verdicts that send a player on to the lead
 // The lead's call on a player: Short Board, Big Board (add, or move up/down if he's on it), or not for now. On any
 // request or assignment it settles every other open one on the same player.
 const DECISIONS_SB = ["added_sb", "added_bb", "moved_bb", "not_sb"];
-const OUTCOMES = { watch: ["removed"], sb_review: [...DECISIONS_SB, "removed"], assignment: ["reviewed", "declined", "removed", ...DECISIONS_SB] };
+const OUTCOMES = { watch: ["removed"], sb_review: [...DECISIONS_SB, "reviewed", "removed"], assignment: ["reviewed", "declined", "removed", ...DECISIONS_SB] };
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 const text = (value, name, required = false) => {
   if (value == null || value === "") { if (required) fail(400, `${name} is required`); return null; }
@@ -58,6 +64,15 @@ export function assignScouts(team, player) {
   return takers.length ? takers : scouts;
 }
 
+// The scouts a Short Board request goes to before the lead: the other scouts an assignment of him would go to, less
+// any already Pass or Hold on him. None: it goes straight to the lead.
+const verdictOf = (db, playerId, userId) => db.get("SELECT verdict FROM verdicts WHERE player_id = ? AND user_id = ?", playerId, userId)?.verdict ?? null;
+export const sbPeers = (db, team, player, me) =>
+  assignScouts(team, player).filter((u) => u.id !== me.id && !SENDS_UP.includes(verdictOf(db, player.id, u.id)));
+// A Short Board request still with the other scout (one has yet to answer); otherwise it's with the lead.
+const withPeer = (item) => item.kind === "sb_review" && item.status === "open" && (item.assignees || []).some((a) => a.status === "open");
+const WITH_LEAD = (alias) => `NOT EXISTS (SELECT 1 FROM review_assignees ra WHERE ra.item_id = ${alias}.id AND ra.status = 'open')`;
+
 function member(db, user) {
   const m = user && db.get(`SELECT id, name, ${REVIEW_ROLE} AS role FROM users WHERE id = ?`, user.id);
   if (!m?.role) fail(403, "The War Room is for the review team");
@@ -69,16 +84,23 @@ const assigneesOf = (db, itemId) => db.all(`SELECT a.user_id, u.name, a.status, 
 
 function itemRow(db, id) {
   const item = db.get("SELECT * FROM review_items WHERE id = ?", Number(id)) || fail(404, "Review item not found");
-  if (item.kind === "assignment") item.assignees = assigneesOf(db, item.id);
+  if (item.kind !== "watch") item.assignees = assigneesOf(db, item.id);
   return item;
 }
 
-// Who may see an item: the owner of a watch; the lead and every scout for a Short Board request (the scouts share
-// it); the lead, its scouts and whoever assigned it for an assignment.
+// Who may see an item: the owner of a watch; every scout for a Short Board request (the scouts share it), and the
+// lead once it has reached him (not while it's with the other scout, nor one stopped there); the lead, its scouts
+// and whoever assigned it for an assignment.
 function canSee(me, item) {
   if (item.kind === "watch") return item.from_user === me.id;
-  if (item.kind === "sb_review") return me.role !== "assigner";
+  if (item.kind === "sb_review") return me.role === "scout" || (me.role === "lead" && !withPeer(item) && item.status !== "reviewed");
   return me.role === "lead" || item.from_user === me.id || (item.assignees || []).some((a) => a.user_id === me.id);
+}
+
+function setVerdict(db, playerId, userId, verdict) {
+  db.run(`INSERT INTO verdicts(player_id, user_id, verdict) VALUES (?,?,?)
+    ON CONFLICT(player_id, user_id) DO UPDATE SET verdict = excluded.verdict, updated_at = datetime('now')`, playerId, userId, verdict);
+  logActivity(db, userId, playerId, "set_verdict", { verdict });
 }
 
 // A watch list is private: its entries are kept in the activity log but left out of the shared feed.
@@ -108,7 +130,7 @@ function evalContext(action, { to, verdict, role, spot } = {}) {
   const r = role && ROLES[role];
   return {
     assignment: `Review: asked ${to || "the scouts"} to review`,
-    sb_review: `Review: sent to ${to || "the lead"} for the Short Board`,
+    sb_review: `Review: sent to ${to || "the lead"} for the Short Board`, // "Ford, then Ray" when it goes to the other scout first
     reviewed: `Review: reviewed${verdict ? `, ${verdict[0].toUpperCase()}${verdict.slice(1)}` : ""}`,
     declined: "Review: declined to review",
     added_sb: `Review: put on the Short Board${r ? ` (${r.position} ${r.label})` : ""}`,
@@ -155,7 +177,7 @@ export function createItem(db, user, input) {
   const player = db.get("SELECT id, name, league FROM players WHERE id = ?", Number(input.player_id)) || fail(404, "Player not found");
   const note = text(input.note, "Note");
   const team = reviewTeam(db);
-  let to = null;
+  let to = null, peers = [], verdict = null;
   if (kind === "watch") {
     if (db.get("SELECT 1 FROM review_items WHERE kind = 'watch' AND status = 'open' AND player_id = ? AND from_user = ?", player.id, me.id))
       fail(409, `${player.name} is already on your watch list`);
@@ -163,7 +185,11 @@ export function createItem(db, user, input) {
     if (me.role !== "scout") fail(403, "Scouts send players up for a Short Board decision");
     to = team.find((u) => u.role === "lead") || fail(400, "No one is set as the review lead");
     if (db.get("SELECT 1 FROM review_items WHERE kind = 'sb_review' AND status = 'open' AND player_id = ?", player.id))
-      fail(409, `${player.name} is already waiting for a Short Board decision`);
+      fail(409, `${player.name} has already been sent up for a Short Board decision`);
+    // The sender is Pass or Hold on him: set with the request, or already. (A page open from before sends none.)
+    verdict = input.verdict ?? verdictOf(db, player.id, me.id);
+    if (!SENDS_UP.includes(verdict)) fail(400, "Choose Pass or Hold: players go up to the Short Board on Pass or Hold");
+    peers = sbPeers(db, team, player, me);
   }
   let scouts = [];
   if (kind === "assignment") {
@@ -175,37 +201,44 @@ export function createItem(db, user, input) {
     if (db.get("SELECT 1 FROM review_items WHERE kind = 'assignment' AND status = 'open' AND player_id = ?", player.id))
       fail(409, `${player.name} is already out for review`);
   }
+  const names = (list) => list.map((x) => x.name).join(" and ");
   return db.tx(() => {
+    if (kind === "sb_review" && verdictOf(db, player.id, me.id) !== verdict) setVerdict(db, player.id, me.id, verdict);
+    // A request keeps the lead as to_user while it's with the other scout: that's where it goes next.
     const id = Number(db.run("INSERT INTO review_items(player_id, kind, from_user, to_user) VALUES (?,?,?,?)",
       player.id, kind, me.id, to?.id ?? (scouts.length === 1 ? scouts[0].id : null)).lastInsertRowid);
-    for (const sc of scouts) db.run("INSERT INTO review_assignees(item_id, user_id) VALUES (?,?)", id, sc.id);
+    for (const sc of [...scouts, ...peers]) db.run("INSERT INTO review_assignees(item_id, user_id) VALUES (?,?)", id, sc.id);
+    const sentTo = peers.length ? names(peers) : to?.name ?? (names(scouts) || null);
     if (note) {
       const nid = addNoteRow(db, id, me.id, note, "ask");
       if (kind !== "watch") addEvalNote(db, { playerId: player.id, userId: me.id, reviewNoteId: nid, body: note,
-        context: evalContext(kind, { to: to?.name ?? scouts.map((x) => x.name).join(" and ") }) });
+        context: evalContext(kind, { to: peers.length ? `${sentTo}, then ${to.name},` : sentTo }) });
     }
-    logActivity(db, me.id, player.id, `review_${kind}`, { to: to?.name ?? (scouts.map((x) => x.name).join(" and ") || null), note, item: id });
+    logActivity(db, me.id, player.id, `review_${kind}`, { to: sentTo, ...(peers.length ? { lead: to.name } : {}), note, item: id });
     if (kind === "watch") hideLast(db);
     return id;
   });
 }
 
-// A withdrawn Short Board request: its Activity entries are hidden (the send, and the withdrawal just logged) and the
-// copy of its note in the sender's Staff reports goes, since it would say he was sent to the lead. The item and its
-// thread stay in the database.
+// A withdrawn Short Board request: its Activity entries are hidden (the send, the other scout's "on to the lead", and
+// the withdrawal just logged) and the copy of its note in the sender's Staff reports goes, since it would say he was
+// sent up. The other scout's verdict and report stay. The item and its thread stay in the database.
 function withdrawTraces(db, item) {
   hideLast(db);
+  db.run(`UPDATE activity SET hidden = 1 WHERE action = 'review_resolved' AND player_id = ? AND json_extract(detail, '$.kind') = 'sb_review'
+    AND json_extract(detail, '$.item') = ?`, item.player_id, item.id);
   db.run(`UPDATE activity SET hidden = 1 WHERE action = 'review_sb_review' AND player_id = ? AND user_id = ?
     AND (json_extract(detail, '$.item') = ? OR (json_extract(detail, '$.item') IS NULL
       AND abs(julianday(created_at) - julianday(?)) * 86400 <= 2))`, item.player_id, item.from_user, item.id, item.created_at);
   db.run("DELETE FROM notes WHERE review_note_id IN (SELECT id FROM review_notes WHERE item_id = ? AND user_id = ?)", item.id, item.from_user);
 }
 
-// A nudge to the scouts who haven't answered an assignment yet, from a scout who has (or the lead, or its assigner). It shows on their
-// row, which moves to the top of their list. A scout already nudged in the last 12 hours isn't nudged again.
+// A nudge to the scouts who haven't answered an assignment yet, from a scout who has (or the lead, or its assigner),
+// or on a Short Board request, from the scout who sent it. It shows on their row, which moves to the top of their
+// list. A scout already nudged in the last 12 hours isn't nudged again.
 export function nudgeAssignees(db, user, itemId) {
   const me = member(db, user), item = itemRow(db, itemId);
-  if (!canSee(me, item) || item.kind !== "assignment") fail(404, "Review item not found");
+  if (!canSee(me, item) || !item.assignees?.length) fail(404, "Review item not found");
   if (item.status !== "open") fail(409, "Everyone has answered this one");
   if (me.role !== "lead" && item.assignees.find((a) => a.user_id === me.id)?.status === "open") fail(409, "Answer it yourself first");
   const waiting = item.assignees.filter((a) => a.status === "open" && a.user_id !== me.id);
@@ -235,11 +268,20 @@ export function resolveItem(db, user, itemId, input) {
   if (item.status !== "open" && !(item.kind === "assignment" && decision && ["reviewed", "declined"].includes(item.status)))
     fail(409, "This has already been dealt with");
   if (!OUTCOMES[item.kind].includes(outcome)) fail(400, "Choose a valid outcome");
-  const note = text(input.note, "Note", outcome === "added_sb" || outcome === "added_bb");
+  const verdict = input.verdict ?? null;
+  // The other scout's answer on a Short Board request: Pass, Hold or Fail, and why when it's a Fail (it stops there).
+  const peerAnswer = item.kind === "sb_review" && outcome === "reviewed";
+  if (peerAnswer && !VERDICTS.includes(verdict)) fail(400, "Choose Pass, Hold or Fail");
+  const note = text(input.note, "Note", outcome === "added_sb" || outcome === "added_bb" || (peerAnswer && verdict === "fail"));
   if (item.kind === "watch" && item.from_user !== me.id) fail(403, "Only its owner changes a watch list");
   if (item.kind === "sb_review" && outcome === "removed" && item.from_user !== me.id) fail(403, "Only the scout who sent it withdraws a request");
-  if (item.kind === "sb_review" && outcome !== "removed" && me.role !== "lead") fail(403, "Only the review lead decides the Short Board");
-  const mine = item.kind === "assignment" && !decision && outcome !== "removed" ? item.assignees.find((a) => a.user_id === me.id) : null;
+  if (item.kind === "sb_review" && decision && me.role !== "lead") fail(403, "Only the review lead decides the Short Board");
+  if (item.kind === "sb_review" && decision && withPeer(item)) fail(409, "It's still with the other scout");
+  const mine = (item.kind === "assignment" && !decision && outcome !== "removed") || peerAnswer ? item.assignees.find((a) => a.user_id === me.id) : null;
+  if (peerAnswer) {
+    if (!mine) fail(403, item.from_user === me.id ? "You sent it: the other scout answers" : "Only the scout it was sent to answers this");
+    if (mine.status !== "open") fail(409, "You've already answered this one");
+  }
   if (item.kind === "assignment") {
     if (decision) {
       if (me.role !== "lead") fail(403, "Only the review lead decides the Short Board");
@@ -250,8 +292,7 @@ export function resolveItem(db, user, itemId, input) {
       if (mine.status !== "open") fail(409, "You've already answered this one");
     }
   }
-  const verdict = input.verdict ?? null;
-  if (verdict != null && (item.kind !== "assignment" || outcome !== "reviewed" || !VERDICTS.includes(verdict))) fail(400, "Verdict must be pass, hold or fail");
+  if (verdict != null && (item.kind === "watch" || outcome !== "reviewed" || !VERDICTS.includes(verdict))) fail(400, "Verdict must be pass, hold or fail");
   const role = input.role ?? null;
   if (["added_sb", "added_bb", "moved_bb"].includes(outcome) && (typeof role !== "string" || !Object.hasOwn(ROLES, role))) fail(400, "Choose the Big Board role");
   // Where in the role (0 = top); adding without one puts him at the bottom.
@@ -261,9 +302,10 @@ export function resolveItem(db, user, itemId, input) {
   if (outcome === "added_bb" && onRole) fail(409, "He's already on the Big Board in that role: move him instead");
   if (outcome === "moved_bb" && !onRole) fail(400, "He isn't on the Big Board in that role");
   if (outcome === "moved_bb" && index == null) fail(400, "Choose a rank in the role");
-  let spot = null;
+  let spot = null, onToLead = false, stopped = false;
+  const lead = item.kind === "sb_review" ? db.get("SELECT name FROM users WHERE id = ?", item.to_user)?.name ?? null : null;
 
-  return db.tx(() => {
+  db.tx(() => {
     if (outcome === "added_sb") {
       // Through the Big Board's own audited moves, with the note as the written reason.
       if (!db.get("SELECT 1 FROM board_entries WHERE player_id = ? AND role = ?", item.player_id, role))
@@ -276,12 +318,20 @@ export function resolveItem(db, user, itemId, input) {
       spot = spotIn(db, item.player_id, role);
     }
     if (outcome === "moved_bb") spot = moveBoardCard(db, item.player_id, { from_role: role, to_role: role, index }, me.id);
-    if (verdict) {
-      db.run(`INSERT INTO verdicts(player_id, user_id, verdict) VALUES (?,?,?)
-        ON CONFLICT(player_id, user_id) DO UPDATE SET verdict = excluded.verdict, updated_at = datetime('now')`, item.player_id, me.id, verdict);
-      logActivity(db, me.id, item.player_id, "set_verdict", { verdict });
-    }
-    if (mine && outcome !== "removed") {
+    if (verdict) setVerdict(db, item.player_id, me.id, verdict);
+    if (peerAnswer) {
+      // A Fail stops it. Once no one is left to answer it goes on to the lead if the sender and everyone asked are still
+      // Pass or Hold (the sender may have changed his verdict meanwhile); otherwise it stops.
+      db.run("UPDATE review_assignees SET status = 'reviewed', resolved_at = datetime('now') WHERE item_id = ? AND user_id = ?", item.id, me.id);
+      const left = assigneesOf(db, item.id);
+      const all = [item.from_user, ...left.map((a) => a.user_id)];
+      if (verdict === "fail") stopped = true;
+      else if (!left.some((a) => a.status === "open")) {
+        if (all.every((u) => SENDS_UP.includes(verdictOf(db, item.player_id, u)))) onToLead = true;
+        else stopped = true;
+      }
+      if (stopped) db.run("UPDATE review_items SET status = 'reviewed', resolved_by = ?, resolved_at = datetime('now') WHERE id = ?", me.id, item.id);
+    } else if (mine && outcome !== "removed") {
       // One scout's answer; the assignment settles when the last scout has answered (reviewed if anyone did).
       db.run("UPDATE review_assignees SET status = ?, resolved_at = datetime('now') WHERE item_id = ? AND user_id = ?", outcome, item.id, me.id);
       const left = assigneesOf(db, item.id);
@@ -299,14 +349,17 @@ export function resolveItem(db, user, itemId, input) {
         outcome, me.id, item.player_id, item.id);
     }
     if (note) {
-      const nid = addNoteRow(db, item.id, me.id, note, mine ? "answer" : "decision");
+      // An answer that stops a request is a decision: new to the scout who sent it.
+      const nid = addNoteRow(db, item.id, me.id, note, mine && !stopped ? "answer" : "decision");
       const context = outcome === "removed" ? null : evalContext(outcome, { verdict, role, spot });
       if (context) addEvalNote(db, { playerId: item.player_id, userId: me.id, reviewNoteId: nid, body: note, context });
     }
-    logActivity(db, me.id, item.player_id, "review_resolved", { kind: item.kind, outcome, role, verdict, note, ...(spot != null ? { spot } : {}) });
+    logActivity(db, me.id, item.player_id, "review_resolved", { kind: item.kind, outcome, role, verdict, note, ...(spot != null ? { spot } : {}),
+      ...(peerAnswer ? { item: item.id, lead, ...(onToLead ? { to_lead: true } : {}), ...(stopped ? { stopped: true } : {}) } : {}) });
     if (item.kind === "watch") hideLast(db);
     if (item.kind === "sb_review" && outcome === "removed") withdrawTraces(db, item);
   });
+  return peerAnswer ? { to_lead: onToLead, stopped } : {};
 }
 
 // Everything the member's Review tab shows. Open items, plus those settled in the last 30 days.
@@ -315,12 +368,13 @@ export function reviewBoard(db, user) {
   const team = reviewTeam(db);
   const rows = db.all(`SELECT * FROM review_items
     WHERE status = 'open' OR resolved_at >= datetime('now', '-30 days') ORDER BY created_at DESC, id DESC`)
-    .map((i) => (i.kind === "assignment" ? { ...i, assignees: assigneesOf(db, i.id) } : i))
+    .map((i) => (i.kind !== "watch" ? { ...i, assignees: assigneesOf(db, i.id) } : i))
     .filter((i) => canSee(me, i) && !(i.kind === "sb_review" && i.status === "removed")); // withdrawn requests are gone
   const notes = rows.length ? db.all(`SELECT n.*, u.name AS user_name FROM review_notes n JOIN users u ON u.id = n.user_id
     WHERE n.item_id IN (${rows.map(() => "?").join(",")}) ORDER BY n.id`, ...rows.map((r) => r.id)) : [];
   const name = (id) => team.find((u) => u.id === id)?.name ?? db.get("SELECT name FROM users WHERE id = ?", id)?.name ?? null;
-  const openSb = new Set(rows.filter((r) => r.kind === "sb_review" && r.status === "open").map((r) => r.player_id));
+  // Requests with the lead (not those still with the other scout) hold back an assignment of the same player.
+  const openSb = new Set(rows.filter((r) => r.kind === "sb_review" && r.status === "open" && !withPeer(r)).map((r) => r.player_id));
   // An assignment every scout has answered (so it has settled), waiting for the lead's call: in his Decisions and the
   // scouts' Ready for the lead. Until then it waits on the scouts.
   const awaiting = (r) => r.kind === "assignment" && ["reviewed", "declined"].includes(r.status) && !openSb.has(r.player_id);
@@ -331,8 +385,9 @@ export function reviewBoard(db, user) {
     // The note sent with the item (why he was assigned or sent up): pinned on its row, however long the thread grows.
     const ask = thread[0] && (thread[0].kind === "ask" || (thread[0].kind == null && thread[0].user_id === r.from_user
       && Math.abs(Date.parse(thread[0].created_at.replace(" ", "T") + "Z") - Date.parse(r.created_at.replace(" ", "T") + "Z")) <= 2000)) ? thread[0].id : null;
-    return { ...r, awaiting_lead: awaiting(r), from_name: name(r.from_user),
-      to_name: r.assignees ? r.assignees.map((a) => a.name).join(" and ") : r.to_user ? name(r.to_user) : null,
+    return { ...r, awaiting_lead: awaiting(r), with_peer: withPeer(r), from_name: name(r.from_user),
+      to_name: r.assignees?.length ? r.assignees.map((a) => a.name).join(" and ") : r.to_user ? name(r.to_user) : null,
+      lead_name: r.kind === "sb_review" && r.to_user ? name(r.to_user) : null,
       resolved_by_name: r.resolved_by ? name(r.resolved_by) : null, notes: thread, ask_note_id: ask,
       unread: r.kind === "watch" ? [] : thread.filter((n) => fresh.has(n.id)).map((n) => n.id) };
   });
@@ -381,10 +436,13 @@ export function reviewCount(db, user) {
   const m = user && db.get(`SELECT ${REVIEW_ROLE} AS role FROM users WHERE id = ?`, user.id);
   if (!m?.role || m.role === "assigner") return 0; // nothing waits on an assigner
   // The lead: requests waiting on him, plus assignments every scout has answered that he hasn't decided (one per player).
-  if (m.role === "lead") return db.get("SELECT count(*) AS n FROM review_items WHERE status = 'open' AND kind = 'sb_review' AND to_user = ?", user.id).n
+  // Requests still with the other scout aren't his yet.
+  if (m.role === "lead") return db.get(`SELECT count(*) AS n FROM review_items i WHERE i.status = 'open' AND i.kind = 'sb_review' AND i.to_user = ?
+        AND ${WITH_LEAD("i")}`, user.id).n
     + db.get(`SELECT count(*) AS n FROM review_items i WHERE i.kind = 'assignment' AND i.status IN ('reviewed', 'declined')
         AND i.resolved_at >= datetime('now', '-30 days')
-        AND NOT EXISTS (SELECT 1 FROM review_items s WHERE s.kind = 'sb_review' AND s.status = 'open' AND s.player_id = i.player_id)`).n;
+        AND NOT EXISTS (SELECT 1 FROM review_items s WHERE s.kind = 'sb_review' AND s.status = 'open' AND s.player_id = i.player_id AND ${WITH_LEAD("s")})`).n;
+  // A scout: assignments to review and Short Board requests sent to him.
   return db.get(`SELECT count(*) AS n FROM review_assignees a JOIN review_items i ON i.id = a.item_id
     WHERE i.status = 'open' AND a.status = 'open' AND a.user_id = ?`, user.id).n;
 }
@@ -479,7 +537,7 @@ export function registerReviewQueue(app, { db }) {
   app.post("/api/review/items/:id/read", (c) => { markRead(db, actor(c), c.req.param("id")); return c.json({ ok: true }); });
   app.post("/api/review/items/:id/nudge", (c) => c.json({ nudged: nudgeAssignees(db, actor(c), c.req.param("id")) }));
   app.post("/api/review/items/:id/resolve", async (c) => {
-    resolveItem(db, actor(c), c.req.param("id"), await c.req.json());
-    return c.json({ ok: true });
+    const out = resolveItem(db, actor(c), c.req.param("id"), await c.req.json());
+    return c.json({ ok: true, ...out });
   });
 }
