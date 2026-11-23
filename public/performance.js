@@ -1,3 +1,5 @@
+import { chartDuration, metricLabel, performanceCharts } from './performance-charts.js';
+
 // Batches of anonymous timings: no URLs, player IDs, staff IDs or content.
 export function timingMetric(path) {
   const clean = path.split('?')[0];
@@ -39,29 +41,46 @@ export function createTimings(version) {
 
 export async function loadPerformancePanel(panel, api, esc) {
   panel.innerHTML = `<header class="panel-h"><h2>Performance</h2><button type="button" class="btn sm" data-refresh>Refresh</button></header>
-    <div class="row"><label>Period <select data-hours><option value="24">Last 24 hours</option><option value="168">Last 7 days</option><option value="336">Last 14 days</option></select></label>
-      <label>Version <select data-version><option value="current">Current release</option><option value="">All releases</option></select></label></div>
-    <p class="hint">Server includes database work. Browser includes transfer and JSON decoding; render measures the page shell, with panels loading separately. p50/p95 are approximate upper bounds. Browser and server samples are collected independently.</p>
+    <div class="row perf-filters"><label>Period <select data-hours><option value="24">Last 24 hours</option><option value="168">Last 7 days</option><option value="336">Last 14 days</option></select></label>
+      <label>Version <select data-version><option value="current">Current release</option><option value="">All releases</option></select></label>
+      <label>View <select data-source><option value="browser">Staff experience</option><option value="server">Server processing</option><option value="database">Database work</option></select></label>
+      <label>Trend for <select data-metric aria-label="Measurement to chart"><option value="">Waiting for timings…</option></select></label></div>
+    <p class="hint">Typical means the middle recorded timing. “95% finish within” shows the slower end of successful timings. Both are approximate upper bounds, not exact times.</p>
     <div data-results aria-live="polite" class="loading sm">Loading timings…</div>`;
   const hours = panel.querySelector('[data-hours]'), release = panel.querySelector('[data-version]');
+  const source = panel.querySelector('[data-source]'), metric = panel.querySelector('[data-metric]');
   const results = panel.querySelector('[data-results]'), refresh = panel.querySelector('[data-refresh]');
-  let generation = 0;
-  const duration = ms => ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`;
+  let generation = 0, data, sourceChosen = false;
+  const draw = () => {
+    if (!data) return;
+    const metrics = data.summary.filter(row => row.source === source.value && row.outcome === 'ok');
+    const previous = metric.value;
+    metric.innerHTML = metrics.length ? metrics.map(row => `<option value="${esc(row.metric)}">${esc(metricLabel(row.metric))}</option>`).join('') : '<option value="">No successful timings</option>';
+    if (metrics.some(row => row.metric === previous)) metric.value = previous;
+    const technicalOpen = results.querySelector('.perf-details')?.open;
+    results.className = '';
+    if (!data.summary.length) { results.innerHTML = '<p class="hint">No timings yet for this period and version. Use PINE, then refresh after a few seconds. Tracking starts after deployment and a tab reload.</p>'; return; }
+    results.innerHTML = performanceCharts(data, source.value, metric.value, esc) +
+      `<details class="perf-details" ${technicalOpen ? 'open' : ''}><summary>Technical details</summary><p class="hint">All stages and outcomes for the selected period and release. Server includes database time. p50/p95 are bucket upper bounds.</p>
+        <div class="table-wrap"><table class="grid"><thead><tr><th>Measurement</th><th>Stage</th><th>Result</th><th>Samples</th><th>Mean</th><th>p50 ≤</th><th>p95 ≤</th><th>Max</th></tr></thead><tbody>${data.summary.map(row =>
+          `<tr><td>${esc(row.metric)}</td><td>${esc({ server: 'Server', database: 'Database', browser: 'Browser' }[row.source] || row.source)}</td><td>${row.outcome === 'ok' ? 'OK' : 'Error'}</td><td>${row.count}</td><td>${chartDuration(row.mean_ms)}</td><td>${chartDuration(row.p50_upper_ms)}</td><td>${chartDuration(row.p95_upper_ms)}</td><td>${chartDuration(row.max_ms)}</td></tr>`).join('')}</tbody></table></div></details>`;
+  };
   const load = async () => {
     const request = ++generation;
     refresh.disabled = true;
+    data = null;
+    results.className = 'loading sm'; results.textContent = 'Loading timings…';
     try {
-      const data = await api('GET', `/api/performance?hours=${hours.value}${release.value ? `&version=${release.value}` : ''}`);
+      const next = await api('GET', `/api/performance?hours=${hours.value}${release.value ? `&version=${release.value}` : ''}`);
       if (request !== generation || !panel.isConnected) return;
+      data = next;
       const selected = release.value;
+      const versions = [...new Set([...data.versions, ...(/^[a-f0-9]{8}$/.test(selected) ? [selected] : [])])];
       release.innerHTML = `<option value="current">Current release (${esc(data.current_version)})</option><option value="">All releases</option>` +
-        data.versions.filter(v => v !== data.current_version).map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+        versions.filter(v => v !== data.current_version).map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
       release.value = selected;
-      results.className = '';
-      if (!data.summary.length) { results.innerHTML = '<p class="hint">No timings yet for this period and version. Use PINE, then refresh after a few seconds. Tracking starts after deployment and a tab reload.</p>'; return; }
-      results.innerHTML = `<p class="hint">Slowest p95 first. A high database time points to SQL; high server time with low database time needs a closer look at provider calls or application work.</p>
-        <div class="table-wrap"><table class="grid"><thead><tr><th>Measurement</th><th>Stage</th><th>Result</th><th>Samples</th><th>Mean</th><th>p50 ≤</th><th>p95 ≤</th><th>Max</th></tr></thead><tbody>${data.summary.map(row =>
-          `<tr><td>${esc(row.metric)}</td><td>${esc({ server: 'Server', database: 'Database', browser: 'Browser' }[row.source] || row.source)}</td><td>${row.outcome === 'ok' ? 'OK' : 'Error'}</td><td>${row.count}</td><td>${duration(row.mean_ms)}</td><td>${duration(row.p50_upper_ms)}</td><td>${duration(row.p95_upper_ms)}</td><td>${duration(row.max_ms)}</td></tr>`).join('')}</tbody></table></div>`;
+      if (!sourceChosen && !data.summary.some(row => row.source === 'browser') && data.summary.some(row => row.source === 'server')) source.value = 'server';
+      draw();
     } catch (error) {
       if (request === generation && panel.isConnected) results.textContent = `Couldn't load timings: ${error.message}`;
     } finally { if (request === generation) refresh.disabled = false; }
@@ -69,5 +88,14 @@ export async function loadPerformancePanel(panel, api, esc) {
   refresh.addEventListener('click', load);
   hours.addEventListener('change', load);
   release.addEventListener('change', load);
+  source.addEventListener('change', () => { sourceChosen = true; draw(); });
+  metric.addEventListener('change', draw);
+  results.addEventListener('click', event => {
+    const button = event.target.closest('[data-pick-metric]');
+    if (!button) return;
+    metric.value = button.dataset.pickMetric;
+    draw();
+    [...results.querySelectorAll('[data-pick-metric]')].find(el => el.dataset.pickMetric === metric.value)?.focus();
+  });
   await load();
 }

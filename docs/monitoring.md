@@ -16,15 +16,18 @@ The dashboard uses existing card/map protocols; no worker update or new dependen
   events listed. New observations persist for 14 days, including when map rebuilds replace old
   job rows. Retention cleanup runs at most hourly when another event is saved. Events are
   private operational data and must never be committed or copied into public PRs.
-- **24-hour metrics:** observed requests/completions/failures, average queue time on starts
+- **24-hour metrics and build chart:** observed requests/completions/failures, average queue time on starts
   (with sample count), and average build time on completions (with sample count). Queue time
   on a retry includes elapsed time since the original request; build time covers the last
   attempt only. Historical jobs are not backfilled; counts start after deployment. Failures
   finalized automatically after exhausted attempts count when the next claim finalizes them.
+  Queue wait and build time have separate horizontal bars and sample sizes. They are not
+  stacked or summed, because they can come from different jobs. Missing timings say "No
+  samples"; an observed zero wait remains zero.
 - **App health:** response status, process uptime, resident memory and volume free space.
   Disk readings below 10% free are labeled low; an unavailable disk reading is shown as `—`.
   These are current readings rather than time-series host metrics.
-- **Performance:** browser/server/database timing aggregates and release comparisons described
+- **Performance charts:** slowest measurements, hourly trends and separate browser/server/database views described
   in [performance.md](performance.md). Its refresh and filters are independent of status polling.
 
 Status refreshes every 15 seconds while the page is visible and immediately on returning to

@@ -1,4 +1,5 @@
 import { loadPerformancePanel } from './performance.js';
+import { buildTimingChart } from './performance-charts.js';
 
 const CONTACT = { recent: ['Recent contact', 'pass'], quiet: ['Quiet', 'hold'], missing: ['No recent contact', 'fail'], unknown: ['Not observed', 'none'] };
 const duration = ms => ms == null ? '—' : ms < 1000 ? `${Math.round(ms)} ms` : ms < 60000 ? `${Math.round(ms / 1000)} s` : ms < 3600000 ? `${Math.round(ms / 60000)} min` : `${(ms / 3600000).toFixed(1)} h`;
@@ -23,7 +24,8 @@ export function monitoringOverview(data, esc) {
       This measures worker traffic to PINE, not the Mac's power or network directly. Long builds can pause polling.</p>
     ${data.dropped_observations ? '<div class="banner warn">Some monitoring observations could not be saved. Activity and totals may be incomplete.</div>' : ''}
     <div class="monitor-grid monitor-queues">${data.queues.map(q => stat(kindName(q.kind), `${q.queued} queued · ${q.running} running`,
-      `Oldest wait ${duration(q.oldest_queue_ms)} · ${q.completed} completed · ${q.failed} failed in 24h<br>Mean queue ${duration(q.mean_queue_ms)} (${q.queue_samples} starts) · mean build ${duration(q.mean_build_ms)} (${q.build_samples} completions)`)).join('')}</div>`;
+      `Oldest wait ${duration(q.oldest_queue_ms)} · ${q.completed} completed · ${q.failed} failed in 24h`)).join('')}</div>
+    ${buildTimingChart(data.queues)}`;
 }
 
 export function monitoringJobs(data, esc) {
