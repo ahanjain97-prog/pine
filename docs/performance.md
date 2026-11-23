@@ -36,6 +36,11 @@ Admins can open **Operations → Monitoring → Performance** for two charts:
 - **What's slowest?** Up to eight successful measurements, ordered by the approximate upper
   bound within which 95% finish. Bars show that bound, with a marker for the typical (median)
   timing. Names describe features rather than endpoint codes. Click a bar to select its trend.
+  The linear axis uses evenly spaced ticks in one unit (seconds or milliseconds), aligned to
+  the bars. Extreme outliers automatically zoom the scale to the ordinary range: clipped bars
+  have a hatched fill, a » marker and a "Beyond scale" label while retaining the full timing
+  bound. **Show full range** restores a common scale containing every value; **Zoom to normal
+  range** switches back. No logarithmic scale or silent clipping is used.
 - **Is it getting better or worse?** Typical and slower timings by hour for the selected
   measurement. Missing hours have gaps rather than zeros or connecting lines. A single hour
   shows a point without implying a trend. Hourly values also have an accessible data table.

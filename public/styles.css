@@ -223,6 +223,18 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .perf-bars { display: grid; gap: 6px; }
 .perf-bar-row, .perf-bar-axis { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(80px, 2fr) 130px; gap: 12px; align-items: center; }
 .perf-bar-axis { padding: 0 10px; }
+.perf-scale-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.perf-scale-controls .hint { margin: 0; }
+.perf-zoom-note { border-left: 3px solid var(--hold); padding-left: 10px; }
+.perf-axis-ticks { position: relative; height: 22px; margin-top: 8px; color: var(--ink-2); font-size: 11px; }
+.perf-axis-tick { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.perf-axis-tick:first-child { transform: none; }
+.perf-axis-tick:last-child { transform: translateX(-100%); }
+.perf-axis-unit { color: var(--ink-2); text-align: center; font-size: 11px; }
+.perf-bar-grid-line { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--ink); opacity: .18; pointer-events: none; }
+.perf-bar-fill.clipped { background: repeating-linear-gradient(135deg, var(--accent) 0 7px, var(--line-2) 7px 10px); }
+.perf-bar-overflow { position: absolute; right: 0; top: -4px; padding: 0 3px; font-size: 20px; line-height: 24px; font-weight: 700; color: var(--accent-ink); background: var(--accent); }
+.perf-bar-row small.perf-off-scale { color: var(--hold); font-weight: 700; }
 .perf-bar-row {
   padding: 9px; color: var(--ink); font: inherit; text-align: left; background: var(--surface-2); border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
 .perf-bar-row[aria-pressed="true"] { border-color: var(--accent); }
