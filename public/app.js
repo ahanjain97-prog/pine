@@ -1,6 +1,10 @@
 import { renderAnalysis } from "./analysis.js";
 import { loadPlayingTimePanel } from "./playing-time.js";
 import { renderCompare } from "./compare.js";
+import { createTimings, timingMetric, renderMetric } from "./performance.js";
+import { renderMonitoring } from "./monitoring.js";
+
+const recordTiming = createTimings(new URL(import.meta.url).searchParams.get('v'));
 
 // PINE front end: single page, no build step.
 // Routes: #/board  #/short-board  #/roster  #/ncaa[/database]  #/players  #/player/:id  #/impect  #/activity  #/staff
@@ -27,19 +31,27 @@ const S = {
 
 /* ---------- plumbing ---------- */
 async function api(method, path, body) {
-  const opt = { method, headers: { "X-PINE": "1" }, credentials: "same-origin" };
-  if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
-  const res = await fetch(path, opt);
-  let data = null;
-  try { data = await res.json(); } catch {}
-  if (!res.ok) {
-    const err = new Error(data?.error || `Request failed (${res.status})`);
-    err.status = res.status;
-    err.data = data;
-    if (res.status === 401 && S.me && !path.startsWith("/api/auth/")) showLogin("Your session ended. Sign in again.");
-    throw err;
+  const started = performance.now(), visible = !document.hidden;
+  const metric = method === 'GET' ? timingMetric(path) : null;
+  let outcome = 'error';
+  try {
+    const opt = { method, headers: { "X-PINE": "1" }, credentials: "same-origin" };
+    if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
+    const res = await fetch(path, opt);
+    let data = null;
+    try { data = await res.json(); } catch {}
+    if (!res.ok) {
+      const err = new Error(data?.error || `Request failed (${res.status})`);
+      err.status = res.status;
+      err.data = data;
+      if (res.status === 401 && S.me && !path.startsWith("/api/auth/")) showLogin("Your session ended. Sign in again.");
+      throw err;
+    }
+    outcome = 'ok';
+    return data;
+  } finally {
+    if (visible) recordTiming(metric, performance.now() - started, outcome);
   }
-  return data;
 }
 
 let toastTimer;
@@ -405,7 +417,7 @@ function renderShell() {
         <a href="#/compare" data-v="compare">Compare players</a>
         <a href="#/impect" data-v="impect">Impect</a>
         <a href="#/analysis" data-v="analysis">Analysis</a>
-        ${S.me.is_admin ? `<a href="#/staff" data-v="staff">Staff</a>` : ""}
+        ${S.me.is_admin ? `<a href="#/monitoring" data-v="monitoring">Monitoring</a><a href="#/staff" data-v="staff">Staff</a>` : ""}
       </div>
     </nav>
     <div class="top-r">
@@ -502,20 +514,26 @@ function route() {
 
 const canonicalUrl = ({ view, arg }) => (view === "player" ? `/p/${arg}` : arg ? `/#/${view}/${arg}` : `/#/${view}`);
 
+let stopMonitoring;
 async function render() {
   if (!S.me) return;
+  stopMonitoring?.(); stopMonitoring = null;
   const { view, arg } = route();
   $$("#nav a").forEach((a) => {
     a.classList.toggle("on", a.dataset.v === view || (view === "player" && a.dataset.v === "players"));
     if (a.dataset.v === view) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   });
-  const inOperations = ["players", "player", "roster", "compare", "impect", "analysis", "staff"].includes(view);
+  const inOperations = ["players", "player", "roster", "compare", "impect", "analysis", "staff", "monitoring"].includes(view);
   $("#operations-trigger").classList.toggle("on", inOperations);
   const link = $("#nav > .on"), nav = $("#nav");
   if (link && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = link.offsetLeft - nav.offsetLeft - (nav.clientWidth - link.offsetWidth) / 2;
   $("#upd").hidden = !S.staleNotified; // the reload prompt stays up until they reload
   const views = { compare: (main, arg) => renderCompare(main, arg, { api, setTitle, players: S.players, physicalGroups: PHYS_KEY }), analysis: (main, arg) => renderAnalysis(main, arg, { api, setTitle }), board: renderBoard, roster: renderRoster, "war-room": renderReview, "short-board": renderShortBoard, ncaa: renderNcaa, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
+  views.monitoring = main => {
+    if (!S.me.is_admin) { location.hash = '#/board'; return; }
+    stopMonitoring = renderMonitoring(main, { api, esc });
+  };
   // Pitch maps had their own tab for a day; its links now open the player's page, where the maps live.
   if (view === "maps") { location.hash = arg ? `#/player/${arg}` : "#/players"; return; }
   if (!views[view]) { location.hash = "#/board"; return; }
@@ -523,8 +541,13 @@ async function render() {
   const want = canonicalUrl({ view, arg });
   if (location.pathname + location.hash !== want) history.replaceState(null, "", want);
   // The player view retitles itself once the profile loads.
-  setTitle({ analysis: "Analysis", board: "Big Board", roster: "Roster", ncaa: "NCAA", players: "Database", impect: "Impect", activity: "Activity", staff: "Staff" }[view]);
-  await views[view]($("#main"), arg);
+  setTitle({ analysis: "Analysis", board: "Big Board", roster: "Roster", ncaa: "NCAA", players: "Database", impect: "Impect", activity: "Activity", staff: "Staff", monitoring: "Monitoring" }[view]);
+  const started = performance.now(), visible = !document.hidden, main = $("#main");
+  await views[view](main, arg);
+  const root = main.firstElementChild;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (visible && root?.isConnected && canonicalUrl(route()) === want) recordTiming(renderMetric(view), performance.now() - started);
+  }));
 }
 
 /* ---------- big board ---------- */
@@ -3752,6 +3775,7 @@ async function renderStaff(main) {
       <p class="hint">A snapshot is written on the server every day and the last 14 are kept. Download one any time; it opens in any SQLite tool.</p>
       <div id="bk-list" class="loading sm">Loading…</div>
     </section>
+    <p class="hint"><a href="#/monitoring">Open monitoring</a> for worker status, card/map build activity and performance metrics.</p>
   </div>`;
   const root = main.firstElementChild;
   loadBackups(root);
@@ -4341,3 +4365,4 @@ function wireReview(root, d) {
     } catch (err) { oops(err); }
   });
 }
+
