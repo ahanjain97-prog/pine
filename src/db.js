@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { timeDatabase } from "./lib/request_timing.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users(
@@ -425,9 +426,9 @@ export function openDb(file) {
   let depth = 0;
   const db = {
     raw,
-    all: (sql, ...p) => raw.prepare(sql).all(...p),
-    get: (sql, ...p) => raw.prepare(sql).get(...p),
-    run: (sql, ...p) => raw.prepare(sql).run(...p),
+    all: (sql, ...p) => timeDatabase(() => raw.prepare(sql).all(...p)),
+    get: (sql, ...p) => timeDatabase(() => raw.prepare(sql).get(...p)),
+    run: (sql, ...p) => timeDatabase(() => raw.prepare(sql).run(...p)),
     // Runs fn (in a transaction) the first time `name` is seen, and records it so it never runs again.
     once(name, fn) {
       if (raw.prepare("SELECT 1 FROM done_migrations WHERE name = ?").get(name)) return undefined;
@@ -441,14 +442,14 @@ export function openDb(file) {
     // called from a route's. Any error rolls back the outermost one.
     tx(fn) {
       if (depth) return fn();
-      raw.exec("BEGIN IMMEDIATE");
+      timeDatabase(() => raw.exec("BEGIN IMMEDIATE"));
       depth++;
       try {
         const r = fn();
-        raw.exec("COMMIT");
+        timeDatabase(() => raw.exec("COMMIT"));
         return r;
       } catch (e) {
-        raw.exec("ROLLBACK");
+        timeDatabase(() => raw.exec("ROLLBACK"));
         throw e;
       } finally {
         depth--;
@@ -513,3 +514,4 @@ export function logActivity(db, userId, playerId, action, detail) {
     detail == null ? null : typeof detail === "string" ? detail : JSON.stringify(detail)
   );
 }
+

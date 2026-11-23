@@ -6,7 +6,7 @@ import { basicAuth } from "hono/basic-auth";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative } from "node:path";
@@ -52,6 +52,8 @@ import { registerRoster, rosterSpot } from "./lib/roster.js";
 import { addBoardRole, boardHistory, BOARD_SOURCES, BOARD_EXIT_REASONS, recordBoardReason, registerBoardMoves, validateBoardReason } from "./lib/board_reasons.js";
 import { REVIEW_ROLE, registerReviewQueue, reviewCount, reviewTeam, syncReviewNote } from "./lib/review_queue.js";
 import { boardLastReviews, registerReview, REVIEW_AFTER_DAYS } from "./lib/review.js";
+import { registerPerformance } from "./lib/performance.js";
+import { registerMonitoring } from "./lib/monitoring.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 if (existsSync(join(ROOT, ".env"))) process.loadEnvFile(join(ROOT, ".env"));
@@ -334,6 +336,7 @@ const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => obj[k] !== und
 const siteOrigin = (c) => String(process.env.APP_URL || new URL(c.req.url).origin).replace(/\/+$/, "");
 
 const app = new Hono();
+const timings = registerPerformance(app, { db, version: () => ASSET_VERSION });
 
 app.onError((err, c) => {
   // Middleware errors such as the password prompt's 401 carry their own response and headers.
@@ -398,6 +401,8 @@ app.use("/api/*", async (c, next) => {
   return next();
 });
 
+timings.registerRoutes();
+const monitoring = registerMonitoring(app, { db, version: () => ASSET_VERSION, root: dirname(DB_FILE) });
 registerScoutingContext(app, { db, token: WORKER_TOKEN });
 registerPlayerContext(app, { db, token: process.env.PINE_AGENT_TOKEN || "", workerToken: WORKER_TOKEN });
 registerStorage(app, { root: dirname(DB_FILE), db, token: WORKER_TOKEN });
@@ -1120,6 +1125,7 @@ app.post("/api/players/:id/cards", async (c) => {
     "INSERT INTO cards(player_id, impect_id, iteration_id, competition, season, position, tm_id, requested_by) VALUES (?,?,?,?,?,?,?,?)",
     p.id, p.impect_id, season.iteration_id, season.competition, season.season, position, p.tm_id || null, user.id).lastInsertRowid);
   logActivity(db, user.id, p.id, "requested_card", { card_id: id, season: season.season, competition: season.competition, position });
+  monitoring.recordJob('cards', id, 'requested');
   return c.json({ card: db.get(`${CARD_SELECT} WHERE c.id = ?`, id) }, 201);
 });
 function doneCard(c) {
@@ -1198,7 +1204,7 @@ function runningCard(c) {
   return card;
 }
 app.post("/api/worker/cards/claim", (c) => {
-  const job = claimCard(db);
+  const job = monitoring.claimJob('cards', () => claimCard(db));
   return job ? c.json(job) : c.body(null, 204);
 });
 const cardBodyLimit = bodyLimit({ maxSize: MAX_CARD_BYTES, onError: (c) => c.json({ error: "Card file is over 10 MB" }, 413) });
@@ -1230,6 +1236,7 @@ app.put("/api/worker/cards/:id/pdf", cardBodyLimit,
       "UPDATE cards SET status = 'done', error = NULL, generated_at = ?, file = ?, bytes = ?, hop_commit = ?, data_as_of = ? WHERE id = ?",
       sqlTime(now), saveCardFile(CARDS_DIR, card, buf, now), buf.length,
       validCommit, validAsOf, card.id);
+    monitoring.recordJob('cards', card.id, 'done');
     return c.json({ ok: true });
   });
 // A note on why a running card is slower (a fixed code and a count), shown under "Generating".
@@ -1244,6 +1251,7 @@ app.post("/api/worker/cards/:id/fail", async (c) => {
   const { code } = await c.req.json().catch(() => ({}));
   const card = runningCard(c);
   db.run("UPDATE cards SET status = 'failed', error = ? WHERE id = ?", cardErrorCode(code), card.id);
+  monitoring.recordJob('cards', card.id, 'failed');
   return c.json({ ok: true });
 });
 
@@ -1288,6 +1296,7 @@ app.post("/api/players/:id/maps", async (c) => {
   const id = Number(db.run(
     "INSERT INTO maps(player_id, impect_id, iteration_id, competition, season, position, requested_by) VALUES (?,?,?,?,?,?,?)",
     p.id, p.impect_id, season.iteration_id, season.competition, season.season, position, user.id).lastInsertRowid);
+  monitoring.recordJob('maps', id, 'requested');
   return c.json({ map: db.get(`${MAP_SELECT} WHERE m.id = ?`, id), ...mapsMeta() }, 201);
 });
 // A build's file never changes (a rebuild is a new id), so the browser keeps it.
@@ -1312,7 +1321,7 @@ function runningMap(c) {
   return map;
 }
 app.post("/api/worker/maps/claim", (c) => {
-  const job = claimMap(db);
+  const job = monitoring.claimJob('maps', () => claimMap(db));
   return job ? c.json(job) : c.body(null, 204);
 });
 const mapsBodyLimit = bodyLimit({ maxSize: MAX_MAPS_BYTES, onError: (c) => c.json({ error: "The maps export is over 5 MB" }, 413) });
@@ -1339,6 +1348,7 @@ app.put("/api/worker/maps/:id/json", mapsBodyLimit, async (c) => {
     return old.map((r) => r.file);
   });
   removeMapsFiles(MAPS_DIR, replaced);
+  monitoring.recordJob('maps', map.id, 'done');
   return c.json({ ok: true });
 });
 app.post("/api/worker/maps/:id/progress", async (c) => {
@@ -1357,6 +1367,7 @@ app.post("/api/worker/maps/:id/fail", async (c) => {
       map.player_id, map.iteration_id, map.position, map.id);
     db.run("UPDATE maps SET status = 'failed', error = ? WHERE id = ?", mapErrorCode(code), map.id);
   });
+  monitoring.recordJob('maps', map.id, 'failed');
   return c.json({ ok: true });
 });
 
@@ -1454,13 +1465,15 @@ app.post("/api/impect/cache/refresh", (c) => {
 // The page is never cached and points at versioned asset URLs, so a deploy can't leave a browser
 // holding new JS with old CSS. Versioned assets are then cached hard.
 const PUBLIC_DIR = join(ROOT, "public");
-const ASSET_VERSION = createHash("sha1")
-  .update(readFileSync(join(PUBLIC_DIR, "app.js")))
-  .update(readFileSync(join(PUBLIC_DIR, "compare.js")))
-  .update(readFileSync(join(PUBLIC_DIR, "comparison-data.js")))
-  .update(readFileSync(join(PUBLIC_DIR, "styles.css")))
-  .digest("hex")
-  .slice(0, 8);
+// Include backend helpers too: a SQL/provider fix must get a distinct timing version.
+const releaseHash = createHash("sha1");
+for (const dir of [join(ROOT, "src"), PUBLIC_DIR]) {
+  for (const file of readdirSync(dir, { recursive: true }).filter(f => /\.(?:js|css|html)$/.test(f)).sort()) {
+    releaseHash.update(relative(ROOT, join(dir, file))).update("\0")
+      .update(readFileSync(join(dir, file))).update("\0");
+  }
+}
+const ASSET_VERSION = releaseHash.digest("hex").slice(0, 8);
 const INDEX_HTML = readFileSync(join(PUBLIC_DIR, "index.html"), "utf8")
   .replace('href="/styles.css"', `href="/styles.css?v=${ASSET_VERSION}"`)
   .replace('src="/app.js"', `src="/app.js?v=${ASSET_VERSION}"`);
@@ -1493,3 +1506,4 @@ app.use("/*", serveStatic({ root: relative(process.cwd(), PUBLIC_DIR) || "." }))
 
 const port = Number(process.env.PORT || 8787);
 serve({ fetch: app.fetch, port }, (info) => console.log(`PINE running on http://localhost:${info.port}`));
+
