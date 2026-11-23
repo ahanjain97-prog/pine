@@ -50,7 +50,7 @@ export async function loadPerformancePanel(panel, api, esc) {
   const hours = panel.querySelector('[data-hours]'), release = panel.querySelector('[data-version]');
   const source = panel.querySelector('[data-source]'), metric = panel.querySelector('[data-metric]');
   const results = panel.querySelector('[data-results]'), refresh = panel.querySelector('[data-refresh]');
-  let generation = 0, data, sourceChosen = false;
+  let generation = 0, data, sourceChosen = false, fullRange = false;
   const draw = () => {
     if (!data) return;
     const metrics = data.summary.filter(row => row.source === source.value && row.outcome === 'ok');
@@ -60,7 +60,7 @@ export async function loadPerformancePanel(panel, api, esc) {
     const technicalOpen = results.querySelector('.perf-details')?.open;
     results.className = '';
     if (!data.summary.length) { results.innerHTML = '<p class="hint">No timings yet for this period and version. Use PINE, then refresh after a few seconds. Tracking starts after deployment and a tab reload.</p>'; return; }
-    results.innerHTML = performanceCharts(data, source.value, metric.value, esc) +
+    results.innerHTML = performanceCharts(data, source.value, metric.value, esc, { fullRange }) +
       `<details class="perf-details" ${technicalOpen ? 'open' : ''}><summary>Technical details</summary><p class="hint">All stages and outcomes for the selected period and release. Server includes database time. p50/p95 are bucket upper bounds.</p>
         <div class="table-wrap"><table class="grid"><thead><tr><th>Measurement</th><th>Stage</th><th>Result</th><th>Samples</th><th>Mean</th><th>p50 ≤</th><th>p95 ≤</th><th>Max</th></tr></thead><tbody>${data.summary.map(row =>
           `<tr><td>${esc(row.metric)}</td><td>${esc({ server: 'Server', database: 'Database', browser: 'Browser' }[row.source] || row.source)}</td><td>${row.outcome === 'ok' ? 'OK' : 'Error'}</td><td>${row.count}</td><td>${chartDuration(row.mean_ms)}</td><td>${chartDuration(row.p50_upper_ms)}</td><td>${chartDuration(row.p95_upper_ms)}</td><td>${chartDuration(row.max_ms)}</td></tr>`).join('')}</tbody></table></div></details>`;
@@ -91,6 +91,12 @@ export async function loadPerformancePanel(panel, api, esc) {
   source.addEventListener('change', () => { sourceChosen = true; draw(); });
   metric.addEventListener('change', draw);
   results.addEventListener('click', event => {
+    if (event.target.closest('[data-toggle-latency-range]')) {
+      fullRange = !fullRange;
+      draw();
+      results.querySelector('[data-toggle-latency-range]')?.focus();
+      return;
+    }
     const button = event.target.closest('[data-pick-metric]');
     if (!button) return;
     metric.value = button.dataset.pickMetric;

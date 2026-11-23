@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hourlyTimings, slowestChart, trendChart, performanceCharts, buildTimingChart, metricLabel } from '../public/performance-charts.js';
+import { hourlyTimings, slowestChart, trendChart, performanceCharts, buildTimingChart, metricLabel, responseTimeAxis } from '../public/performance-charts.js';
 
 const esc = text => String(text).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 const limits = [50, 100, 500, 2000];
@@ -55,6 +55,36 @@ test('build chart keeps independent populations and distinguishes zero duration 
   assert.match(html, /No samples/); assert.match(html, /different jobs/);
   assert.ok(!html.includes('NaN'));
   assert.match(buildTimingChart([]), /No starts or completions observed/);
+});
+
+test('response axis keeps ordinary subsecond bars readable beside minute-scale outliers', () => {
+  const values = [300000, 1000, 500, 500, 500, 250, 250, 250];
+  const axis = responseTimeAxis(values);
+  assert.equal(axis.max, 1000); assert.equal(axis.clipped, 1); assert.equal(axis.unit, 'seconds');
+  assert.deepEqual(axis.ticks.map(t => t.label), ['0', '0.25', '0.5', '0.75', '1']);
+  assert.equal(100 * 500 / axis.max, 50, '500ms fills half the zoomed scale');
+  const full = responseTimeAxis(values, { fullRange: true });
+  assert.ok(full.max >= 300000); assert.equal(full.clipped, 0); assert.equal(full.canZoom, true);
+  assert.equal(responseTimeAxis([300000]).canZoom, false, 'a single measurement keeps its full range');
+  assert.equal(responseTimeAxis([300000, 300000, 1000, 500, 500, 250]).clipped, 2);
+  assert.equal(responseTimeAxis([50, 100, 250, 500]).canZoom, false);
+  for (const input of [[], [0], [50], [50, 100], [250, 500, 5000]]) {
+    const scale = responseTimeAxis(input);
+    assert.ok(Number.isFinite(scale.max) && scale.max > 0);
+    assert.ok(scale.ticks.length >= 2 && scale.ticks.length <= 6);
+  }
+});
+
+test('clipped bars are explicit, retain timing labels, and can switch to full range', () => {
+  const summary = [300000, 1000, 500, 250].map((ms, i) => ({ metric: ['playing-time', 'players', 'player', 'cards'][i],
+    source: 'browser', outcome: 'ok', count: 4, p50_upper_ms: 100, p95_upper_ms: ms, mean_ms: 200 }));
+  const zoomed = slowestChart(summary, 'browser', 'player', esc);
+  assert.match(zoomed, /Show full range/); assert.match(zoomed, /Beyond scale/);
+  assert.match(zoomed, /perf-bar-overflow/); assert.match(zoomed, /≤ 5.0 min/);
+  assert.match(zoomed, /Response time \(seconds\)/);
+  assert.match(zoomed, /width:50%/);
+  const full = slowestChart(summary, 'browser', 'player', esc, { fullRange: true });
+  assert.match(full, /Zoom to normal range/); assert.ok(!full.includes('Beyond scale'));
 });
 
 test('plain labels and chart markup escape data; errors remain visible when there are no successes', () => {
