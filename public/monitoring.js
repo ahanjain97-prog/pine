@@ -1,5 +1,5 @@
 import { loadPerformancePanel } from './performance.js';
-import { buildTimingChart, chartDuration, speedVerdict } from './performance-charts.js';
+import { buildTimingChart, speedVerdict } from './performance-charts.js';
 
 const CONTACT = { recent: ['Recent contact', 'pass'], quiet: ['Quiet', 'hold'], missing: ['No recent contact', 'fail'], unknown: ['Not observed', 'none'] };
 const duration = ms => ms == null ? '—' : ms < 1000 ? `${Math.round(ms)} ms` : ms < 60000 ? `${Math.round(ms / 1000)} s` : ms < 3600000 ? `${Math.round(ms / 60000)} min` : `${(ms / 3600000).toFixed(1)} h`;
@@ -20,12 +20,17 @@ export function monitoringSummary(data, report, esc) {
   } else {
     const verdict = speedVerdict(report);
     const names = [...verdict.slow, ...verdict.watch].slice(0, 4);
-    speed = tile('Speed', badge(verdict.label, verdict.color, esc), names.length
-      ? `<ul class="monitor-list">${names.map(item => `<li><button type="button" class="linkish" data-reveal="${esc(item.metric)}">${esc(item.label)}</button> <span class="muted">${esc(chartDuration(item.main.mean_ms))} avg</span></li>`).join('')}</ul>`
-      : verdict.color === 'pass' ? 'Pages and requests are within their targets.' : 'Timings appear once staff use PINE after a tab reload.');
-    const rate = report.request_total ? report.request_errors / report.request_total : 0;
-    errors = tile('Errors', badge(report.request_errors ? `${(100 * rate).toFixed(1)}% failed` : 'None', rate >= 0.05 ? 'fail' : rate >= 0.01 ? 'hold' : 'pass', esc),
-      `${report.request_errors} of ${report.request_total} measured requests failed in the selected period.`);
+    const stats = report.event_stats;
+    const cold = stats?.slow && stats.cold ? `<div class="monitor-note">${stats.cold} of ${stats.slow} slow events were the first use after a break.</div>` : '';
+    speed = tile('Speed', badge(verdict.label, verdict.color, esc), (names.length
+      ? `<ul class="monitor-list">${names.map(item => `<li><button type="button" class="linkish" data-reveal="${esc(item.metric)}">${esc(item.label)}</button> <span class="muted">${esc(item.reason)}</span></li>`).join('')}</ul>`
+      : verdict.color === 'pass' ? 'Pages and requests are within their targets.' : verdict.color === 'none' && report.items.length ? 'Each page needs 3 timings in the period before it is judged.' : 'Timings appear once staff use PINE after a tab reload.') + cold);
+    // Counts, not rates: with little use, one failure would read as a large percentage.
+    const failing = report.failing;
+    const failed = report.request_errors;
+    errors = tile('Errors', badge(failed ? `${failed} failed` : 'None', !failed ? 'pass' : failed >= 5 ? 'fail' : 'hold', esc), failed
+      ? `${failing.slice(0, 3).map(item => `${esc(item.label)} (${item.errors})`).join(', ')}${failing.length > 3 ? ` and ${failing.length - 3} more` : ''}. Out of ${report.request_total} measured requests in the selected period.`
+      : `None of ${report.request_total} measured requests failed in the selected period.`);
   }
   if (!data) return speed + errors + tile('Card & map worker', '<span class="muted">Loading…</span>', '') + tile('App health', '<span class="muted">Loading…</span>', '');
   const [contact, color] = CONTACT[data.worker.status] || CONTACT.unknown;

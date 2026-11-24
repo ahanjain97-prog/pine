@@ -144,21 +144,24 @@ test('dashboard escapes player text and accurately labels empty and missing work
   assert.match(html, /&lt;img/);
 });
 
-test('summary names slow items first and reports request errors', () => {
+test('summary names slow items first, counts errors and notes first use after a break', () => {
   const esc = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
-  const limits = [250, 1000, 5000];
-  const row = (source, metric, count, total_ms, buckets, outcome = 'ok') => ({ hour: 0, version: 'a', source, metric, outcome, count, total_ms, max_ms: 0, buckets });
+  const limits = [250, 1000, 2000, 5000];
+  const row = (source, metric, count, total_ms, buckets, outcome = 'ok') => ({ day: '2026-11-23', source, metric, outcome, cold: 0, count, total_ms, max_ms: 4000, buckets });
   const report = buildReport([
-    row('browser', 'player-render', 10, 40000, [0, 0, 10]),
-    row('server', 'impect-kpis', 10, 15000, [0, 0, 10]),
-    row('server', 'impect-kpis', 1, 100, [1, 0, 0], 'error'),
-    row('server', 'config', 30, 300, [30, 0, 0]),
+    row('browser', 'player-render', 10, 40000, [0, 0, 0, 10]),
+    row('server', 'impect-kpis', 10, 15000, [0, 0, 10, 0]),
+    row('server', 'impect-kpis', 1, 100, [1, 0, 0, 0], 'error'),
+    row('server', 'config', 30, 300, [30, 0, 0, 0]),
   ], limits);
+  report.event_stats = { total: 5, failed: 1, pages: 2, requests: 2, slow: 4, cold: 3 };
   const html = monitoringSummary(null, report, esc);
   assert.match(html, /2 slow/);
   assert.ok(html.indexOf('Player details page') < html.indexOf('Player performance stats'), 'largest total wait first');
-  assert.match(html, /data-reveal="player-render"/);
-  assert.match(html, /2\.4% failed/);
-  assert.match(monitoringSummary(null, buildReport([row('server', 'config', 30, 300, [30, 0, 0])], limits), esc), /All within target/);
+  assert.match(html, /data-reveal="player-render"/); assert.match(html, /10 of 10 took over 2\.0 s/);
+  assert.match(html, /1 failed/); assert.match(html, /Player performance stats \(1\)\. Out of 41/);
+  assert.match(html, /3 of 4 slow events were the first use after a break/);
+  assert.match(monitoringSummary(null, buildReport([row('server', 'config', 30, 300, [30, 0, 0, 0])], limits), esc), /All within target/);
+  assert.match(monitoringSummary(null, buildReport([row('server', 'config', 2, 20, [2, 0, 0, 0])], limits), esc), /needs 3 timings/);
   assert.match(monitoringSummary(null, buildReport([], limits), esc), /No timings yet/);
 });

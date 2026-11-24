@@ -5,10 +5,12 @@ The dashboard uses existing card/map protocols; no worker update or new dependen
 
 The page reads top to bottom as: four summary tiles (**Speed**, **Errors**, **Card & map worker**,
 **App health**), then **What is slow?** (see [performance.md](performance.md)), then **Card and map
-builds**. Speed names up to four slow or watch items, largest total wait first; clicking one opens
-it in the performance tables and charts its trend. Errors is the share of measured server requests
-that failed in the selected performance period. Active jobs open automatically when there are any;
-recent build activity is collapsed until opened.
+builds**. Speed names up to four slow or watch items, largest total wait first, each with its
+count over the limit ("3 of 12 took over 2.0 s"); clicking one opens it in the performance tables
+and charts its trend. It also says how many slow events were the first use after a break. Errors
+counts failed server requests in the selected performance period and names the requests that
+failed most; with little use a count reads better than a percentage. Active jobs open
+automatically when there are any; recent build activity is collapsed until opened.
 
 - **Mac Mini worker:** successful authenticated claims, progress updates and artifact uploads
   count as contact, including an empty claim poll. Diagnostic/backup reads do not count. Cards
@@ -34,8 +36,9 @@ recent build activity is collapsed until opened.
 - **App health:** response status, process uptime, resident memory and volume free space.
   Disk readings below 10% free are labeled low; an unavailable disk reading is shown as `—`.
   These are current readings rather than time-series host metrics.
-- **Performance:** page and request status against targets, where server time goes, hourly trends and a log of
-  slow requests, described in [performance.md](performance.md). Its refresh and filters are independent of status polling.
+- **Performance:** slow and failed events, page and request status from counts over limits,
+  where server time goes and daily trends, described in [performance.md](performance.md). Its
+  refresh and filters are independent of status polling.
 
 Status refreshes every 15 seconds while the page is visible and immediately on returning to
 the tab. Navigating away stops polling. Failed refreshes keep prior data with a stale-data
