@@ -59,12 +59,13 @@ export function groupDecisions(decisions, releases, f, inPine, tags = DEFAULT_TA
   }
   const groups = [...byClub.values()];
   for (const g of groups) g.rows.sort((a, b) => ORDER.indexOf(a.decision) - ORDER.indexOf(b.decision) || a.name.localeCompare(b.name));
-  return groups.sort((a, b) => b.latest.localeCompare(a.latest) || b.found.localeCompare(a.found) || a.club.localeCompare(b.club));
+  groups.sort((a, b) => b.latest.localeCompare(a.latest) || b.found.localeCompare(a.found) || a.club.localeCompare(b.club));
+  return f.order === "old" ? groups.reverse() : groups;
 }
 
 export function renderOptions(main, ctx) {
   const { api, esc, photo, nameWithMark, openAddPlayer, toast, oops, players, byId, isAdmin, modal, closeModal, afterAdd } = ctx;
-  const f = (ctx.state.optFilter ||= { league: "", show: "", pine: "", pos: "", goodMin: false, goodData: false, q: "" });
+  const f = (ctx.state.optFilter ||= { league: "", show: "", pine: "", pos: "", goodMin: false, goodData: false, q: "", order: "" });
   main.innerHTML = `<div class="page"><div class="page-h"><div><h1>Options</h1><div class="sub">Loading the clubs' roster decisions…</div></div></div></div>`;
   let data;
   const load = async () => {
@@ -170,6 +171,7 @@ export function renderOptions(main, ctx) {
         ${seg("of-pine", [["", "Everyone"], ["in", "In PINE"], ["out", "Not in PINE"]], f.pine)}
         ${seg("of-pos", [["", "All positions"], ...POS_GROUPS], f.pos)}
         <div class="seg" id="of-tags" role="group" aria-label="Tags"><button type="button" data-t="goodMin" class="${f.goodMin ? "on" : ""}" title="${data.tags.good_minutes.toLocaleString()}+ league minutes this season">Good minutes</button><button type="button" data-t="goodData" class="${f.goodData ? "on" : ""}" title="Impect KPI profile at or above the ${data.tags.good_data}th percentile on average">Good data</button></div>
+        ${seg("of-order", [["", "Newest first"], ["old", "Oldest first"]], f.order || "")}
         <input id="of-q" type="search" placeholder="Find a player or club…" value="${esc(f.q)}" aria-label="Find a player or club">
       </div>
       <div id="opt-list">${list()}</div>
@@ -184,7 +186,7 @@ export function renderOptions(main, ctx) {
       b.classList.toggle("on", f[b.dataset.t]);
       redraw();
     });
-    for (const [id, key] of [["of-league", "league"], ["of-show", "show"], ["of-pine", "pine"], ["of-pos", "pos"]]) {
+    for (const [id, key] of [["of-league", "league"], ["of-show", "show"], ["of-pine", "pine"], ["of-pos", "pos"], ["of-order", "order"]]) {
       root.querySelector(`#${id}`).addEventListener("click", (e) => {
         const b = e.target.closest("button[data-k]");
         if (!b) return;
@@ -198,7 +200,7 @@ export function renderOptions(main, ctx) {
     root.querySelector(".opt-cover").addEventListener("click", (e) => {
       const b = e.target.closest("[data-club]");
       if (!b) return;
-      f.q = f.q === b.dataset.club ? "" : b.dataset.club; q.value = f.q; f.league = ""; f.show = ""; f.pine = ""; f.pos = ""; f.goodMin = false; f.goodData = false;
+      f.q = f.q === b.dataset.club ? "" : b.dataset.club; q.value = f.q; f.league = ""; f.show = ""; f.pine = ""; f.pos = ""; f.goodMin = false; f.goodData = false; f.order = "";
       root.querySelectorAll(".opt-filters .seg button").forEach((x) => x.classList.toggle("on", x.dataset.k === ""));
       redraw();
       root.querySelector("#opt-list").scrollIntoView({ behavior: "smooth", block: "start" });

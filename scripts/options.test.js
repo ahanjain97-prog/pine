@@ -296,6 +296,7 @@ test("clubs list newest release first, by posting time within a day; a day-only 
     { club: "Older FC", published: "2026-11-20", found_at: "2026-11-24 13:00:00" }];
   const f = { league: "", show: "", pine: "", pos: "", goodMin: false, goodData: false, q: "" };
   assert.deepEqual(groupDecisions(rows, releases, f, () => false).map((g) => g.club), ["Late FC", "Early FC", "Older FC"]);
+  assert.deepEqual(groupDecisions(rows, releases, { ...f, order: "old" }, () => false).map((g) => g.club), ["Older FC", "Early FC", "Late FC"], "or oldest first");
 
   const db = openDb(":memory:");
   const now = new Date("2026-11-24T22:00:00Z");
