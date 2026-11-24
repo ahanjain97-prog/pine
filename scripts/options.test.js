@@ -24,7 +24,8 @@ test("release headlines: a club's end-of-season roster news counts; single moves
   for (const t of ["Roster Notes", "Example midfielder named to U-17 World Cup roster", "Example and The Town FC Announce Roster for 2025 MLS NEXT Pro Season",
     "Example Defiance Announces Roster Decisions to Conclude 2025 Season", "Sam Example Departs Example City FC After Two Seasons",
     "Example FC Sign Defender Sam Sample to Two-Year Contract Extension Through 2028", "Example United Exercises Purchase Option for Forward Sam Sample",
-    "Example 2 acquire MLS NEXT Pro International Roster Slot", "Example FC Announces 2027 Sprint Season Schedule"]) assert.ok(!isReleaseTitle(t, 2026), t);
+    "Example 2 acquire MLS NEXT Pro International Roster Slot", "Example FC Announces 2027 Sprint Season Schedule",
+    "Example FC players return for 2027 preseason", "Example FC signs Sam Sample through 2027 with club option"]) assert.ok(!isReleaseTitle(t, 2026), t);
 });
 
 test("headlines and links are read as text, and only links on the club's own site are kept", () => {
@@ -106,6 +107,14 @@ test("a Next Pro page's first-team story is the first team's; an upload's releas
   assert.deepEqual(found.map((r) => [r.club, r.league, r.alert]).sort((a, b) => a[0].localeCompare(b[0])), [["New York City FC", "MLS", 0], ["New York City FC II", "MLSNP", 1]]);
   assert.equal(db.get("SELECT title FROM option_releases WHERE url = ?", tulsaUrl).title, "Testers Announce 2027 Roster Decisions");
   assert.equal(db.get("SELECT count(*) AS n FROM option_releases WHERE url = ?", tulsaUrl).n, 1);
+  saveRosterDecisions(db, { season: 2026, decisions: ["E", "F", "G", "H"].map((n) => dec(`${n} Example`, "Union Omaha", "option_exercised",
+    { source_url: "https://www.unionomaha.com/news/2026/11/24/release", announced: "2026-11-24" })) });
+  const twice = await runOptionWatch(db, { now, fetch: fakeWeb({ "https://www.unionomaha.com/": [{ title: { rendered: "Union Announce 2027 Roster Decisions" },
+    link: "https://www.unionomaha.com/news/2026/11/24/release/?utm=x", date: "2026-11-24T12:00:00" }] }) });
+  assert.deepEqual(twice.map((r) => r.alert), [0], "Omaha's page is new here, so quiet anyway");
+  const again = await runOptionWatch(db, { now, fetch: fakeWeb({ "https://www.unionomaha.com/": [{ title: { rendered: "Union Announce More 2027 Roster Decisions" },
+    link: "https://www.unionomaha.com/news/2026/11/24/release-2/", date: "2026-11-24T12:00:00" }] }) });
+  assert.deepEqual(again.map((r) => r.alert), [0], "a club already announced that day isn't announced twice");
 });
 
 test("a run that suddenly finds a pile of releases alerts for none of them", async () => {
@@ -140,17 +149,24 @@ test("uploaded decisions file under PINE names, link players, and announce a clu
   assert.deepEqual(second.new_releases.map((r) => [r.club, r.league, r.url]), [["Phoenix Rising FC", "USLC", "https://www.example-club.com/news/phx"]]);
   assert.deepEqual(second.unknown_clubs, ["Nowhere Rovers"]);
   assert.equal(db.get("SELECT count(*) AS n FROM option_releases WHERE club = 'Union Omaha'").n, 0, "one signing is a single move, not a release");
+  // Later the same club posts its full release: that one is announced.
+  const omaha = { source_url: "https://www.example-club.com/news/omaha-release" };
+  const third = saveRosterDecisions(db, { season: 2026, decisions: [dec("Solo Signing", "Union Omaha", "signed"),
+    ...["Ola", "Oli", "Oma", "Ona", "Ora"].map((n) => dec(`${n} Example`, "Union Omaha", "option_exercised", omaha))] });
+  assert.deepEqual(third.new_releases.map((r) => r.club), ["Union Omaha"], "a club with only single moves before still alerts when its release arrives");
+  assert.equal(saveRosterDecisions(db, { season: 2026, decisions: [dec("Solo Signing", "Union Omaha", "signed"),
+    ...["Ola", "Oli", "Oma", "Ona", "Ora"].map((n) => dec(`${n} Example`, "Union Omaha", "option_exercised", omaha))] }).new_releases.length, 0, "and only once");
   assert.throws(() => saveRosterDecisions(db, { season: 2026, decisions: [dec("Bad Code", "FC Tulsa", "maybe")] }), /unknown decision/);
 
   const unread = optionsUnread(db, 90);
-  assert.deepEqual([unread.n, unread.latest.club], [1, "Phoenix Rising FC"]);
+  assert.deepEqual([unread.n, unread.latest.club], [2, "Union Omaha"]);
   const page = optionsPayload(db, 90);
   const fa = Object.fromEntries(page.decisions.map((d) => [`${d.name}|${d.club}`, d.free_agent]));
   assert.equal(fa["Alan Declined|Minnesota United FC 2"], true);
   assert.equal(fa["Sid Moved|Real Monarchs SLC"], false, "signed by another club since");
   assert.equal(fa["Kim Kept|Minnesota United FC 2"], false);
   const status = Object.fromEntries(page.clubs.map((c) => [c.club, c.status]));
-  assert.deepEqual([status["Phoenix Rising FC"], status["FC Tulsa"], status["Union Omaha"], status["Brooklyn FC"]], ["posted", "moves", "moves", "none"]);
+  assert.deepEqual([status["Phoenix Rising FC"], status["FC Tulsa"], status["Union Omaha"], status["Charleston Battery"], status["Brooklyn FC"]], ["posted", "moves", "posted", "none", "none"]);
   markOptionsRead(db, 90, unread.latest.id);
   assert.equal(optionsUnread(db, 90).n, 0);
   markOptionsRead(db, 90, 0);

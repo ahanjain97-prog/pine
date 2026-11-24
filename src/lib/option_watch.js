@@ -31,17 +31,18 @@ const MAX_ARTICLE_READS = 25;    // undated headlines whose article is opened fo
 // national-team call-up)? season is the season that just ended.
 const RELEASE = [
   /\broster (decisions?|updates?|moves|status(es)?|announcements?|news)\b/i,
-  /\b(contract|team|club) options?\b/i,
+  /\b(contract|team|club) options\b/i,
+  /\b(picks? up|exercises?|exercised|declines?|declined)\b.{0,40}\boptions?\b/i,
   /\boptions? (decisions?|exercised|declined|picked up)\b/i,
   /\bcontract decisions?\b/i,
   /\b(end[- ]of[- ](the[- ])?(season|year)|year[- ]end) roster\b/i,
   /\bsays? goodbye to \w+ players\b/i,
-  /\bplayers? (from the \d{4} squad )?(will )?return\b/i,
+  /\b(\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\b.{0,30}\bplayers\b.{0,40}\breturn\b/i,
   /\bretains? \w+ players\b/i,
 ];
 const NOT_RELEASE = [
   /\broster notes?\b/i, /\bnamed to\b/i, /\bnational team\b/i, /\bu-?\d{2}\b/i, /\bworld cup\b/i, /\bnations league\b/i,
-  /\b(announces?|releases?|unveils?) (\S+ ){0,4}roster for\b/i, /\bschedule\b/i, /\broster slot\b/i, /\bpurchase option\b/i, /\broster[- ]building\b/i, /\bcalendar\b/i,
+  /\b(announces?|releases?|unveils?) (\S+ ){0,4}roster for\b/i, /\bschedule\b/i, /\broster slot\b/i, /\bpurchase option\b/i, /\broster[- ]building\b/i, /\bcalendar\b/i, /\bpre-?season\b/i,
 ];
 export function isReleaseTitle(title, season) {
   const t = String(title || "");
@@ -148,7 +149,9 @@ export async function runOptionWatch(db, { fetch: fetchFn = globalThis.fetch, no
     const recorded = [];
     db.tx(() => {
       for (const r of fresh) {
-        const alert = !r.quiet && !capped && ALERT_LEAGUES.has(r.league) ? 1 : 0;
+        // An upload (or another page) may already have announced this club's release that day under a slightly different link.
+        const known = db.get("SELECT 1 FROM option_releases WHERE season = ? AND club = ? AND published = ?", season, r.club, r.published);
+        const alert = !r.quiet && !capped && !known && ALERT_LEAGUES.has(r.league) ? 1 : 0;
         const res = db.run(`INSERT OR IGNORE INTO option_releases(season, club, league, title, url, published, source, alert)
           VALUES (?,?,?,?,?,?, 'watcher', ?)`, season, r.club, r.league, r.title, r.url, r.published, alert);
         if (res.changes) recorded.push({ ...r, id: Number(res.lastInsertRowid), alert });

@@ -54,7 +54,8 @@ export function saveRosterDecisions(db, { season, decisions }) {
     for (const club of clubs) {
       const mine = rows.filter((r) => r.club === club);
       const league = mine[0].league;
-      if (before.has(club) || !ALERT_LEAGUES.has(league)) continue;
+      // A club that had only single moves before can still post its release later; one with a release already doesn't get another.
+      if (!ALERT_LEAGUES.has(league)) continue;
       if (db.get("SELECT 1 FROM option_releases WHERE season = ? AND club = ?", season, club)) continue;
       // The link most of its rows cite, as the release to open.
       const tally = new Map();
