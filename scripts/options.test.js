@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { openDb } from "../src/db.js";
 import { findClub } from "../src/lib/option_clubs.js";
 import { optionsPayload, saveRosterDecisions, seasonFor } from "../src/lib/roster_decisions.js";
-import { articleDate, isReleaseTitle, ownLink, parseMlsCards, parseWpFeed, runOptionWatch } from "../src/lib/option_watch.js";
+import { articleDate, isReleaseTitle, ownLink, parseMlsCards, parseWpFeed, runOptionWatch, utcStamp } from "../src/lib/option_watch.js";
 import { groupDecisions, groupsOf } from "../public/options.js";
 import { enrichOptions, findImpect, scoringIteration, summarizeCard } from "../src/lib/options_impect.js";
 
@@ -39,7 +39,12 @@ test("headlines and links are read as text, and only links on the club's own sit
   [{ title: "Roster – Decisions & more", url: "https://www.example-club.com/news/r", published: "2026-11-24" }]);
   const html = `<a class="fm-card-wrap x" href="/news/one" title="One &amp; Two"></a><a class="fm-card-wrap" href="/news/one" title="Dup"></a>`;
   assert.deepEqual(parseMlsCards(html, "www.example-club.com/2/news"), [{ title: "One & Two", url: "https://www.example-club.com/news/one", published: null }]);
-  assert.equal(articleDate('<script>{"datePublished":"2026-11-20T15:00:00Z"}</script>'), "2026-11-20");
+  assert.equal(articleDate('<script>{"datePublished":"2026-11-20T15:00:00Z"}</script>'), "2026-11-20T15:00:00Z");
+  assert.equal(articleDate('<meta property="article:published_time" content="2026-11-20T10:00:00-05:00">'), "2026-11-20T15:00:00Z", "as UTC");
+  assert.equal(utcStamp("2026-11-24 17:36:15", true), "2026-11-24T17:36:15Z");
+  assert.equal(utcStamp("2026-11-24"), "2026-11-24");
+  assert.deepEqual(parseWpFeed([{ date: "2026-11-24T12:36:15", date_gmt: "2026-11-24T19:36:15", link: "https://www.example-club.com/news/r", title: { rendered: "R" } }], "www.example-club.com")[0].published,
+    "2026-11-24T19:36:15Z", "the feed's UTC time, not the club's local one");
   assert.equal(seasonFor(new Date("2027-01-15T00:00:00Z")), 2026);
 });
 
@@ -282,4 +287,23 @@ test("linking runs over the decisions offline, keeps results across uploads, and
   assert.deepEqual(names({ pos: "ST" }), ["Zed Nobody"], "no Impect position: the release's F counts as W or ST");
   assert.deepEqual(names({ goodMin: true, goodData: true }), ["Ana Example"]);
   assert.deepEqual(groupsOf({ position: "M" }), ["MID", "AM"]);
+});
+
+test("clubs list newest release first, by posting time within a day; a day-only release picks up its time later", async () => {
+  const rows = ["Early FC", "Late FC", "Older FC"].map((club, i) => ({ id: i + 1, club, league: "USLC", name: `${club} Player`, decision: "option_declined", announced: club === "Older FC" ? "2026-11-20" : "2026-11-24" }));
+  const releases = [{ club: "Early FC", published: "2026-11-24T14:00:00Z", found_at: "2026-11-24 14:05:00" },
+    { club: "Late FC", published: "2026-11-24T19:36:15Z", found_at: "2026-11-24 19:40:00" },
+    { club: "Older FC", published: "2026-11-20", found_at: "2026-11-24 13:00:00" }];
+  const f = { league: "", show: "", pine: "", pos: "", goodMin: false, goodData: false, q: "" };
+  assert.deepEqual(groupDecisions(rows, releases, f, () => false).map((g) => g.club), ["Late FC", "Early FC", "Older FC"]);
+
+  const db = openDb(":memory:");
+  const now = new Date("2026-11-24T22:00:00Z");
+  await runOptionWatch(db, { now, fetch: fakeWeb({ "https://www.fctulsa.com/": wp([["Seed", "seed", "2026-11-01"]]) }) });
+  saveRosterDecisions(db, { season: 2026, decisions: [dec("Seed Row", "Toronto FC II", "other")] });
+  const url = "https://www.fctulsa.com/news/release/";
+  saveRosterDecisions(db, { season: 2026, decisions: ["A", "B", "C", "D"].map((n) => dec(`${n} Example`, "FC Tulsa", "option_exercised", { source_url: url })) });
+  assert.equal(db.get("SELECT published FROM option_releases WHERE url = ?", url).published, "2026-11-24");
+  await runOptionWatch(db, { now, fetch: fakeWeb({ "https://www.fctulsa.com/": [{ title: { rendered: "Testers Announce 2027 Roster Decisions" }, link: url, date: "2026-11-24T12:36:15", date_gmt: "2026-11-24T19:36:15" }] }) });
+  assert.equal(db.get("SELECT published FROM option_releases WHERE url = ?", url).published, "2026-11-24T19:36:15Z");
 });

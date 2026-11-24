@@ -65,10 +65,20 @@ export function ownLink(href, host) {
   } catch { return null; }
 }
 
-// A USL club site's WordPress news feed: [{ title, url, published }].
+// When a release went up, as UTC ("2026-11-24T17:36:15Z") so releases from every club sort in posting order; a bare
+// date when that's all there is.
+export function utcStamp(v, assumeUtc = false) {
+  const s = String(v || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}/.test(s)) return null;
+  if (s.length === 10) return s;
+  const d = new Date(assumeUtc && !/(Z|[+-]\d{2}:?\d{2})$/.test(s) ? `${s}Z` : s);
+  return Number.isNaN(d.getTime()) ? s.slice(0, 10) : `${d.toISOString().slice(0, 19)}Z`;
+}
+// A USL club site's WordPress news feed: [{ title, url, published }]. date_gmt is UTC (date is the club's local time).
 export function parseWpFeed(json, host) {
   if (!Array.isArray(json)) return [];
-  return json.map((x) => ({ title: decode(x?.title?.rendered), url: ownLink(x?.link, host), published: /^\d{4}-\d{2}-\d{2}/.test(x?.date || "") ? x.date.slice(0, 10) : null }))
+  return json.map((x) => ({ title: decode(x?.title?.rendered), url: ownLink(x?.link, host),
+    published: x?.date_gmt ? utcStamp(x.date_gmt, true) : utcStamp(String(x?.date || "").slice(0, 10)) }))
     .filter((x) => x.title && x.url);
 }
 // An MLS-platform news page's cards: [{ title, url }] (the cards carry no date).
@@ -81,10 +91,10 @@ export function parseMlsCards(html, host) {
   }
   return out;
 }
-// An article's publish date from its page: JSON-LD datePublished or the article:published_time meta.
+// An article's publish time from its page: JSON-LD datePublished or the article:published_time meta, as UTC.
 export function articleDate(html) {
-  const m = String(html).match(/"datePublished"\s*:\s*"(\d{4}-\d{2}-\d{2})/) || String(html).match(/article:published_time"\s+content="(\d{4}-\d{2}-\d{2})/);
-  return m ? m[1] : null;
+  const m = String(html).match(/"datePublished"\s*:\s*"([^"]+)"/) || String(html).match(/article:published_time"\s+content="([^"]+)"/);
+  return m ? utcStamp(m[1]) : null;
 }
 
 export const watchState = { enabled: false, running: false, last_run: null, next_run: null, feeds: 0, failed: [], found: 0, note: null };
@@ -110,7 +120,7 @@ export async function runOptionWatch(db, { fetch: fetchFn = globalThis.fetch, no
         const [kind, where] = [c.feed.slice(0, c.feed.indexOf(":")), c.feed.slice(c.feed.indexOf(":") + 1)];
         try {
           const list = kind === "wp"
-            ? parseWpFeed(await get(fetchFn, `https://${where}/wp-json/wp/v2/sec_news?per_page=30&_fields=date,link,title&_=${now.getTime()}`, true), where)
+            ? parseWpFeed(await get(fetchFn, `https://${where}/wp-json/wp/v2/sec_news?per_page=30&_fields=date,date_gmt,link,title&_=${now.getTime()}`, true), where)
             : parseMlsCards(await get(fetchFn, `https://${where}`, false), where);
           if (!list.length) throw new Error("no headlines found");
           items.push(...list.map((x) => ({ ...x, feed: c.feed, club: c, host: where })));
@@ -125,6 +135,9 @@ export async function runOptionWatch(db, { fetch: fetchFn = globalThis.fetch, no
     items.sort((a, b) => (a.club.league === "MLS") - (b.club.league === "MLS"));
     const fresh = [], marks = new Set();
     let reads = 0;
+    // Releases recorded with only a day pick up their posting time when the feed gives it.
+    const timed = items.filter((x) => x.published?.length > 10);
+    if (timed.length) db.tx(() => { for (const x of timed) db.run("UPDATE option_releases SET published = ? WHERE url = ? AND length(coalesce(published, '')) <= 10 AND (published IS NULL OR substr(?, 1, 10) >= published)", x.published, x.url, x.published); });
     for (const x of items) {
       if (marks.has(x.url) || db.get("SELECT 1 FROM option_watch_seen WHERE url = ?", x.url)) continue;
       const { club, league } = whose(x.club, x.title);
@@ -148,7 +161,7 @@ export async function runOptionWatch(db, { fetch: fetchFn = globalThis.fetch, no
     db.tx(() => {
       for (const r of fresh) {
         // An upload (or another page) may already have announced this club's release that day under a slightly different link.
-        const known = db.get("SELECT 1 FROM option_releases WHERE season = ? AND club = ? AND published = ?", season, r.club, r.published);
+        const known = db.get("SELECT 1 FROM option_releases WHERE season = ? AND club = ? AND substr(published, 1, 10) = substr(?, 1, 10)", season, r.club, r.published);
         const alert = !r.quiet && !capped && !known && ALERT_LEAGUES.has(r.league) ? 1 : 0;
         const res = db.run(`INSERT OR IGNORE INTO option_releases(season, club, league, title, url, published, source, alert)
           VALUES (?,?,?,?,?,?, 'watcher', ?)`, season, r.club, r.league, r.title, r.url, r.published, alert);

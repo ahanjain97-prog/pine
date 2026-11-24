@@ -22,10 +22,14 @@ const POSITION_TEXT = { GK: "Goalkeeper", D: "Defender", M: "Midfielder", F: "Fo
 const PINE_LEAGUE = { USLC: "USLC", USL1: "USL1", MLSNP: "MLS Next Pro", MLS: "MLS" };
 const fold = (s) => String(s || "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const webLink = (u) => (/^https?:\/\//i.test(String(u || "")) ? String(u) : null);
+// A day ("Nov 24"); a posting time shows in the viewer's own time zone ("Nov 24, 12:36 PM").
 const day = (iso) => {
   if (!iso) return "";
-  const d = new Date(`${String(iso).slice(0, 10)}T12:00:00Z`);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  const s = String(iso), timed = s.length > 10;
+  const d = new Date(timed ? s.replace(" ", "T") + (/(Z|[+-]\d{2}:?\d{2})$/.test(s) ? "" : "Z") : `${s.slice(0, 10)}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return "";
+  return timed ? d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+    : d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 };
 
 // The decisions the filters keep, grouped by club, newest club news first.
@@ -40,15 +44,22 @@ export function groupDecisions(decisions, releases, f, inPine, tags = DEFAULT_TA
     && (!q || fold(d.name).includes(q) || fold(d.club).includes(q)));
   const byClub = new Map();
   for (const d of keep) {
-    if (!byClub.has(d.club)) byClub.set(d.club, { club: d.club, league: d.league, rows: [], latest: "" });
+    if (!byClub.has(d.club)) byClub.set(d.club, { club: d.club, league: d.league, rows: [], latest: "", found: "" });
     const g = byClub.get(d.club);
     g.rows.push(d);
     if ((d.announced || "") > g.latest) g.latest = d.announced || "";
   }
-  for (const r of releases) { const g = byClub.get(r.club); if (g && (r.published || "") > g.latest) g.latest = r.published || ""; }
+  // Newest release first: its posting time (UTC) where the club's site gives one, else its day; same moment, the one
+  // PINE found later first.
+  for (const r of releases) {
+    const g = byClub.get(r.club);
+    if (!g) continue;
+    if ((r.published || "") > g.latest) g.latest = r.published || "";
+    if ((r.found_at || "") > g.found) g.found = r.found_at || "";
+  }
   const groups = [...byClub.values()];
   for (const g of groups) g.rows.sort((a, b) => ORDER.indexOf(a.decision) - ORDER.indexOf(b.decision) || a.name.localeCompare(b.name));
-  return groups.sort((a, b) => b.latest.localeCompare(a.latest) || a.club.localeCompare(b.club));
+  return groups.sort((a, b) => b.latest.localeCompare(a.latest) || b.found.localeCompare(a.found) || a.club.localeCompare(b.club));
 }
 
 export function renderOptions(main, ctx) {
