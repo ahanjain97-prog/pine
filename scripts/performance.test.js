@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
 import { openDb } from '../src/db.js';
-import { registerPerformance, requestMetric, summarizeTimings, TIMING_LIMITS } from '../src/lib/performance.js';
-import { requestTimings, timeDatabase } from '../src/lib/request_timing.js';
+import { normalizeBuckets, registerPerformance, requestMetric, SLOW_REQUEST_MS, summarizeTimings, TIMING_LIMITS } from '../src/lib/performance.js';
+import { newRequestTiming, requestTimings, timeDatabase, timeExternal, timedFetch } from '../src/lib/request_timing.js';
 import { createTimings, timingMetric, renderMetric } from '../public/performance.js';
 
 test('timing labels strip identities and query strings and ignore unrelated routes', () => {
@@ -56,7 +56,7 @@ test('HTTP timings retain aggregates across collectors, enforce auth/limits and 
   assert.equal(denied.status, 401); assert.equal(denied.headers.get('Server-Timing'), null);
   const res = await app.request('/api/players/19', { headers });
   assert.deepEqual(await res.json(), { ok: 1 });
-  assert.match(res.headers.get('Server-Timing'), /^app;dur=\d+\.\d, sql;dur=\d+\.\d$/);
+  assert.match(res.headers.get('Server-Timing'), /^app;dur=\d+\.\d, sql;dur=\d+\.\d, ext;dur=\d+\.\d$/);
   await app.request('/api/players/20', { headers });
   await app.request('/api/players/19/cards', { headers });
   const body = { version: '1234abcd', samples: [
@@ -117,7 +117,7 @@ test('summary combines hourly histograms and keeps errors and stages separate', 
 test('database counters stay isolated across overlapping requests and stop after response', async () => {
   let resume;
   const paused = new Promise(resolve => { resume = resolve; });
-  const first = { active: true, databaseMs: 0 }, second = { active: true, databaseMs: 0 };
+  const first = newRequestTiming(), second = newRequestTiming();
   const run = requestTimings.run(first, async () => { await paused; timeDatabase(() => 1); });
   requestTimings.run(second, () => timeDatabase(() => 2));
   assert.equal(first.databaseMs, 0);
@@ -172,4 +172,69 @@ test('browser batches contain only timing fields and failed delivery is harmless
   assert.deepEqual(JSON.parse(sent[0].opts.body), { version: '1234abcd', samples: [{ metric: 'player', ms: 123, outcome: 'ok' }] });
   handlers.get('visibilitychange')();
   assert.equal(sent.length, 1);
+});
+
+test('requests record query counts, provider time and a slow log without identities', async t => {
+  const db = openDb(':memory:'), app = new Hono();
+  let clock = Date.UTC(2026, 10, 23, 10);
+  const perf = registerPerformance(app, { db, version: () => '1234abcd', now: () => clock });
+  t.after(() => { perf.close(); db.raw.close(); });
+  app.use('/api/*', async (c, next) => { c.set('user', { id: 1, is_admin: true }); await next(); });
+  perf.registerRoutes();
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  app.get('/api/players/:id', c => { for (let i = 0; i < 3; i++) db.get('SELECT 1'); db.tx(() => db.run('SELECT 1')); return c.json({}); });
+  app.get('/api/players/:id/impect-kpis', async c => {
+    db.get('SELECT 1');
+    // Two overlapping provider calls count their shared wall-clock time once.
+    await Promise.all([timeExternal(() => wait(SLOW_REQUEST_MS + 40)), timeExternal(() => wait(SLOW_REQUEST_MS + 20))]);
+    return c.json({}, 502);
+  });
+  const res = await app.request('/api/players/7');
+  assert.match(res.headers.get('Server-Timing'), /ext;dur=0\.0$/);
+  await app.request('/api/players/7/impect-kpis');
+  const data = await (await app.request('/api/performance')).json();
+  const database = data.summary.find(r => r.source === 'database' && r.metric === 'player');
+  assert.equal(database.mean_queries, 4, 'transaction boundaries are not counted as queries');
+  const external = data.summary.find(r => r.source === 'external' && r.metric === 'impect-kpis');
+  const server = data.summary.find(r => r.source === 'server' && r.metric === 'impect-kpis');
+  assert.ok(external.mean_ms >= SLOW_REQUEST_MS + 30 && external.mean_ms <= server.mean_ms);
+  assert.equal(data.slow_request_ms, SLOW_REQUEST_MS);
+  assert.equal(data.slow_requests.length, 1);
+  const slow = data.slow_requests[0];
+  assert.deepEqual(Object.keys(slow).sort(), ['at', 'database_ms', 'external_ms', 'id', 'metric', 'queries', 'status', 'total_ms', 'version']);
+  assert.equal(slow.metric, 'impect-kpis'); assert.equal(slow.status, 502); assert.equal(slow.queries, 1);
+  assert.ok(slow.external_ms >= SLOW_REQUEST_MS && slow.external_ms <= slow.total_ms);
+  assert.equal((await (await app.request('/api/performance?version=abcdef12')).json()).slow_requests.length, 0);
+  clock += 15 * 86400000;
+  await app.request('/api/players/7');
+  perf.flush();
+  assert.equal(db.all('SELECT * FROM performance_slow').length, 0, 'slow log follows the 14-day retention');
+});
+
+test('provider timing ignores calls outside requests and buffers bodies inside them', async t => {
+  t.mock.method(globalThis, 'fetch', async () => new Response('{"ok":true}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+  assert.deepEqual(await (await timedFetch('https://provider.invalid')).json(), { ok: true });
+  const timing = newRequestTiming();
+  const res = await requestTimings.run(timing, () => timedFetch('https://provider.invalid'));
+  assert.deepEqual(await res.json(), { ok: true });
+  assert.ok(timing.externalMs >= 0); assert.equal(timing.externalOpen, 0);
+  t.mock.method(globalThis, 'fetch', async () => new Response(null, { status: 204 }));
+  assert.equal((await requestTimings.run(newRequestTiming(), () => timedFetch('https://provider.invalid'))).status, 204);
+});
+
+test('legacy timing rows re-bin exactly into the finer buckets', () => {
+  const legacy = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+  const next = normalizeBuckets(legacy);
+  assert.equal(next.length, TIMING_LIMITS.length);
+  assert.equal(next.reduce((a, b) => a + b, 0), legacy.reduce((a, b) => a + b, 0));
+  assert.equal(next[TIMING_LIMITS.indexOf(250)], 3); assert.equal(next[TIMING_LIMITS.indexOf(150)], 0);
+  assert.equal(next[TIMING_LIMITS.indexOf(300000)], 11);
+  const db = openDb(':memory:');
+  db.raw.exec(`CREATE TABLE performance_timings (hour INTEGER NOT NULL, version TEXT NOT NULL, source TEXT NOT NULL, metric TEXT NOT NULL,
+    outcome TEXT NOT NULL, count INTEGER NOT NULL, total_ms REAL NOT NULL, max_ms REAL NOT NULL, buckets TEXT NOT NULL, PRIMARY KEY(hour, version, source, metric, outcome))`);
+  db.run('INSERT INTO performance_timings VALUES (?,?,?,?,?,?,?,?,?)', Date.now(), '1234abcd', 'server', 'player', 'ok', 66, 1, 1, JSON.stringify(legacy));
+  const perf = registerPerformance(new Hono(), { db, version: () => '1234abcd' });
+  const row = db.get('SELECT * FROM performance_timings');
+  assert.deepEqual(JSON.parse(row.buckets), next); assert.equal(row.queries, 0);
+  perf.close(); db.raw.close();
 });

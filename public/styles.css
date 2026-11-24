@@ -208,71 +208,82 @@ label.lbl, .lbl { display: block; font-size: 11px; font-weight: 600; letter-spac
 .monitor-grid > .panel { margin: 0; min-width: 0; }
 .monitor-value { font-size: 20px; font-weight: 700; margin: 8px 0; }
 .monitor-stat .hint { margin-bottom: 0; line-height: 1.6; }
+.monitor-list { list-style: none; margin: 0; padding: 0; }
 .monitor-queues { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
 .monitoring-page .grid tbody tr { cursor: default; }
-.perf-filters { align-items: flex-end; margin-bottom: 12px; }
+.monitoring-page .grid .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.monitoring-page .warn { color: var(--fail); font-weight: 600; }
+.linkish, .perf-pick { padding: 0; border: 0; background: none; font: inherit; color: var(--accent); text-align: left; cursor: pointer; }
+.linkish:hover, .perf-pick:hover { text-decoration: underline; }
+.perf-pick { font-weight: 600; }
+.perf-pick[aria-pressed="true"] { color: var(--ink); }
+.monitoring-page td small { display: block; font-size: 11px; margin-top: 2px; }
+.monitoring-page .grid tr.perf-selected > td { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.monitoring-page .grid tr.perf-selected > td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.perf-expand { width: 22px; margin-right: 4px; padding: 0; border: 0; background: none; color: var(--ink-2); font-size: 13px; cursor: pointer; }
+.monitoring-page .grid tr.perf-sub > td { padding: 4px 10px 14px 32px; background: var(--surface-2); }
+.perf-sub .table-wrap { box-shadow: none; }
+.perf-where { min-width: 190px; }
+.perf-where .sm { display: block; margin-top: 4px; }
+.perf-split { display: flex; width: 100%; min-width: 80px; height: 8px; border-radius: 4px; overflow: hidden; background: var(--line); }
+.perf-split > span { display: block; height: 100%; }
+.perf-split-database, .perf-key.database { background: var(--pc-def); }
+.perf-split-provider, .perf-key.provider { background: var(--pc-gk); }
+.perf-split-app, .perf-key.app { background: var(--none); }
+.perf-worse { color: var(--fail); font-weight: 600; }
+.perf-better { color: var(--pass); font-weight: 600; }
+.perf-filters { align-items: flex-end; margin-bottom: 8px; }
 .perf-filters label { display: grid; gap: 4px; font-size: 12px; max-width: 100%; }
 .perf-filters select { max-width: 100%; }
+.perf-help, .perf-section, .monitor-more { margin: 14px 0; }
+.perf-help > summary, .perf-details > summary, .perf-hourly > summary { cursor: pointer; color: var(--accent); font-weight: 600; margin: 10px 0; }
+.perf-help ul { margin: 0; padding-left: 20px; line-height: 1.6; }
+.perf-section h3, .monitor-more h3, .perf-chart h3 { font-size: 17px; margin: 0 0 6px; }
+details.perf-section > summary, .monitor-more > summary { cursor: pointer; margin: 6px 0; }
+details.perf-section > summary h3, .monitor-more > summary h3 { display: inline; }
 .perf-chart { margin: 18px 0; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
-.perf-chart h2, .perf-chart h3 { font-size: 17px; margin: 0 0 8px; }
+.perf-chart h4 { font-size: 14px; margin: 0; }
 .perf-chart .hint { line-height: 1.6; }
 .perf-legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 12px; margin: 12px 0; }
 .perf-legend > span { display: inline-flex; align-items: center; gap: 6px; }
 .perf-key { display: inline-block; width: 16px; height: 4px; background: var(--accent); }
-.perf-key.typical { background: var(--hold); }
-.perf-bars { display: grid; gap: 6px; }
-.perf-bar-row, .perf-bar-axis { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(80px, 2fr) 130px; gap: 12px; align-items: center; }
-.perf-bar-axis { padding: 0 10px; }
-.perf-scale-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.perf-scale-controls .hint { margin: 0; }
-.perf-zoom-note { border-left: 3px solid var(--hold); padding-left: 10px; }
-.perf-axis-ticks { position: relative; height: 22px; margin-top: 8px; color: var(--ink-2); font-size: 11px; }
-.perf-axis-tick { position: absolute; transform: translateX(-50%); white-space: nowrap; }
-.perf-axis-tick:first-child { transform: none; }
-.perf-axis-tick:last-child { transform: translateX(-100%); }
-.perf-axis-unit { color: var(--ink-2); text-align: center; font-size: 11px; }
-.perf-bar-grid-line { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--ink); opacity: .18; pointer-events: none; }
-.perf-bar-fill.clipped { background: repeating-linear-gradient(135deg, var(--accent) 0 7px, var(--line-2) 7px 10px); }
-.perf-bar-overflow { position: absolute; right: 0; top: -4px; padding: 0 3px; font-size: 20px; line-height: 24px; font-weight: 700; color: var(--accent-ink); background: var(--accent); }
-.perf-bar-row small.perf-off-scale { color: var(--hold); font-weight: 700; }
-.perf-bar-row {
-  padding: 9px; color: var(--ink); font: inherit; text-align: left; background: var(--surface-2); border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
-.perf-bar-row[aria-pressed="true"] { border-color: var(--accent); }
-.perf-bar-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.perf-bar-label { overflow-wrap: anywhere; }
-.perf-bar-row small, .perf-build-row small { display: block; font-size: 11px; color: var(--ink-2); margin-top: 3px; }
+.perf-key.average { background: var(--accent); height: 3px; }
+.perf-key.slower { background: var(--ink-2); opacity: .5; height: 2px; }
+.perf-key.good { background: repeating-linear-gradient(90deg, var(--pass) 0 4px, transparent 4px 7px); }
+.perf-key.limit { background: repeating-linear-gradient(90deg, var(--fail) 0 4px, transparent 4px 7px); }
 .perf-bar-track { display: block; height: 18px; position: relative; background: var(--line); border-radius: 3px; }
 .perf-bar-fill { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
-.perf-bar-marker { position: absolute; top: -3px; bottom: -3px; width: 3px; background: var(--hold); transform: translateX(-2px); }
-.perf-bar-value { font-size: 13px; font-variant-numeric: tabular-nums; }
 .perf-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-2); margin-top: 8px; }
 .perf-plot { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 6px; }
 .perf-y-axis { display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end; font-size: 11px; padding: 0 0 2px; color: var(--ink-2); }
 .perf-plot svg { width: 100%; height: 200px; overflow: visible; }
+.perf-plot svg.perf-volume { height: 40px; margin-top: 6px; }
+.perf-volume rect { fill: var(--line-2); }
+.perf-volume-label { margin-top: 6px; }
 .perf-grid-line { fill: none; stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
-polyline.perf-line-slower, polyline.perf-line-typical { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }
-.perf-line-slower { stroke: var(--accent); }
-.perf-line-typical { stroke: var(--hold); stroke-dasharray: 5 4; }
-circle.perf-line-slower { fill: var(--accent); }
-circle.perf-line-typical { fill: var(--hold); stroke-dasharray: none; }
+.perf-target-good, .perf-target-slow { stroke-width: 1.5; stroke-dasharray: 6 5; vector-effect: non-scaling-stroke; }
+.perf-target-good { stroke: var(--pass); }
+.perf-target-slow { stroke: var(--fail); }
+polyline.perf-line-slower, polyline.perf-line-average { fill: none; vector-effect: non-scaling-stroke; }
+polyline.perf-line-average { stroke: var(--accent); stroke-width: 2.5; }
+polyline.perf-line-slower { stroke: var(--ink-2); stroke-width: 1.5; opacity: .5; }
+circle.perf-line-average { fill: var(--accent); }
+circle.perf-line-slower { fill: var(--ink-2); opacity: .5; }
+circle.perf-line-slower.off-scale { fill: var(--fail); opacity: 1; }
 .perf-time-axis { display: flex; justify-content: space-between; gap: 12px; margin: 8px 0 0 70px; color: var(--ink-2); font-size: 11px; }
-.perf-details > summary, .perf-hourly > summary { cursor: pointer; color: var(--accent); font-weight: 600; margin: 10px 0; }
 .perf-details .table-wrap, .perf-hourly .table-wrap { max-height: 420px; overflow: auto; }
 .perf-build-bars { display: grid; gap: 18px; }
 .perf-build-row, .perf-build-axis { display: grid; grid-template-columns: 80px minmax(40px, 1fr) 125px; align-items: center; gap: 12px; }
 .perf-build-row { margin: 10px 0; font-size: 13px; }
+.perf-build-row small { display: block; font-size: 11px; color: var(--ink-2); margin-top: 3px; }
 .perf-bar-fill.queue { background: var(--hold); }
 .perf-bar-fill.build { background: var(--accent); }
 @media (max-width: 600px) {
   .perf-chart { padding: 12px; }
-  .perf-bar-row { grid-template-columns: minmax(0, 1fr) 130px; gap: 8px; }
-  .perf-bar-axis { display: block; }
-  .perf-bar-axis > span { display: none; }
-  .perf-bar-row .perf-bar-track { grid-column: 1 / -1; grid-row: 2; }
-  .perf-bar-value { text-align: right; }
   .perf-build-row, .perf-build-axis { grid-template-columns: 72px minmax(30px, 1fr) 90px; gap: 8px; font-size: 12px; }
   .perf-plot { grid-template-columns: 50px minmax(0, 1fr); }
   .perf-time-axis { margin-left: 56px; }
+  .monitoring-page .grid tr.perf-sub > td { padding-left: 10px; }
 }
 
 /* ---------- big board ---------- */
