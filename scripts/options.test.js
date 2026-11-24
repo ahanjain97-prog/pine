@@ -10,7 +10,8 @@ import { openDb } from "../src/db.js";
 import { findClub } from "../src/lib/option_clubs.js";
 import { markOptionsRead, optionsPayload, optionsUnread, saveRosterDecisions, seasonFor } from "../src/lib/roster_decisions.js";
 import { articleDate, isReleaseTitle, ownLink, parseMlsCards, parseWpFeed, runOptionWatch } from "../src/lib/option_watch.js";
-import { groupDecisions } from "../public/options.js";
+import { groupDecisions, groupsOf } from "../public/options.js";
+import { enrichOptions, findImpect, scoringIteration, summarizeCard } from "../src/lib/options_impect.js";
 
 // Made-up players and headlines; club names and news pages are the public ones PINE follows.
 const dec = (name, club, decision, extra = {}) => ({ name, club, decision, announced: "2026-11-24", source_url: "https://www.example-club.com/news/release", ...extra });
@@ -160,6 +161,7 @@ test("uploaded decisions file under PINE names, link players, and announce a clu
 
   const unread = optionsUnread(db, 90);
   assert.deepEqual([unread.n, unread.latest.club], [2, "Union Omaha"]);
+  assert.deepEqual(unread.recent.map((r) => r.club), ["Union Omaha", "Phoenix Rising FC"], "newest first, for the banner");
   const page = optionsPayload(db, 90);
   const fa = Object.fromEntries(page.decisions.map((d) => [`${d.name}|${d.club}`, d.free_agent]));
   assert.equal(fa["Alan Declined|Minnesota United FC 2"], true);
@@ -223,14 +225,73 @@ test("HTTP: the upload carries the decisions, the tab lists them, and the badge 
   assert.deepEqual((await later.json()).new_releases.map((r) => r.club), ["Union Omaha"], "a club's first decisions after the first upload alert");
   const changes = async () => (await (await call("/api/changes")).json()).options;
   const c1 = await changes();
-  assert.deepEqual([c1.n, c1.latest.club], [1, "Union Omaha"]);
+  assert.deepEqual([c1.n, c1.latest.club, c1.recent.map((r) => r.title)], [1, "Union Omaha", ["Union Omaha roster decisions"]]);
   const tab = await (await call("/api/options")).json();
   assert.deepEqual([tab.season, tab.decisions.length - 3, tab.releases.map((r) => r.club), tab.watch.enabled], [2026, 3, ["Union Omaha"], false], "Toronto's two rows are single moves, not a release");
   assert.equal(tab.decisions.find((d) => d.name === "Alan Declined").player_id, 10001);
   assert.equal((await call("/api/options/read", "POST", { release_id: c1.latest.id })).status, 200);
-  assert.equal((await changes()).n, 0);
+  assert.deepEqual(((({ n, recent }) => [n, recent.length])(await changes())), [0, 0], "dismissed or opened: no banner");
   assert.equal((await call("/api/options/read", "POST", { release_id: "x" })).status, 400);
   assert.equal((await call("/api/options/check", "POST", {})).status, 200, "auth off: the acting admin can run it (offline here, so it finds nothing)");
   const acts = (await (await call("/api/activity")).json());
   assert.ok(JSON.stringify(acts).includes("found_option_release"));
+});
+
+// A made-up Impect pool: two leagues' 2026 seasons and one older season.
+const it = (id, competition, season = "2026") => ({ id, competition, season });
+const fakePool = () => ({ players: [
+  { impect_id: 501, name: "Ana Example", squad: "FC Tulsa", iterations: [it(11, "USL Championship")] },
+  { impect_id: 502, name: "Ben Example", squad: "Union Omaha", iterations: [it(12, "USL League One")] },
+  { impect_id: 503, name: "Ben Example", squad: "Elsewhere FC", iterations: [it(12, "USL League One")] },
+  { impect_id: 504, name: "Cal Q. Example", squad: "Minnesota United FC 2", iterations: [it(9, "MLS Next Pro", "2025"), it(13, "MLS Next Pro")] },
+  { impect_id: 505, name: "Dee Example", squad: "Minnesota United FC", iterations: [it(14, "MLS")] },
+] });
+const indexPool = (raw) => {
+  const byId = new Map(raw.players.map((p) => [p.impect_id, p])), bySeasonComp = new Map();
+  for (const p of raw.players) for (const i of p.iterations) if (i.season === "2026") (bySeasonComp.get(i.competition) || bySeasonComp.set(i.competition, []).get(i.competition)).push(p);
+  return { players: raw.players, byId, bySeasonComp };
+};
+
+test("Options players link to Impect by name within their league's season, never on a coin flip", () => {
+  const pool = indexPool(fakePool());
+  assert.equal(findImpect({ name: "Ana Example", club: "FC Tulsa", league: "USLC" }, pool)?.impect_id, 501);
+  assert.equal(findImpect({ name: "Ben Example", club: "Union Omaha", league: "USL1" }, pool)?.impect_id, 502, "two Ben Examples in League One: his club settles it");
+  assert.equal(findImpect({ name: "Ben Example", club: "Westchester SC", league: "USL1" }, pool), null, "and with no club to settle it, no guess");
+  assert.equal(findImpect({ name: "Cal Example", club: "MNUFC2", league: "MLSNP" }, pool)?.impect_id, 504, "first and last name, a middle initial on one side");
+  assert.equal(findImpect({ name: "Dee Example", club: "Minnesota United FC", league: "MLS" }, pool)?.impect_id, 505, "first team: by club");
+  assert.equal(findImpect({ name: "Ana Example", club: "FC Tulsa", league: "USLC" }, pool, 503)?.impect_id, 503, "a PINE player's own link wins");
+  assert.deepEqual(scoringIteration(pool.byId.get(504), "MLSNP", 2026), it(13, "MLS Next Pro"));
+  assert.equal(scoringIteration(pool.byId.get(505), "MLS", 2026), null, "MLS isn't a benchmark league: no data tag");
+});
+
+test("the tags come from the KPI card: all his league minutes, and the average of his position's category percentiles", () => {
+  assert.deepEqual(summarizeCard({ iteration: { id: 11, competition: "USL Championship" }, squad: "FC Tulsa", position: "CB",
+    positions: [{ minutes: 1500 }, { minutes: 200 }],
+    categories: [{ percentile: 70 }, { percentile: 50 }, { percentile: null }, { percentile: 99, composite: true }] }),
+  { minutes: 1700, group: "CB", data_pct: 60, iteration_id: 11, competition: "USL Championship", squad: "FC Tulsa" });
+  assert.equal(summarizeCard({ empty: true }), null);
+});
+
+test("linking runs over the decisions offline, keeps results across uploads, and the tab filters on them", async () => {
+  const db = openDb(":memory:");
+  db.run("INSERT INTO users(id, name) VALUES (90, 'Test Scout')");
+  saveRosterDecisions(db, { season: 2026, decisions: [dec("Ana Example", "FC Tulsa", "option_declined", { position: "D" }),
+    dec("Cal Example", "MNUFC2", "out_of_contract"), dec("Zed Nobody", "FC Tulsa", "out_of_contract", { position: "F" })] });
+  const cards = { 501: { iteration: { id: 11, competition: "USL Championship" }, squad: "FC Tulsa", position: "CB", positions: [{ minutes: 2100 }], categories: [{ percentile: 72 }] },
+    504: { iteration: { id: 13, competition: "MLS Next Pro" }, squad: "Minnesota United FC 2", position: "W", positions: [{ minutes: 640 }], categories: [{ percentile: 41 }] } };
+  const asked = [];
+  const r = await enrichOptions(db, { playerPool: async () => fakePool(), playerKpiCard: async (id, o) => { asked.push([id, o.iterationId]); return cards[id]; } });
+  assert.deepEqual([r.matched, r.scored, r.total], [2, 2, 3]);
+  assert.deepEqual(asked.sort(), [[501, 11], [504, 13]]);
+  // A new upload replaces the decisions; the Impect links stay.
+  saveRosterDecisions(db, { season: 2026, decisions: [dec("Ana Example", "FC Tulsa", "option_declined", { position: "D" }), dec("Zed Nobody", "FC Tulsa", "out_of_contract", { position: "F" })] });
+  const rows = optionsPayload(db, 90).decisions;
+  const ana = rows.find((d) => d.name === "Ana Example");
+  assert.deepEqual([ana.impect_id, ana.minutes, ana.position_group, ana.data_pct], [501, 2100, "CB", 72]);
+  const inPine = () => false;
+  const names = (f) => groupDecisions(rows, [], { league: "", show: "", pine: "", pos: "", goodMin: false, goodData: false, q: "", ...f }, inPine).flatMap((g) => g.rows.map((x) => x.name));
+  assert.deepEqual(names({ pos: "CB" }), ["Ana Example"]);
+  assert.deepEqual(names({ pos: "ST" }), ["Zed Nobody"], "no Impect position: the release's F counts as W or ST");
+  assert.deepEqual(names({ goodMin: true, goodData: true }), ["Ana Example"]);
+  assert.deepEqual(groupsOf({ position: "M" }), ["MID", "AM"]);
 });

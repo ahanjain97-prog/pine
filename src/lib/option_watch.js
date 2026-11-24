@@ -1,7 +1,7 @@
-// The option watcher. Every couple of hours PINE reads the news of each USL Championship, USL League One and MLS
+// The option watcher. Every 15 minutes PINE reads the news of each USL Championship, USL League One and MLS
 // Next Pro club (and of the MLS first teams, where most Next Pro clubs post) and records any new end-of-season
-// roster release ("2027 roster decisions", "end-of-year roster update") in option_releases. Staff then get a badge
-// on the Options tab and a line in Activity as soon as a club posts. It reads headlines and publish dates only;
+// roster release ("2027 roster decisions", "end-of-year roster update") in option_releases. Staff then get a red
+// banner on every page, a badge on the Options tab and a line in Activity as soon as a club posts. It reads headlines and publish dates only;
 // the players are coded separately and arrive with scripts/free-agents.mjs.
 //
 // Headlines and links come from other sites, so they're kept as text, links must be http(s) on the club's own
@@ -22,7 +22,6 @@ function whose(feedClub, title) {
   return { club: feedClub.club, league: feedClub.league };
 }
 
-const HOUR = 60 * 60 * 1000;
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 PINE-roster-watch";
 const MAX_ALERTS_PER_RUN = 12;   // more than this at once is a site change, not a run of releases
 const MAX_ARTICLE_READS = 25;    // undated headlines whose article is opened for its date, per run
@@ -171,8 +170,9 @@ export async function runOptionWatch(db, { fetch: fetchFn = globalThis.fetch, no
   } finally { watchState.running = false; }
 }
 
-// Runs a minute after start, then every two hours. PINE_OPTION_WATCH=off turns it off (tests, local copies).
-export function startOptionWatch(db, { firstMs = 60_000, everyMs = 2 * HOUR } = {}) {
+// Runs a minute after start, then every 15 minutes (one light request per club page each time; set
+// PINE_OPTION_WATCH_MINUTES to change it, never under 5). PINE_OPTION_WATCH=off turns it off (tests, local copies).
+export function startOptionWatch(db, { firstMs = 60_000, everyMs = Math.max(5, Number(process.env.PINE_OPTION_WATCH_MINUTES) || 15) * 60_000 } = {}) {
   if (process.env.PINE_OPTION_WATCH === "off") return;
   watchState.enabled = true;
   const run = () => {
