@@ -44,6 +44,8 @@ import {
 } from "./lib/ncaa.js";
 import { linkL2, saveL2Report } from "./lib/l2.js";
 import { FREE_AGENT_SQL, freeAgentFor, freeAgentOverride, linkFreeAgents, saveFreeAgents } from "./lib/free_agents.js";
+import { linkRosterDecisions, markOptionsRead, optionsPayload, optionsUnread, saveRosterDecisions } from "./lib/roster_decisions.js";
+import { runOptionWatch, startOptionWatch, watchState } from "./lib/option_watch.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
 import { connectedDuplicate, connectionMergeProblem, mergeConnection, resolvePlayerId } from "./lib/player_connections.js";
@@ -247,6 +249,7 @@ function insertPlayer(fields, userId, source) {
   );
   linkL2(db); // a new player may be on a USL League Two Top Prospects report
   linkFreeAgents(db); // ... or on a club's list of free agents
+  linkRosterDecisions(db); // ... or in its end-of-season roster decisions
   return Number(r.lastInsertRowid);
 }
 
@@ -471,7 +474,7 @@ app.get("/api/config", (c) =>
 );
 // app: the deployed front end's version, so a tab left open across a deploy can offer a reload.
 app.get("/api/changes", (c) => c.json({ version: db.get("SELECT coalesce(max(id), 0) AS v FROM activity").v,
-  review_open: reviewCount(db, c.get("user")), app: ASSET_VERSION }));
+  review_open: reviewCount(db, c.get("user")), app: ASSET_VERSION, options: c.get("user") ? optionsUnread(db, c.get("user").id) : null }));
 
 /* ---------- players ---------- */
 app.get("/api/players", (c) => {
@@ -893,14 +896,43 @@ app.put("/api/worker/l2-prospects", bodyLimit({ maxSize: 1024 * 1024 }), async (
 linkL2(db);
 
 /* ---------- end-of-season free agents (see src/lib/free_agents.js) ---------- */
-app.put("/api/worker/free-agents", bodyLimit({ maxSize: 1024 * 1024 }), async (c) => {
+// The same upload can carry every decision the clubs announced (decisions), for the Options tab; an older copy of
+// the script that sends only the free agents leaves those alone. Both are saved together or not at all.
+app.put("/api/worker/free-agents", bodyLimit({ maxSize: 4 * 1024 * 1024 }), async (c) => {
   const body = await c.req.json().catch(() => null);
   let result;
-  try { result = saveFreeAgents(db, body); } catch (e) { fail(400, e.message); }
-  logActivity(db, null, null, "imported_free_agents", { season: result.season, clubs: result.clubs, entries: result.entries, in_pine: result.in_pine });
+  try {
+    result = db.tx(() => {
+      const r = saveFreeAgents(db, body);
+      return Array.isArray(body.decisions) ? { ...r, ...saveRosterDecisions(db, { season: r.season, decisions: body.decisions }) } : r;
+    });
+  } catch (e) { fail(400, e.message); }
+  logActivity(db, null, null, "imported_free_agents", { season: result.season, clubs: result.clubs, entries: result.entries, in_pine: result.in_pine,
+    ...(result.decisions != null ? { decisions: result.decisions } : {}) });
+  for (const r of result.new_releases || []) {
+    logActivity(db, null, null, "found_option_release", { release_id: r.id, club: r.club, league: r.league, title: r.title, url: r.url, from_upload: true });
+  }
   return c.json({ ok: true, ...result });
 });
 linkFreeAgents(db);
+linkRosterDecisions(db);
+
+/* ---------- Options tab: end-of-season roster decisions and releases (src/lib/roster_decisions.js) ---------- */
+const watchSummary = () => ({ enabled: watchState.enabled, running: watchState.running, last_run: watchState.last_run, next_run: watchState.next_run,
+  feeds: watchState.feeds, failed: watchState.failed, found: watchState.found, note: watchState.note });
+app.get("/api/options", (c) => c.json(optionsPayload(db, c.get("user").id, watchSummary())));
+app.post("/api/options/read", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  try { markOptionsRead(db, c.get("user").id, body.release_id); } catch (e) { fail(400, e.message); }
+  return c.json({ ok: true, options: optionsUnread(db, c.get("user").id) });
+});
+// Admins can run the watcher now instead of waiting for its next pass.
+app.post("/api/options/check", async (c) => {
+  if (!c.get("user").is_admin) fail(403, "Only admins can run the option watcher");
+  const found = await runOptionWatch(db);
+  return c.json({ ok: true, found: found.length, watch: watchSummary() });
+});
+startOptionWatch(db);
 
 // Left out of evaluations at the owner's request (2026-10-28): a staff account that has never signed in or written anything.
 db.once("gabe-out-of-evals-2026-10-28", () => db.run("UPDATE users SET in_evals = 0 WHERE id = 8 AND name = 'Gabe Hoffman-Johnson'"));

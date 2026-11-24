@@ -1476,3 +1476,70 @@ details[open] > summary .kpi-chev { transform: rotate(45deg); }
 
 @media (max-width: 450px) { .cmp-context { grid-template-columns: minmax(0, 1fr); } }
 
+
+/* ---------- Operations > Options: end-of-season roster decisions ---------- */
+.opt-watch { font-size: 12.5px; color: var(--ink-2); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; max-width: 520px; }
+.opt-failed { display: inline-block; }
+.opt-failed summary { cursor: pointer; color: var(--hold); }
+.opt-failed ul { margin: 6px 0 0 16px; font-size: 12px; }
+.opt-note { flex-basis: 100%; color: var(--hold); }
+.opt-fresh { border-color: var(--pass); margin-bottom: 14px; }
+.opt-fresh h2, .opt-releases h2 { font-family: var(--disp); font-size: 17px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; margin: 0 0 8px; }
+.opt-fresh ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
+.opt-cover { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.opt-cover .panel + .panel { margin-top: 0; }
+.opt-cov .lbl { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+.opt-cov-n { font-size: 13px; margin: 4px 0 8px; color: var(--ink-2); }
+.opt-cov-n b { font-size: 20px; color: var(--ink); margin-right: 2px; }
+.opt-cov-clubs { display: flex; flex-wrap: wrap; gap: 4px; }
+.opt-chip { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 999px; padding: 2px 8px; font-size: 11px; cursor: pointer; }
+.opt-chip:hover { color: var(--ink); border-color: var(--line-2); }
+.opt-chip.s-posted { background: var(--pass-bg); color: var(--pass); border-color: transparent; font-weight: 700; }
+.opt-chip.s-moves { color: var(--ink-2); border-style: dashed; border-color: var(--line-2); }
+.opt-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+.opt-filters input[type="search"] { flex: 1; min-width: 180px; max-width: 320px; }
+.opt-count { font-size: 12px; margin: 4px 0 10px; }
+.opt-club { padding: 12px 14px; }
+.opt-club + .opt-club { margin-top: 12px; }
+.opt-club-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.opt-club-h h3 { margin: 0; font-size: 15px; }
+.opt-counts { font-size: 12px; }
+.opt-links { margin-left: auto; display: flex; gap: 10px; font-size: 12.5px; flex-wrap: wrap; }
+.opt-club .table-wrap { box-shadow: none; }
+.opt-table tbody tr { cursor: default; }
+.opt-table td:first-child { width: 42%; }
+.opt-p { display: flex; align-items: center; gap: 9px; min-width: 0; color: inherit; text-decoration: none; }
+a.opt-p:hover .nm { text-decoration: underline; }
+tr.not-pine .opt-p .nm { color: var(--ink-2); }
+.opt-pos, .opt-date { color: var(--muted); font-size: 12px; }
+.opt-dec { display: inline-block; white-space: nowrap; border-radius: 999px; padding: 2px 9px; font-size: 11.5px; font-weight: 700; cursor: help; }
+.opt-dec.k-fa { background: #cff3e8; color: #0b5345; }
+.opt-dec.k-talk { background: var(--hold-bg); color: var(--hold); }
+.opt-dec.k-stay { background: var(--none-bg); color: var(--ink-2); }
+.opt-dec.k-out { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.opt-talks { font-size: 11px; color: var(--hold); font-weight: 700; }
+.opt-info { display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--line-2); font-size: 10px;
+  color: var(--muted); cursor: help; font-style: italic; vertical-align: middle; }
+.opt-act { text-align: right; }
+.opt-act .btn { margin-left: 8px; }
+.opt-src { font-size: 12px; }
+.opt-lg { display: inline-block; font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; padding: 2px 6px; border-radius: 4px;
+  background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line); }
+.opt-releases { margin-top: 16px; }
+.opt-releases .table-wrap { box-shadow: none; max-height: 420px; overflow: auto; }
+.opt-releases tbody tr { cursor: default; }
+.opt-releases td { white-space: normal; }
+.opt-releases tr.is-new { background: var(--pass-bg); }
+.opt-new-pill { font-size: 10px; font-weight: 800; color: #fff; background: var(--pass); border-radius: 999px; padding: 1px 6px; }
+@media (max-width: 760px) {
+  .opt-cover { grid-template-columns: 1fr; }
+  .opt-links { margin-left: 0; flex-basis: 100%; }
+  /* Each decision becomes a two-line card: the player, then the decision and its links. */
+  .opt-table thead { display: none; }
+  .opt-table, .opt-table tbody { display: block; }
+  .opt-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 8px; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+  .opt-table td { display: block; border: 0; padding: 0; white-space: normal; width: auto; }
+  .opt-table td:first-child { grid-column: 1 / -1; width: auto; }
+  .opt-table td.opt-pos, .opt-table td.opt-date { display: none; }
+  .opt-table td.opt-act { white-space: nowrap; }
+}

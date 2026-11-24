@@ -1,7 +1,8 @@
-// Uploads end-of-season free agents (option declined / out of contract) to PINE. Reads one or more research CSVs
-// with the columns club, player, decision, source_url, pub_date (decision: option_declined, out_of_contract,
+// Uploads end-of-season free agents (option declined / out of contract) to PINE, with every roster decision behind
+// them for the Options tab. Reads one or more research CSVs with the columns club, player, decision, source_url,
+// pub_date (and position, decision_raw, notes when they're there; decision: option_declined, out_of_contract,
 // option_exercised, signed, negotiating, ...), prints what it found, and with --upload sends it.
-// The list never goes in this repository; see src/lib/free_agents.js.
+// The list never goes in this repository; see src/lib/free_agents.js and src/lib/roster_decisions.js.
 //
 // --season is the season that just ended (2026 for the decisions made after the 2026 season), never guessed from
 // the release dates: some clubs post in January.
@@ -50,15 +51,22 @@ async function main(argv) {
   const clubs = [...new Set(rows.filter((r) => r.player).map((r) => r.club))];
   console.log(`${season}: ${entries.length} free agents from ${clubs.length} clubs (${entries.filter((e) => e.reason === "option_declined").length} options declined, ${entries.filter((e) => e.reason === "out_of_contract").length} out of contract)`);
   for (const s of skipped) console.log(`  left out ${s.name} (${s.club}): ${s.because}`);
+  const decisions = rows.filter((r) => r.player).map((r) => ({ club: r.club, name: r.player, position: r.position || null, decision: r.decision,
+    decision_raw: r.decision_raw || null, source_url: r.source_url || null, announced: r.pub_date || null, notes: r.notes || null }));
+  console.log(`  and ${decisions.length} roster decisions in all, for the Options tab`);
   if (!upload) { console.log("Dry run. Add --upload to send it to PINE."); return; }
   const base = String(process.env.PINE_URL || "").replace(/\/+$/, ""), token = process.env.PINE_WORKER_TOKEN || "";
   if (!/^https:\/\//.test(base) || !token) { console.error("Uploads need an https PINE_URL and PINE_WORKER_TOKEN"); process.exit(1); }
-  const res = await fetch(`${base}/api/worker/free-agents`, { method: "PUT", body: JSON.stringify({ season, clubs, entries }),
+  const res = await fetch(`${base}/api/worker/free-agents`, { method: "PUT", body: JSON.stringify({ season, clubs, entries, decisions }),
     headers: { "Content-Type": "application/json", "X-PINE": "1", "X-PINE-Worker-Token": token } });
   const out = await res.json().catch(() => ({}));
   if (!res.ok) { console.error(`PINE said ${res.status}: ${out.error || "upload failed"}`); process.exit(1); }
   console.log(`Uploaded: ${out.entries} free agents, ${out.in_pine} of them in PINE.`);
   if (out.not_in_pine?.length) console.log(`Not in PINE (${out.not_in_pine.length}): ${out.not_in_pine.join(", ")}`);
+  if (out.decisions != null) console.log(`Options tab: ${out.decisions} decisions from ${out.decision_clubs} clubs.`);
+  else console.log("This PINE doesn't keep the full decisions yet (only the free agents were saved).");
+  if (out.unknown_clubs?.length) console.log(`Clubs PINE doesn't recognise (filed as written; add them to src/lib/option_clubs.js): ${out.unknown_clubs.join(", ")}`);
+  for (const r of out.new_releases || []) console.log(`New release alert: ${r.club} (${r.league})`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main(process.argv.slice(2));

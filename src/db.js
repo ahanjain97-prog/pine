@@ -178,6 +178,36 @@ CREATE TABLE IF NOT EXISTS free_agents(
   PRIMARY KEY(season, club, name)
 );
 CREATE INDEX IF NOT EXISTS free_agents_player ON free_agents(player_id);
+-- Every end-of-season roster decision (not only free agents), uploaded with them (never committed), filed under
+-- the club's PINE name; club_raw is how the research file wrote it. See src/lib/roster_decisions.js.
+CREATE TABLE IF NOT EXISTS roster_decisions(
+  id INTEGER PRIMARY KEY,
+  season INTEGER NOT NULL,
+  club TEXT NOT NULL, club_raw TEXT, league TEXT,
+  name TEXT NOT NULL, position TEXT,
+  decision TEXT NOT NULL, decision_raw TEXT, announced TEXT, source_url TEXT, notes TEXT,
+  player_id INTEGER REFERENCES players(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS roster_decisions_club ON roster_decisions(season, club);
+CREATE INDEX IF NOT EXISTS roster_decisions_player ON roster_decisions(player_id);
+-- Roster-decision releases: spotted on a club's news page by the option watcher, or first seen in an upload.
+-- alert = 1 raises the Options badge and an Activity line (0: found while seeding, an MLS first team, or capped).
+CREATE TABLE IF NOT EXISTS option_releases(
+  id INTEGER PRIMARY KEY,
+  season INTEGER NOT NULL,
+  club TEXT NOT NULL, league TEXT NOT NULL,
+  title TEXT NOT NULL, url TEXT NOT NULL UNIQUE, published TEXT,
+  found_at TEXT NOT NULL DEFAULT (datetime('now')),
+  source TEXT NOT NULL DEFAULT 'watcher' CHECK (source IN ('watcher', 'upload')),
+  alert INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS option_releases_club ON option_releases(season, club);
+-- The newest release each staff member has seen on the Options tab.
+CREATE TABLE IF NOT EXISTS option_reads(user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, release_id INTEGER NOT NULL);
+-- News links the watcher has already judged, so each is looked at once; and each news page's first good read
+-- (its links are taken in quietly then, so a new page never alerts for old releases).
+CREATE TABLE IF NOT EXISTS option_watch_seen(url TEXT PRIMARY KEY, seen_at TEXT NOT NULL DEFAULT (datetime('now')));
+CREATE TABLE IF NOT EXISTS option_watch_feeds(feed TEXT PRIMARY KEY, seeded_at TEXT NOT NULL DEFAULT (datetime('now')));
 -- One-time data changes already applied (db.once), so they never run twice.
 CREATE TABLE IF NOT EXISTS done_migrations(name TEXT PRIMARY KEY, at TEXT NOT NULL DEFAULT (datetime('now')));
 -- Taken off the NCAA board by staff: the Big Board sync and later imports don't put them back.
