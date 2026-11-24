@@ -73,7 +73,7 @@ export function saveFreeAgents(db, input) {
   const season = Number(input?.season);
   if (!Number.isInteger(season) || season < 2015 || season > 2100) throw new Error("Expected a season");
   const clubs = Array.isArray(input.clubs) ? [...new Set(input.clubs.map((c) => text(c, 80)).filter(Boolean))] : [];
-  if (!clubs.length || clubs.length > 100) throw new Error("Expected 1-100 clubs");
+  if (!clubs.length || clubs.length > 250) throw new Error("Expected 1-250 clubs");
   if (!Array.isArray(input.entries) || input.entries.length > 1000) throw new Error("Expected up to 1000 entries");
   const rows = input.entries.map((e) => {
     const name = text(e.name, 80), club = text(e.club, 80);

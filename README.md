@@ -204,6 +204,7 @@ Minute share divides recorded player minutes by actual match duration across the
 | `PORT` | Default 8787 |
 | `PINE_DB` | SQLite file, default `data/pine.db` |
 | `PHYS_DATA_URL` | Physical data JSON, default the player-physical-data site |
+| `PINE_OPTION_WATCH` | `off` stops the option watcher from reading the clubs' news pages (it's on otherwise) |
 | `PINE_COLLEGE_DATA_URL` | College scouting `data.json` for the NCAA section, default the college-soccer-scouting-2026 repository on GitHub |
 
 ## What's where
@@ -315,6 +316,17 @@ syncs leave the signing status alone.
   the PDF locally and replaces that year's list in PINE (`PUT /api/worker/l2-prospects`; `--output FILE` to check
   it first). Entries match PINE players by name, like the college import, and birth years more than a year apart
   rule a match out; players added later are matched when they're created. Code: `src/lib/l2.js`.
+- **Options** (Operations menu): every end-of-season roster decision the USL Championship, USL League One and MLS
+  Next Pro clubs announce (options declined or picked up, out of contract, under contract, re-signed, in talks), club by
+  club, with which clubs have posted, links to each release, and filters for league, free agents and who's in PINE.
+  Players PINE follows open their profile; the rest get **+ Add** (prefilled). The decisions come from the clubs'
+  releases and never go in this repository: `scripts/free-agents.mjs` uploads them with the free agents
+  (`decisions` on `PUT /api/worker/free-agents`; an older copy of the script sends only the free agents). The
+  **option watcher** reads every club's news page (and the MLS first teams', where Next Pro clubs post) every two
+  hours and records new roster releases by headline and date only; each one raises a badge on Operations › Options,
+  a toast and an Activity line. A page's first read is taken in quietly, MLS first-team releases never alert, and a
+  run that finds a pile at once alerts for none. Code: `src/lib/roster_decisions.js`, `src/lib/option_watch.js`,
+  `src/lib/option_clubs.js` (the clubs, their PINE names and news pages), `public/options.js`.
 - **College reports written in PINE**: any college player can get a grade and report like the imported ones.
   On a player page, **+ Add report** (grade now and ceiling on the college database's scale D- to A+++, class,
   school, date, how they were seen, match, notes); Add player shows the same fields for college players (a
@@ -488,6 +500,9 @@ src/lib/cards.js               Player card jobs for the worker, and where the PD
 src/lib/maps.js                Pitch map jobs for the worker; checks, trims and stores their exports
 src/lib/physical.js            Physical data loading + matching
 src/lib/backup.js              Daily database snapshots + download
+src/lib/roster_decisions.js    End-of-season roster decisions and releases for the Options tab
+src/lib/option_watch.js        Reads the clubs' news pages for new roster releases (badge, toast, Activity)
+src/lib/option_clubs.js        The clubs followed, their PINE names, leagues and news pages
 public/                        index.html, app.js (no build step), styles.css
 scripts/check.mjs              npm run check: syntax-check every file
 scripts/pull-backup.sh         Pull a database snapshot to a Mac (daily via com.pine.backup.plist)

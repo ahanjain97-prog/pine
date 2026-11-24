@@ -4,6 +4,7 @@ import { loadPlayingTimePanel } from "./playing-time.js";
 import { renderCompare } from "./compare.js";
 import { coldness, createTimings, timingMetric, renderMetric } from "./performance.js";
 import { renderMonitoring } from "./monitoring.js";
+import { renderOptions } from "./options.js";
 
 const recordTiming = createTimings(new URL(import.meta.url).searchParams.get('v'));
 // When the server last answered in the first minute after a break, so a page open waiting on it is marked too.
@@ -285,7 +286,17 @@ function checkAppVersion(server) {
   pill.innerHTML = `<button class="btn sm" type="button">PINE was updated · reload</button>`;
   $("button", pill).addEventListener("click", () => location.reload());
 }
-async function syncVersion() { try { const c = await api("GET", "/api/changes"); S.version = c.version; setReviewBadge(c.review_open); checkAppVersion(c.app); } catch {} }
+// What /api/changes says beyond the version: the War Room and Options badges, a toast for a club's new roster
+// release (not on the first check after loading), and whether PINE was redeployed.
+function applyChanges(c) {
+  setReviewBadge(c.review_open);
+  setOptionsBadge(c.options?.n || 0);
+  const top = c.options?.latest;
+  if (top && S.optionsTop !== undefined && top.id > (S.optionsTop || 0) && route().view !== "options") toast(`${top.club} posted roster decisions · see Operations › Options`);
+  if (top || S.optionsTop === undefined) S.optionsTop = top ? Math.max(top.id, S.optionsTop || 0) : 0;
+  checkAppVersion(c.app);
+}
+async function syncVersion() { try { const c = await api("GET", "/api/changes"); S.version = c.version; applyChanges(c); } catch {} }
 async function refresh() {
   const keep = Object.fromEntries($$("#main [data-keep]").map((el) => [el.id, el.value]));
   const y = scrollY;
@@ -303,7 +314,7 @@ function busyEditing() {
 async function poll() {
   if (!S.me || document.hidden) return;
   let v;
-  try { const c = await api("GET", "/api/changes"); v = c.version; setReviewBadge(c.review_open); checkAppVersion(c.app); } catch { return; }
+  try { const c = await api("GET", "/api/changes"); v = c.version; applyChanges(c); } catch { return; }
   if (v === S.version) return;
   S.version = v;
   if (S.dragging || busyEditing() || $("#modal") || $("#board-reason-modal")) { $("#upd").hidden = false; return; }
@@ -415,10 +426,11 @@ function renderShell() {
       <a href="#/short-board" data-v="short-board">Short Board</a>
       <a href="#/ncaa" data-v="ncaa">NCAA</a>
       <a href="#/activity" data-v="activity">Activity</a>
-      <button class="nav-trigger" id="operations-trigger" type="button" popovertarget="operations-menu" aria-controls="operations-menu" aria-expanded="false">Operations<span class="nav-caret" aria-hidden="true">▾</span></button>
+      <button class="nav-trigger" id="operations-trigger" type="button" popovertarget="operations-menu" aria-controls="operations-menu" aria-expanded="false">Operations<span class="nav-badge" id="options-badge-top" title="New roster releases on the Options tab" ${S.optionsNew ? "" : "hidden"}>${S.optionsNew || ""}</span><span class="nav-caret" aria-hidden="true">▾</span></button>
       <div class="nav-menu" id="operations-menu" popover role="group" aria-label="Operations">
         <a href="#/players" data-v="players">Database</a>
         <a href="#/roster" data-v="roster">Roster</a>
+        <a href="#/options" data-v="options">Options<span class="nav-badge" id="options-badge" ${S.optionsNew ? "" : "hidden"}>${S.optionsNew || ""}</span></a>
         <a href="#/compare" data-v="compare">Compare players</a>
         <a href="#/impect" data-v="impect">Impect</a>
         <a href="#/analysis" data-v="analysis">Analysis</a>
@@ -529,12 +541,14 @@ async function render() {
     if (a.dataset.v === view) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   });
-  const inOperations = ["players", "player", "roster", "compare", "impect", "analysis", "staff", "monitoring"].includes(view);
+  const inOperations = ["players", "player", "roster", "options", "compare", "impect", "analysis", "staff", "monitoring"].includes(view);
   $("#operations-trigger").classList.toggle("on", inOperations);
   const link = $("#nav > .on"), nav = $("#nav");
   if (link && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = link.offsetLeft - nav.offsetLeft - (nav.clientWidth - link.offsetWidth) / 2;
   $("#upd").hidden = !S.staleNotified; // the reload prompt stays up until they reload
   const views = { compare: (main, arg) => renderCompare(main, arg, { api, setTitle, players: S.players, physicalGroups: PHYS_KEY }), analysis: (main, arg) => renderAnalysis(main, arg, { api, setTitle }), board: renderBoard, roster: renderRoster, "war-room": renderReview, "short-board": renderShortBoard, ncaa: renderNcaa, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
+  views.options = (main) => renderOptions(main, { api, esc, photo, nameWithMark, openAddPlayer, toast, oops, relTime, setOptionsBadge, state: S,
+    players: () => S.players, byId: () => S.byId, isAdmin: () => Boolean(S.me.is_admin) });
   views.monitoring = main => {
     if (!S.me.is_admin) { location.hash = '#/board'; return; }
     stopMonitoring = renderMonitoring(main, { api, esc });
@@ -546,7 +560,7 @@ async function render() {
   const want = canonicalUrl({ view, arg });
   if (location.pathname + location.hash !== want) history.replaceState(null, "", want);
   // The player view retitles itself once the profile loads.
-  setTitle({ analysis: "Analysis", board: "Big Board", roster: "Roster", ncaa: "NCAA", players: "Database", impect: "Impect", activity: "Activity", staff: "Staff", monitoring: "Monitoring" }[view]);
+  setTitle({ analysis: "Analysis", board: "Big Board", roster: "Roster", options: "Options", ncaa: "NCAA", players: "Database", impect: "Impect", activity: "Activity", staff: "Staff", monitoring: "Monitoring" }[view]);
   const started = performance.now(), visible = !document.hidden, main = $("#main");
   await views[view](main, arg);
   const root = main.firstElementChild;
@@ -1027,7 +1041,7 @@ async function saveCollegeExtras(player, host) {
   if (fields.grade_present || fields.body?.trim()) await api("POST", `/api/players/${player.id}/college/reports`, fields);
 }
 
-function openAddPlayer({ role = null, url = "", college = false } = {}) {
+function openAddPlayer({ role = null, url = "", college = false, prefill = null } = {}) {
   const pos = role ? roleInfo(role).position : null;
   const m = modal(`<header class="m-h"><h2>Add a player</h2><button type="button" class="icon-btn" data-close aria-label="Close">×</button></header>
     <div class="tabs" role="tablist"><button type="button" class="on" data-tab="tm">Transfermarkt link</button><button type="button" data-tab="manual">Manual entry</button></div>
@@ -1078,6 +1092,12 @@ function openAddPlayer({ role = null, url = "", college = false } = {}) {
   };
   $("#mf-league", m).addEventListener("input", showManCollege);
   showManCollege();
+  // From the Options tab: a player a club announced who isn't in PINE yet. A Transfermarkt link still gives the fuller profile.
+  if (prefill) {
+    for (const [id, v] of [["#mf-name", prefill.name], ["#mf-club", prefill.club], ["#mf-league", prefill.league], ["#mf-pos", prefill.position]]) if (v) $(id, m).value = v;
+    $('[data-tab="manual"]', m).click();
+    showManCollege();
+  }
   $("#man-form", m).addEventListener("submit", async (e) => {
     e.preventDefault();
     const fields = Object.fromEntries([...e.target.querySelectorAll(".form-grid [name]")].map((el) => [el.name, el.value]));
@@ -3547,7 +3567,7 @@ function ncaaBoardPanel(p, d) {
 /* ---------- activity + staff ---------- */
 // Who did it. The backup script downloads with its own key, not as a staff member.
 const actor = (a) => a.user || (a.action === "downloaded_backup" && /backup script/.test(a.detail || "") ? "Backup script"
-  : ["imported_college", "linked_big_board", "unlinked_big_board", "merged_player", "linked_tm", "synced_long_throws", "imported_free_agents"].includes(a.action) ? "PINE" : "Someone");
+  : ["imported_college", "linked_big_board", "unlinked_big_board", "merged_player", "linked_tm", "synced_long_throws", "imported_free_agents", "found_option_release"].includes(a.action) ? "PINE" : "Someone");
 
 function describe(a, onPlayerPage = false) {
   const move = describeMove(a, onPlayerPage);
@@ -3563,7 +3583,12 @@ function describeMove(a, onPlayerPage = false) {
   switch (a.action) {
     case "added_player": return `added ${who}${d.list ? ` from the Impect list “${esc(d.list)}”` : d.source === "transfermarkt" ? " from Transfermarkt" : d.source === "impect" ? " from Impect" : ""}`;
     case "synced_long_throws": return `updated long-throw flags`;
-    case "imported_free_agents": return `updated the end-of-season free agents: ${d.entries ?? 0} from ${d.clubs ?? 0} club${d.clubs === 1 ? "" : "s"}, ${d.in_pine ?? 0} in PINE`;
+    case "imported_free_agents": return `updated the end-of-season free agents: ${d.entries ?? 0} from ${d.clubs ?? 0} club${d.clubs === 1 ? "" : "s"}, ${d.in_pine ?? 0} in PINE${d.decisions ? ` (and ${d.decisions} roster decisions on the <a href="#/options">Options</a> tab)` : ""}`;
+    case "found_option_release": {
+      const link = /^https?:\/\//i.test(d.url || "") ? `<a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.title || "release")}</a>` : esc(d.title || "");
+      return d.from_upload ? `added ${esc(d.club)}'s first roster decisions to <a href="#/options">Options</a> (${link})`
+        : `spotted a new roster release from ${esc(d.club)}: ${link} · <a href="#/options">Options</a>`;
+    }
     case "imported_college": return `imported the college scouting database: ${d.prospects ?? 0} prospects, ${d.reports ?? 0} reports${d.created ? `, ${d.created} new player${d.created === 1 ? "" : "s"}` : ""}${d.boarded ? `, ${d.boarded} added to the NCAA board` : ""}${d.big_board ? `, ${d.big_board} added to the Big Board` : ""}`;
     case "merged_player": return `merged the college import “${esc(d.name)}” into ${who}, the same player already in PINE`;
     case "combined_profiles": return `combined a duplicate Transfermarkt profile into ${who}, keeping the connected data and board position`;
@@ -3939,6 +3964,14 @@ const sendLabel = (p) => `Send to ${sbTo(p)}`;
 const TM_LINK = /transfermarkt\.[a-z.]+\/.+\/spieler\/\d+/i;
 
 // The count is kept so the nav shows it however it's drawn: boot fetches it before the nav exists.
+function setOptionsBadge(n) {
+  S.optionsNew = n || 0;
+  for (const b of [$("#options-badge"), $("#options-badge-top")]) {
+    if (!b) continue;
+    b.hidden = !n;
+    b.textContent = n || "";
+  }
+}
 function setReviewBadge(n) {
   S.reviewOpen = n || 0;
   const b = $("#review-badge");
