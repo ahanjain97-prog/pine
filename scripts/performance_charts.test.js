@@ -1,48 +1,142 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hourlyTimings, slowestChart, trendChart, performanceCharts, buildTimingChart, metricLabel, responseTimeAxis } from '../public/performance-charts.js';
+import { buildReport, buildTimingChart, hourlyTimings, metricLabel, pagesTable, previousVersion, rate, requestsTable,
+  slowRequestsTable, sortItems, speedVerdict, technicalTable, trendChart, whereTime } from '../public/performance-charts.js';
 
 const esc = text => String(text).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
-const limits = [50, 100, 500, 2000];
+const limits = [50, 100, 250, 500, 1000, 2000, 5000];
 const hour = Date.UTC(2026, 10, 23, 12);
-const row = (hour, count, buckets, extra = {}) => ({ hour, count, buckets, source: 'browser', metric: 'player', outcome: 'ok', ...extra });
+// Synthetic rows: `values` are individual timings, binned like the server does.
+const row = (source, metric, values, extra = {}) => ({ hour, version: 'aaaa1111', source, metric, outcome: 'ok', count: values.length,
+  total_ms: values.reduce((a, b) => a + b, 0), max_ms: Math.max(...values),
+  buckets: limits.map((limit, i) => values.filter(v => v <= limit && (!i || v > limits[i - 1])).length), ...extra });
+const many = (n, ms) => Array(n).fill(ms);
 
-test('hourly chart recomputes weighted percentiles across releases and keeps stages/errors separate', () => {
+test('hourly chart merges releases by counts, keeps stages/errors separate and reports exact averages', () => {
   const points = hourlyTimings([
-    row(hour, 100, [0, 100, 0, 0], { version: '1234abcd' }),
-    row(hour, 1, [0, 0, 0, 1], { version: 'abcdef12' }),
-    row(hour, 1000, [0, 0, 0, 1000], { source: 'server' }),
-    row(hour, 1000, [0, 0, 0, 1000], { outcome: 'error' }),
-    row(hour, 1000, [0, 0, 0, 1000], { metric: 'cards' }),
-    row(hour + 7200000, 1, [0, 0, 0, 1]),
+    row('browser', 'player', many(100, 80), { version: '1234abcd' }),
+    row('browser', 'player', [2000], { version: 'abcdef12' }),
+    row('server', 'player', many(10, 2000)),
+    row('browser', 'player', many(10, 2000), { outcome: 'error' }),
+    row('browser', 'player', [2000], { hour: hour + 7200000 }),
   ], limits, 'browser', 'player');
   assert.deepEqual(points, [
-    { hour, count: 101, typical_ms: 100, slower_ms: 100 },
-    { hour: hour + 7200000, count: 1, typical_ms: 2000, slower_ms: 2000 },
+    { hour, count: 101, mean_ms: 10000 / 101, typical_ms: 100, slower_ms: 100 },
+    { hour: hour + 7200000, count: 1, mean_ms: 2000, typical_ms: 2000, slower_ms: 2000 },
   ]);
 });
 
-test('time chart leaves missing hours disconnected, shows single hours, and does not invent zeros', () => {
-  const points = [0, 1, 3].map(n => ({ hour: hour + n * 3600000, count: 4, typical_ms: 100, slower_ms: 500 }));
+test('status uses targets on bucket edges and flags rare slow ends', () => {
+  const s = (mean_ms, p95_upper_ms, count = 30) => ({ mean_ms, p95_upper_ms, count });
+  assert.equal(rate('page', s(800, 1000)).status, 'good');
+  assert.equal(rate('page', s(1500, 2000)).status, 'watch');
+  assert.equal(rate('page', s(2500, 5000)).status, 'slow');
+  assert.equal(rate('page', s(400, 10000)).status, 'watch');
+  assert.match(rate('page', s(400, 10000)).reason, /1 in 20 takes over 5.0 s/);
+  assert.equal(rate('page', s(400, 5000)).status, 'good', 'a slow end inside the 5 s bucket is not over 5 s');
+  assert.equal(rate('request', s(300, 500)).status, 'watch');
+  assert.equal(rate('request', s(1200, 2000)).status, 'slow');
+  assert.equal(rate('request', s(5000, 5000, 4)).status, 'unknown');
+  assert.equal(rate('request', undefined).status, 'unknown');
+});
+
+test('report splits server time into like-for-like shares and compares, never subtracts, browser time', () => {
+  const report = buildReport([
+    row('server', 'impect-kpis', many(20, 1800)), row('external', 'impect-kpis', many(20, 1500)), row('database', 'impect-kpis', many(20, 100), { queries: 40 }),
+    row('server', 'cards', many(20, 1200)), row('database', 'cards', many(20, 900), { queries: 2400 }), row('external', 'cards', many(20, 0)),
+    row('server', 'players', many(20, 200)), row('database', 'players', many(20, 50)), row('browser', 'players', many(20, 600)),
+    row('server', 'config', many(200, 200)),
+  ], limits);
+  const item = metric => report.items.find(i => i.metric === metric);
+  const kpis = whereTime(item('impect-kpis'));
+  assert.equal(kpis.text, 'Mostly waiting on an outside provider');
+  assert.deepEqual(kpis.parts.map(p => Math.round(p.ms)), [100, 1500, 200]);
+  assert.equal(kpis.queries, 2);
+  const cards = whereTime(item('cards'));
+  assert.equal(cards.text, 'Mostly database'); assert.equal(cards.queries, 120); assert.ok(cards.many_queries);
+  assert.equal(item('players').source, 'browser');
+  assert.equal(whereTime(item('players')).text, 'Mostly network or download');
+  assert.equal(whereTime(item('config')).text, 'Fast on the server');
+  assert.equal(item('config').source, 'server', 'falls back to server time without browser timings');
+  assert.equal(report.request_total, 260); assert.equal(report.request_errors, 0);
+  assert.deepEqual(sortItems(report.requests).map(i => i.metric), ['impect-kpis', 'cards', 'players', 'config']);
+  assert.deepEqual(sortItems(report.requests, 'impact').map(i => i.metric), ['config', 'impect-kpis', 'cards', 'players']);
+});
+
+test('provider and database overlap cannot produce negative app time', () => {
+  const report = buildReport([row('server', 'player', many(10, 1000)), row('database', 'player', many(10, 800)), row('external', 'player', many(10, 800))], limits);
+  const parts = whereTime(report.items[0]).parts;
+  assert.ok(parts.every(p => p.ms >= 0));
+  assert.equal(Math.round(parts.reduce((n, p) => n + p.ms, 0)), 1000);
+});
+
+test('release comparison needs 20 timings on both sides and picks the release seen before', () => {
+  const rows = [row('server', 'player', many(30, 400), { version: 'old00001', hour: hour - 7200000 }),
+    row('server', 'player', many(30, 200), { version: 'new00002' }),
+    row('server', 'player', many(30, 900), { version: 'newer003', hour: hour + 3600000 })];
+  assert.equal(previousVersion(rows, 'new00002'), 'old00001');
+  assert.equal(previousVersion(rows, 'old00001'), null);
+  assert.equal(previousVersion(rows, 'unseen99'), 'newer003', 'a release without timings compares with the latest one');
+  const pick = v => rows.filter(r => r.version === v);
+  assert.equal(buildReport(pick('new00002'), limits, pick('old00001')).items[0].change, -0.5);
+  const few = [row('server', 'player', many(19, 200))];
+  assert.equal(buildReport(few, limits, pick('old00001')).items[0].change, null);
+});
+
+test('pages expand to the requests they wait for and load afterwards', () => {
+  const report = buildReport([row('browser', 'player-render', many(20, 2500)), row('server', 'player', many(20, 300)),
+    row('server', 'impect-kpis', many(20, 1200)), row('browser', 'board-render', many(20, 200))], limits);
+  const closed = pagesTable(report, { selected: 'player-render' }, esc);
+  assert.match(closed, /Player details page/); assert.match(closed, /Slow/);
+  assert.ok(closed.indexOf('Player details page') < closed.indexOf('Big Board page'), 'slow pages first');
+  assert.match(closed, /class="perf-sub" hidden/);
+  const open = pagesTable(report, { selected: 'player-render', open: new Set(['player-render', 'board-render']) }, esc);
+  assert.match(open, /Page waits for this/); assert.match(open, /Loads after the page opens/);
+  assert.match(open, /aria-expanded="true"/); assert.match(open, /loaded at sign-in/);
+  assert.match(pagesTable(buildReport([row('server', 'player', [10])], limits), {}, esc), /No page-opening timings yet/);
+  assert.equal(metricLabel('player-render'), 'Player details page');
+});
+
+test('verdict counts only judged items and lists the costliest first', () => {
+  const report = buildReport([row('browser', 'player-render', many(20, 2500)), row('server', 'cards', many(40, 2000)),
+    row('server', 'maps', many(20, 400)), row('server', 'config', [5000])], limits);
+  const verdict = speedVerdict(report);
+  assert.equal(verdict.label, '2 slow · 1 to watch');
+  assert.deepEqual(verdict.slow.map(i => i.metric), ['cards', 'player-render']);
+});
+
+test('time chart leaves missing hours disconnected, shows targets and volume, and never invents zeros', () => {
+  const points = [0, 1, 3].map(n => ({ hour: hour + n * 3600000, count: 4, mean_ms: 120, typical_ms: 100, slower_ms: 500 }));
   const html = trendChart(points, { since: hour, end: hour + 4 * 3600000, label: 'Player details' }, esc);
-  assert.equal((html.match(/<polyline/g) || []).length, 4, 'two segments for each timing line');
+  assert.equal((html.match(/<polyline/g) || []).length, 4, 'two segments for each line');
   assert.equal((html.match(/<circle/g) || []).length, 6, 'only observed hourly points');
-  assert.match(html, /Gaps mean no recorded/);
-  assert.match(html, /Hourly chart values/);
+  assert.equal((html.match(/<rect/g) || []).length, 3, 'one volume bar per observed hour');
+  assert.match(html, /perf-target-good/); assert.match(html, /perf-target-slow/);
+  assert.match(html, /Gaps are hours with no use/); assert.match(html, /Hourly values/);
   assert.ok(!html.includes('NaN'));
-  assert.match(trendChart([points[0]], { since: hour, end: hour + 3600000, label: 'Player details' }, esc), /Only one hour/);
+  const spike = trendChart([{ ...points[0], slower_ms: 300000 }], { since: hour, end: hour + 3600000, label: 'x' }, esc);
+  assert.match(spike, /Only one hour/); assert.match(spike, /above the chart/);
   assert.match(trendChart([], { since: hour }, esc), /No successful timings/);
 });
 
-test('slowest bars sort successful measurements within one stage and show sample counts', () => {
-  const item = (metric, p95, extra = {}) => ({ metric, source: 'browser', outcome: 'ok', count: 9,
-    mean_ms: 80, p50_upper_ms: 100, p95_upper_ms: p95, ...extra });
-  const html = slowestChart([item('player', 500), item('playing-time', 2000),
-    item('cards', 10000, { outcome: 'error' }), item('maps', 10000, { source: 'server' })], 'browser', 'player', esc);
-  assert.ok(html.indexOf('Playing-time stats') < html.indexOf('Player details'));
-  assert.ok(!html.includes('Scouting card list')); assert.ok(!html.includes('Pitch map list'));
-  assert.match(html, /9 samples · few samples/);
-  assert.match(html, /aria-pressed="true"/);
+test('slow request log shows each request split and escapes labels', () => {
+  const html = slowRequestsTable([{ at: hour, metric: 'cards', status: 500, total_ms: 2000, database_ms: 1500, queries: 80, external_ms: 0 },
+    { at: hour, metric: '<img src=x>', status: 200, total_ms: 1200, database_ms: 100, queries: 3, external_ms: 2000 }], 1000, esc);
+  assert.match(html, /Error 500/); assert.match(html, /perf-worse">80/);
+  assert.ok(!html.includes('<img')); assert.match(html, /&lt;img/);
+  assert.ok(!html.includes('NaN') && !/>-\d|width:-/.test(html), 'provider time is capped by the total');
+  assert.match(slowRequestsTable([], 1000, esc), /No server requests over 1.0 s/);
+});
+
+test('tables escape metric names and the technical table lists every stage', () => {
+  const malicious = '<img src=x onerror=alert(1)>';
+  const report = buildReport([row('server', malicious, many(20, 100)), row('database', malicious, many(20, 10), { queries: 20 }),
+    row('server', malicious, [10], { outcome: 'error' })], limits);
+  for (const html of [requestsTable(report, { selected: malicious }, esc), technicalTable(report, esc)]) {
+    assert.ok(!html.includes('<img')); assert.match(html, /&lt;img/);
+  }
+  assert.match(requestsTable(report, {}, esc), /1 · 4\.8%/);
+  assert.match(technicalTable(report, esc), /Database/);
 });
 
 test('build chart keeps independent populations and distinguishes zero duration from no samples', () => {
@@ -55,44 +149,4 @@ test('build chart keeps independent populations and distinguishes zero duration 
   assert.match(html, /No samples/); assert.match(html, /different jobs/);
   assert.ok(!html.includes('NaN'));
   assert.match(buildTimingChart([]), /No starts or completions observed/);
-});
-
-test('response axis keeps ordinary subsecond bars readable beside minute-scale outliers', () => {
-  const values = [300000, 1000, 500, 500, 500, 250, 250, 250];
-  const axis = responseTimeAxis(values);
-  assert.equal(axis.max, 1000); assert.equal(axis.clipped, 1); assert.equal(axis.unit, 'seconds');
-  assert.deepEqual(axis.ticks.map(t => t.label), ['0', '0.25', '0.5', '0.75', '1']);
-  assert.equal(100 * 500 / axis.max, 50, '500ms fills half the zoomed scale');
-  const full = responseTimeAxis(values, { fullRange: true });
-  assert.ok(full.max >= 300000); assert.equal(full.clipped, 0); assert.equal(full.canZoom, true);
-  assert.equal(responseTimeAxis([300000]).canZoom, false, 'a single measurement keeps its full range');
-  assert.equal(responseTimeAxis([300000, 300000, 1000, 500, 500, 250]).clipped, 2);
-  assert.equal(responseTimeAxis([50, 100, 250, 500]).canZoom, false);
-  for (const input of [[], [0], [50], [50, 100], [250, 500, 5000]]) {
-    const scale = responseTimeAxis(input);
-    assert.ok(Number.isFinite(scale.max) && scale.max > 0);
-    assert.ok(scale.ticks.length >= 2 && scale.ticks.length <= 6);
-  }
-});
-
-test('clipped bars are explicit, retain timing labels, and can switch to full range', () => {
-  const summary = [300000, 1000, 500, 250].map((ms, i) => ({ metric: ['playing-time', 'players', 'player', 'cards'][i],
-    source: 'browser', outcome: 'ok', count: 4, p50_upper_ms: 100, p95_upper_ms: ms, mean_ms: 200 }));
-  const zoomed = slowestChart(summary, 'browser', 'player', esc);
-  assert.match(zoomed, /Show full range/); assert.match(zoomed, /Beyond scale/);
-  assert.match(zoomed, /perf-bar-overflow/); assert.match(zoomed, /≤ 5.0 min/);
-  assert.match(zoomed, /Response time \(seconds\)/);
-  assert.match(zoomed, /width:50%/);
-  const full = slowestChart(summary, 'browser', 'player', esc, { fullRange: true });
-  assert.match(full, /Zoom to normal range/); assert.ok(!full.includes('Beyond scale'));
-});
-
-test('plain labels and chart markup escape data; errors remain visible when there are no successes', () => {
-  assert.equal(metricLabel('player-render'), 'Player details · page opening');
-  const data = { summary: [{ metric: 'player', source: 'server', outcome: 'error', count: 3 }], rows: [], bucket_upper_ms: limits, since: hour };
-  assert.match(performanceCharts(data, 'server', '', esc), /3 failures \(100.0%\)/);
-  const malicious = '<img src=x onerror=alert(1)>';
-  const html = slowestChart([{ metric: malicious, source: 'browser', outcome: 'ok', count: 1, p50_upper_ms: 50, p95_upper_ms: 100 }], 'browser', malicious, esc);
-  assert.ok(!html.includes('<img')); assert.match(html, /&lt;img/);
-  assert.match(performanceCharts(data, 'database', '', esc), /do not add them together/);
 });

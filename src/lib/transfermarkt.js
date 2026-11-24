@@ -1,4 +1,5 @@
 // Transfermarkt profile scraper. Regex-based (no DOM) so it runs on Node and on edge runtimes.
+import { timedFetch } from "./request_timing.js";
 
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
@@ -126,7 +127,7 @@ export function parseTmProfile(html, tmId) {
 export async function fetchTmPlayer(input) {
   const parsed = parseTmUrl(input);
   if (!parsed) throw new Error("That doesn't look like a Transfermarkt player link");
-  const res = await fetch(parsed.url, {
+  const res = await timedFetch(parsed.url, {
     headers: { "User-Agent": UA, "Accept-Language": "en-US,en;q=0.9", Accept: "text/html" },
     redirect: "follow",
   });
@@ -171,7 +172,7 @@ export function parseTmSearch(html) {
 
 export async function searchTmPlayers(query) {
   const url = `https://www.transfermarkt.com/schnellsuche/ergebnis/schnellsuche?query=${encodeURIComponent(query)}`;
-  const res = await fetch(url, { headers: { "User-Agent": UA, "Accept-Language": "en-US,en;q=0.9", Accept: "text/html" } });
+  const res = await timedFetch(url, { headers: { "User-Agent": UA, "Accept-Language": "en-US,en;q=0.9", Accept: "text/html" } });
   if (!res.ok) throw new Error(`Transfermarkt search returned ${res.status}`);
   return parseTmSearch(await res.text());
 }

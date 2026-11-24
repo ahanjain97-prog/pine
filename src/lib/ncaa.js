@@ -17,6 +17,7 @@ import { createHash } from "node:crypto";
 // professionals now, keep their grades and reports here and link to an existing PINE player by name.
 import { POSITIONS, ROLES } from "../roles.js";
 import { compactRanks } from "./board.js";
+import { timedFetch } from "./request_timing.js";
 
 export const COLLEGE_DATA_URL = process.env.PINE_COLLEGE_DATA_URL
   || "https://raw.githubusercontent.com/ahjain-cmd/college-soccer-scouting-2026/main/data.json";
@@ -405,7 +406,7 @@ export function pickCollegeTmMatch(player, results, { isCollege }) {
 }
 
 export async function fetchCollegeData(url = COLLEGE_DATA_URL) {
-  const res = await fetch(url, { headers: { "Cache-Control": "no-cache" } });
+  const res = await timedFetch(url, { headers: { "Cache-Control": "no-cache" } });
   if (!res.ok) throw new Error(`College data download failed (${res.status})`);
   return res.json();
 }

@@ -446,14 +446,14 @@ export function openDb(file) {
     // called from a route's. Any error rolls back the outermost one.
     tx(fn) {
       if (depth) return fn();
-      timeDatabase(() => raw.exec("BEGIN IMMEDIATE"));
+      timeDatabase(() => raw.exec("BEGIN IMMEDIATE"), false);
       depth++;
       try {
         const r = fn();
-        timeDatabase(() => raw.exec("COMMIT"));
+        timeDatabase(() => raw.exec("COMMIT"), false);
         return r;
       } catch (e) {
-        timeDatabase(() => raw.exec("ROLLBACK"));
+        timeDatabase(() => raw.exec("ROLLBACK"), false);
         throw e;
       } finally {
         depth--;

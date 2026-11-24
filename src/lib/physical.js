@@ -1,4 +1,5 @@
 // Link to the NextPro & USL physical-data site (percentiles within league/season/position group).
+import { timedFetch } from "./request_timing.js";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -115,7 +116,7 @@ export async function loadPhysical(cacheFile) {
   if (cache && Date.now() - cache.at < TTL_MS) return cache;
   const url = process.env.PHYS_DATA_URL || DEFAULT_URL;
   try {
-    const res = await fetch(url, { headers: { "Cache-Control": "no-cache" } });
+    const res = await timedFetch(url, { headers: { "Cache-Control": "no-cache" } });
     if (!res.ok) throw new Error(`physical data ${res.status}`);
     const data = await res.json();
     cache = { at: Date.now(), data, ...build(data) };

@@ -3,6 +3,13 @@
 Admins can open **Operations → Monitoring** (`/#/monitoring`). Staff settings link to it too.
 The dashboard uses existing card/map protocols; no worker update or new dependency is needed.
 
+The page reads top to bottom as: four summary tiles (**Speed**, **Errors**, **Card & map worker**,
+**App health**), then **What is slow?** (see [performance.md](performance.md)), then **Card and map
+builds**. Speed names up to four slow or watch items, largest total wait first; clicking one opens
+it in the performance tables and charts its trend. Errors is the share of measured server requests
+that failed in the selected performance period. Active jobs open automatically when there are any;
+recent build activity is collapsed until opened.
+
 - **Mac Mini worker:** successful authenticated claims, progress updates and artifact uploads
   count as contact, including an empty claim poll. Diagnostic/backup reads do not count. Cards
   and maps show separate contact ages. Recent means within 60 seconds; quiet is 1–5 minutes;
@@ -27,8 +34,8 @@ The dashboard uses existing card/map protocols; no worker update or new dependen
 - **App health:** response status, process uptime, resident memory and volume free space.
   Disk readings below 10% free are labeled low; an unavailable disk reading is shown as `—`.
   These are current readings rather than time-series host metrics.
-- **Performance charts:** slowest measurements, hourly trends and separate browser/server/database views described
-  in [performance.md](performance.md). Its refresh and filters are independent of status polling.
+- **Performance:** page and request status against targets, where server time goes, hourly trends and a log of
+  slow requests, described in [performance.md](performance.md). Its refresh and filters are independent of status polling.
 
 Status refreshes every 15 seconds while the page is visible and immediately on returning to
 the tab. Navigating away stops polling. Failed refreshes keep prior data with a stale-data

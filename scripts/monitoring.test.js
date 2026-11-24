@@ -5,7 +5,8 @@ import { openDb } from '../src/db.js';
 import { claimCard, sqlTime } from '../src/lib/cards.js';
 import { claimMap } from '../src/lib/maps.js';
 import { registerMonitoring, workerStatus, workerTraffic } from '../src/lib/monitoring.js';
-import { monitoringOverview, monitoringJobs, monitoringActivity } from '../public/monitoring.js';
+import { monitoringOverview, monitoringJobs, monitoringActivity, monitoringSummary } from '../public/monitoring.js';
+import { buildReport } from '../public/performance-charts.js';
 
 function setup(t, db = openDb(':memory:'), initial = Date.now()) {
   let clock = initial;
@@ -131,7 +132,9 @@ test('dashboard escapes player text and accurately labels empty and missing work
   const esc = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
   const data = { worker: { status: 'unknown', age_ms: null }, workers: [], queues: [],
     uptime_seconds: 0, memory_bytes: 0, storage: null, active: [], events: [], active_limit_per_kind: 50 };
-  assert.match(monitoringOverview(data, esc), /Not observed/);
+  assert.match(monitoringSummary(data, null, esc), /Not observed/);
+  assert.match(monitoringSummary(null, null, esc), /Loading/);
+  assert.match(monitoringOverview(data, esc), /No starts or completions/);
   assert.match(monitoringJobs(data, esc), /No jobs waiting/);
   assert.match(monitoringActivity(data, esc), /No build events/);
   data.events = [{ at: Date.now(), player_id: 1, player_name: '<img src=x onerror=alert(1)>',
@@ -139,4 +142,23 @@ test('dashboard escapes player text and accurately labels empty and missing work
   const html = monitoringActivity(data, esc);
   assert.ok(!html.includes('<img')); assert.ok(!html.includes('<script>'));
   assert.match(html, /&lt;img/);
+});
+
+test('summary names slow items first and reports request errors', () => {
+  const esc = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+  const limits = [250, 1000, 5000];
+  const row = (source, metric, count, total_ms, buckets, outcome = 'ok') => ({ hour: 0, version: 'a', source, metric, outcome, count, total_ms, max_ms: 0, buckets });
+  const report = buildReport([
+    row('browser', 'player-render', 10, 40000, [0, 0, 10]),
+    row('server', 'impect-kpis', 10, 15000, [0, 0, 10]),
+    row('server', 'impect-kpis', 1, 100, [1, 0, 0], 'error'),
+    row('server', 'config', 30, 300, [30, 0, 0]),
+  ], limits);
+  const html = monitoringSummary(null, report, esc);
+  assert.match(html, /2 slow/);
+  assert.ok(html.indexOf('Player details page') < html.indexOf('Player performance stats'), 'largest total wait first');
+  assert.match(html, /data-reveal="player-render"/);
+  assert.match(html, /2\.4% failed/);
+  assert.match(monitoringSummary(null, buildReport([row('server', 'config', 30, 300, [30, 0, 0])], limits), esc), /All within target/);
+  assert.match(monitoringSummary(null, buildReport([], limits), esc), /No timings yet/);
 });

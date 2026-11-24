@@ -1,4 +1,5 @@
 // Impect Customer API: player pool across our iterations, used for search/import and to link PINE players.
+import { timedFetch } from "./request_timing.js";
 import { norm } from "./physical.js";
 import { diskSavedAt, readDisk, writeDisk } from "./disk_cache.js";
 
@@ -22,7 +23,7 @@ async function getToken(force = false) {
   if (!impectConfigured()) throw new Error("Impect credentials are not configured (IMPECT_USERNAME / IMPECT_PASSWORD)");
   tokenPromise = (async () => {
     for (let attempt = 0; ; attempt++) {
-      const res = await fetch(TOKEN_URL, {
+      const res = await timedFetch(TOKEN_URL, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
@@ -54,7 +55,7 @@ export async function impectGet(path, { ttl = TTL_MS, store = true } = {}) {
   if (hit && Date.now() - hit.at < ttl) return hit.data;
   let force = false;
   for (let attempt = 0; attempt < 4; attempt++) {
-    const res = await fetch(HOST + path, {
+    const res = await timedFetch(HOST + path, {
       headers: { Authorization: `Bearer ${await getToken(force)}`, Accept: "application/json" },
     });
     if (res.status === 401 && !force) { force = true; continue; }
@@ -184,7 +185,7 @@ const SCOUTING = "https://api.impect.com/v1/scouting";
 async function scoutingFetch(path, { method = "GET", body } = {}) {
   let force = false;
   for (let attempt = 0; attempt < 4; attempt++) {
-    const res = await fetch(SCOUTING + path, {
+    const res = await timedFetch(SCOUTING + path, {
       method,
       headers: {
         Authorization: `Bearer ${await getToken(force)}`,
