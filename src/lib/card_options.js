@@ -3,7 +3,7 @@
 // PINE only decides what may be requested.
 
 import { iterations as impectIterations, getImpectPlayer } from "./impect.js";
-import { BENCHMARK_LEAGUES, cohort, mapLimit } from "./impect_kpi.js";
+import { BENCHMARK_LEAGUES, cohortShares, mapLimit } from "./impect_kpi.js";
 
 export const MIN_CARD_SHARE = 1;
 
@@ -57,17 +57,18 @@ export function cardOptions(iterations, shares) {
 
 /* ---------- match shares for every player in one iteration ---------- */
 // Read from the KPI cohort, which already downloads every squad's player-scores for the season (and
-// keeps them on disk), instead of downloading them a second time.
-const indexes = new WeakMap(); // cohort -> playerId -> card position -> match share
+// keeps them on disk), instead of downloading them a second time. Keyed on the season's shares, which
+// outlive the cohort in memory, so an evicted cohort isn't read or downloaded again just for options.
+const indexes = new WeakMap(); // cohort shares -> playerId -> card position -> match share
 
 async function sharesIndex(iterationId) {
-  const co = await cohort(iterationId);
-  if (!indexes.has(co)) {
-    const rows = [...co.shares].flatMap(([playerId, byPosition]) =>
+  const shares = await cohortShares(iterationId);
+  if (!indexes.has(shares)) {
+    const rows = [...shares].flatMap(([playerId, byPosition]) =>
       Object.entries(byPosition).map(([position, matchShare]) => ({ playerId, position, matchShare })));
-    indexes.set(co, addShares(new Map(), rows));
+    indexes.set(shares, addShares(new Map(), rows));
   }
-  return indexes.get(co);
+  return indexes.get(shares);
 }
 
 export async function playerCardOptions(impectId) {

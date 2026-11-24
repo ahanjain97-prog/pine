@@ -31,8 +31,12 @@ export function reduceMatch(raw) {
 }
 
 // An independent factory makes the service testable without credentials, network calls or disk.
+// memoryEntries: one entry per match, season index or player-season. A reduced match is about 3 KB, so
+// 6,000 is under ~25 MB and holds every current-season game the warm-up downloads (about 1,000 across the
+// three leagues) with room for older seasons. At 256 the warm-up pushed its own games out, so whenever the
+// disk cache couldn't save, opening a player downloaded their games from Impect again.
 export function createPlayingTimeService({ get = impectGet, list = iterations, player = getImpectPlayer,
-  read = readDisk, write = writeDisk, now = Date.now, intervalMs = 180 } = {}) {
+  read = readDisk, write = writeDisk, now = Date.now, intervalMs = 180, memoryEntries = 6000 } = {}) {
   const memory = new Map(), building = new Map(), retryAfter = new Map(), queue = [];
   let active = 0, nextStart = 0, timer = null;
   function pump() {
@@ -53,7 +57,7 @@ export function createPlayingTimeService({ get = impectGet, list = iterations, p
   function remember(key, value) {
     memory.delete(key);
     memory.set(key, value);
-    while (memory.size > 256) memory.delete(memory.keys().next().value);
+    while (memory.size > memoryEntries) memory.delete(memory.keys().next().value);
     return value;
   }
   function refresh(key, build, background) {

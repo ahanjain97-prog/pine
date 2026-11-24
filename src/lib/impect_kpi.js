@@ -118,6 +118,10 @@ export async function mapLimit(items, limit, fn) {
 const cohorts = new Map(); // iterationId -> cohort, most recently used last
 const building = new Map(); // iterationId -> promise of a fresh cohort
 const MAX_IN_MEMORY = 8; // ~15 MB each; the rest are re-read from disk when asked for
+// Every loaded league season's match shares (playerId -> { position: share }), kept after its cohort leaves
+// memory: a small fraction of the cohort's size, and all that card and map season options need. Updated
+// whenever a cohort is loaded or downloaded again, which the warm-up does for every league season.
+const sharesByIteration = new Map(); // iterationId -> shares
 
 async function fetchSquad(iterationId, squad, defs) {
   const [kpiRows, scoreRows] = await Promise.all([
@@ -244,6 +248,7 @@ const fromDisk = (d) => (d?.format === COHORT_FORMAT
 function remember(iterationId, co) {
   cohorts.delete(iterationId);
   cohorts.set(iterationId, co);
+  sharesByIteration.set(iterationId, co.shares);
   while (cohorts.size > MAX_IN_MEMORY) cohorts.delete(cohorts.keys().next().value);
   return co;
 }
@@ -275,6 +280,12 @@ export async function cohort(iterationId) {
   if (!co) return refreshCohort(iterationId);
   if (Date.now() - co.at > TTL_MS) refreshCohort(iterationId).catch((e) => console.warn(`[impect] cohort ${iterationId} refresh failed: ${e.message}`));
   return co;
+}
+
+// One league season's match shares without its full cohort: kept from any earlier load, so card season
+// options don't wait on a cohort download or disk read once the warm-up has seen the season.
+export async function cohortShares(iterationId) {
+  return sharesByIteration.get(iterationId) || (await cohort(iterationId)).shares;
 }
 
 // When a league season was last downloaded, and whether a download is under way, for the Impect page.

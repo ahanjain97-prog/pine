@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configureDiskCache, readDisk, writeDisk } from '../src/lib/disk_cache.js';
+import { configureDiskCache, diskCacheStatus, readDisk, writeDisk } from '../src/lib/disk_cache.js';
 import { saveCardFile } from '../src/lib/cards.js';
 import { saveSnapshot } from '../src/lib/card_snapshots.js';
 import { saveMapsFile } from '../src/lib/maps.js';
@@ -46,6 +46,22 @@ test('optional cache writes are skipped when the free-space reserve cannot be re
   writeDisk('optional', { value: 1 });
   assert.equal(readDisk('optional'), null);
   assert.deepEqual(fs.readdirSync(cache), []);
+});
+
+test('the Impect page is told when the cache stops saving, and again when it can save', (t) => {
+  const { cache } = fixture(t);
+  let free = 0;
+  t.mock.method(console, 'warn', () => {});
+  configureDiskCache(cache, { maxBytes: 1024, reserveBytes: 200, availableBytes: () => free });
+  assert.equal(diskCacheStatus().saving, false, 'startup already finds the volume under the reserve');
+  writeDisk('optional', { value: 1 });
+  writeDisk('optional', { value: 2 });
+  assert.equal(console.warn.mock.callCount(), 1, 'one warning while the volume stays full, not one per download');
+  free = 1000;
+  assert.equal(diskCacheStatus().saving, true, 'a grown volume clears the warning before the next save');
+  writeDisk('optional', { value: 3 });
+  assert.deepEqual(readDisk('optional'), { value: 3 });
+  assert.deepEqual(diskCacheStatus(), { configured: true, saving: true, low_space_since: null, free_bytes: 1000, reserve_bytes: 200 });
 });
 
 for (const kind of ['pdf', 'png', 'maps']) {

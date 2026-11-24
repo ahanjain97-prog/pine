@@ -3019,13 +3019,20 @@ async function loadImpectCache(root) {
     if (!el.isConnected) return;
     const r = d.refresh;
     const total = d.leagues.length + 1; // the league seasons plus the player pool
+    // The volume is too full to save to: copies live in memory only and are lost on every restart or deploy.
+    const memoryOnly = d.disk?.configured && !d.disk.saving;
+    const mb = (b) => `${Math.max(0, Math.round(b / 1048576))} MB`;
     const status = (x) => (x.downloading ? `<span class="dchip v-hold">Downloading</span>`
-      : x.saved_at ? `<span class="muted">Saved ${esc(when(x.saved_at))}</span>` : `<span class="warn">Not saved yet</span>`);
+      : x.saved_at ? (memoryOnly ? `<span class="warn">In memory only</span> <span class="muted">· downloaded ${esc(when(x.saved_at))}</span>`
+        : `<span class="muted">Saved ${esc(when(x.saved_at))}</span>`) : `<span class="warn">Not saved yet</span>`);
     el.innerHTML = `<header class="panel-h"><h2>Impect data in PINE</h2>
         ${S.me.is_admin ? `<button type="button" class="btn sm ${r.running ? "" : "primary"}" id="ic-go" ${r.running ? "disabled" : ""}>${r.running ? "Refreshing…" : "Refresh all now"}</button>` : ""}</header>
       <p class="hint">PINE keeps its own copy of every league season below, so KPI profiles, player cards and pitch maps load
         without waiting on Impect. The current season is downloaded again every 6 hours and finished seasons weekly;
         <b>Refresh all now</b> downloads everything straight away, which takes two or three minutes.</p>
+      ${memoryOnly ? `<p class="banner err sm">PINE's storage is nearly full (${d.disk.free_bytes == null ? "little" : esc(mb(d.disk.free_bytes))} free; it keeps
+        ${esc(mb(d.disk.reserve_bytes))} spare for the database), so Impect data isn't being saved. It's held in memory and downloaded again
+        after every restart or deploy, which makes KPI profiles, playing time and card seasons slow. Grow the volume in Railway to fix it.</p>` : ""}
       ${r.running ? `<p class="banner">${r.forced ? "Refreshing" : "Scheduled refresh running"}: ${esc(r.current || "starting")} · ${r.done.length} of ${total} done.</p>`
         : r.finished_at && r.forced ? `<p class="sm muted">Last refresh finished ${esc(when(r.finished_at))}: ${r.done.length} of ${total} downloaded${r.failed.length
           ? `, <span class="warn">${r.failed.length} failed (${esc(r.failed.map((x) => x.name).join(", "))})</span>` : ""}.</p>` : ""}

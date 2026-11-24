@@ -11,6 +11,9 @@ import { gunzipSync, gzipSync } from "node:zlib";
 const MB = 1024 * 1024;
 let dir = null;
 let limits;
+// When the volume fell under the reserve, so nothing more is saved here; null while saving works.
+// Downloads still work, held in memory only, so the only sign used to be slower pages after a restart.
+let lowSpaceSince = null;
 const freeBytes = () => {
   const fs = statfsSync(dir);
   return fs.bavail * fs.bsize;
@@ -25,6 +28,7 @@ export function configureDiskCache(where, {
   mkdirSync(where, { recursive: true });
   dir = where;
   limits = { maxBytes, reserveBytes, availableBytes };
+  lowSpaceSince = null;
   let freed = 0;
   for (const entry of readdirSync(where, { withFileTypes: true })) {
     if (!entry.isFile()) continue;
@@ -62,7 +66,24 @@ function trimCache(incomingCacheBytes, incomingFileBytes) {
     }
   }
   if (freed) console.log(`[cache] reclaimed ${(freed / MB).toFixed(1)} MB; ${(available / MB).toFixed(1)} MB free`);
-  return enough();
+  const ok = enough();
+  if (ok) lowSpaceSince = null;
+  else if (available < limits.reserveBytes + incomingFileBytes && !lowSpaceSince) {
+    lowSpaceSince = Date.now();
+    console.warn(`[cache] volume nearly full (${(available / MB).toFixed(1)} MB free, ${(limits.reserveBytes / MB).toFixed(0)} MB reserve): `
+      + "Impect downloads are kept in memory only until space is freed");
+  }
+  return ok;
+}
+
+// Whether downloads are being saved to the volume, for the Impect page. Free space only: no file names.
+export function diskCacheStatus() {
+  if (!dir) return { configured: false };
+  let free = null;
+  try { free = limits.availableBytes(); } catch {}
+  // A volume grown in Railway takes effect at once; don't keep warning until the next download is saved.
+  if (lowSpaceSince && free != null && free >= limits.reserveBytes) lowSpaceSince = null;
+  return { configured: true, saving: !lowSpaceSince, low_space_since: lowSpaceSince, free_bytes: free, reserve_bytes: limits.reserveBytes };
 }
 
 // Reclaim disposable cache before a durable write, including while the app is

@@ -23,7 +23,7 @@ import {
 } from "./lib/impect.js";
 import { BENCHMARK_LEAGUES, cohortStatus, playerKpiCard, warmCohort, warmDefinitions } from "./lib/impect_kpi.js";
 import { playingTime } from "./lib/playing_time.js";
-import { configureDiskCache } from "./lib/disk_cache.js";
+import { configureDiskCache, diskCacheStatus } from "./lib/disk_cache.js";
 import { playerCardOptions } from "./lib/card_options.js";
 import { MAX_CARD_BYTES, DAILY_CARD_LIMIT, cardErrorCode, cardProgress, claimCard, isPdf, isPng, saveCardFile, sqlTime } from "./lib/cards.js";
 import { MAX_SNAPSHOT_BYTES, SnapshotError, sha256, validateSnapshot, saveSnapshot, readSnapshot } from "./lib/card_snapshots.js";
@@ -1455,6 +1455,7 @@ app.get("/api/impect/cache", async (c) => {
     pool: poolStatus(),
     not_kept: its.filter((i) => !kept.some((k) => k.id === i.id)).map((i) => `${i.competition} ${i.season}`),
     refresh: impectRefresh,
+    disk: diskCacheStatus(),
     long_throws: longThrowSyncStatus(db),
   });
 });

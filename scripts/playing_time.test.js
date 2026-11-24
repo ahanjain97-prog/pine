@@ -170,3 +170,44 @@ test('the explicit refresh action can replace otherwise-fresh match data', async
   await service.warm({ id: 100, season: '2026' }, { force: true });
   assert.equal(calls.get('/v5/customerapi/matches/1/player-kpis'), 2);
 });
+
+// More games than the old 256-entry memory, with no disk cache (a full volume): the warm-up must not push
+// out its own games, so the first person to open the player doesn't download the season again.
+function bigSeason(memoryEntries) {
+  const games = Array.from({ length: 300 }, (_, i) => ({ id: i + 1, homeSquadId: 10, awaySquadId: 30, available: true,
+    scheduledDate: new Date(Date.parse('2026-02-01T12:00:00Z') + i * 18 * 3600000).toISOString() }));
+  let matchCalls = 0, otherCalls = 0;
+  const get = async (path) => {
+    if (/\/matches\/\d+\/player-kpis$/.test(path)) {
+      matchCalls++;
+      return { squadHome: { id: 10, players: [{ id: 1, playDuration: 5400, matchShare: 1 }] },
+        squadAway: { id: 30, players: [{ id: 3, playDuration: 5400, matchShare: 1 }] } };
+    }
+    otherCalls++;
+    if (path.endsWith('/squads')) return [{ id: 10, name: 'First FC' }, { id: 30, name: 'Opponent' }];
+    if (path.endsWith('/matches')) return games;
+    return path.includes('/squads/10/') ? [{ playerId: 1, playDuration: 5400 }] : [];
+  };
+  const it = { id: 100, season: '2026', type: 'League', competition: 'League' };
+  const service = createPlayingTimeService({ get, list: async () => [it], player: async () => ({ iterations: [{ id: 100 }] }),
+    now: () => clock, intervalMs: 0, read: () => null, write: () => {}, ...(memoryEntries ? { memoryEntries } : {}) });
+  return { service, it, calls: () => ({ matchCalls, otherCalls }) };
+}
+
+test('without a disk cache, a warmed season stays in memory and opening a player downloads nothing again', async () => {
+  const { service, it, calls } = bigSeason();
+  assert.equal(await service.warm(it), 300);
+  const warmed = calls();
+  assert.equal(warmed.matchCalls, 300);
+  const result = await service.season(1, '2026');
+  assert.equal(result.teams[0].games, 300);
+  assert.deepEqual(calls(), warmed, 'no game, squad or fixture list fetched a second time');
+});
+
+test('the old 256-entry memory re-downloaded part of a warmed season (guards the regression test itself)', async () => {
+  const { service, it, calls } = bigSeason(256);
+  await service.warm(it);
+  const warmed = calls();
+  await service.season(1, '2026');
+  assert.ok(calls().matchCalls > warmed.matchCalls);
+});
