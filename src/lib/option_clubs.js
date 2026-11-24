@@ -110,7 +110,7 @@ const mls = [
   ["LA Galaxy", "www.lagalaxy.com/news", [], "Ventura County FC", /\bventura county\b/i],
   ["Los Angeles FC", "www.lafc.com/news", ["LAFC"], "Los Angeles FC 2", /\blafc ?2\b/i],
   ["Minnesota United FC", "www.mnufc.com/news", ["MNUFC", "Minnesota United"], "Minnesota United FC 2", /\bmnufc ?2\b/i],
-  ["CF Montréal", "www.cfmontreal.com/en/news", ["CF Montreal"]],
+  ["CF Montréal", "en.cfmontreal.com/news", ["CF Montreal"]],
   ["Nashville SC", "www.nashvillesc.com/news", [], "Huntsville City FC", /\bhuntsville city\b/i],
   ["New England Revolution", "www.revolutionsoccer.net/news", [], "New England Revolution II", /\brevolution ii\b/i],
   ["New York City FC", "www.newyorkcityfc.com/news", ["NYCFC"], "New York City FC II", /\b(nycfc|new york city fc) ii\b/i],

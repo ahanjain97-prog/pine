@@ -93,21 +93,6 @@ export function linkRosterDecisions(db) {
   return linked;
 }
 
-// New alerting releases since this user last opened the tab, and the newest one (for the toast).
-export function optionsUnread(db, userId) {
-  const last = db.get("SELECT release_id FROM option_reads WHERE user_id = ?", userId)?.release_id ?? 0;
-  const r = db.get(`SELECT count(*) AS n, max(id) AS top FROM option_releases WHERE alert = 1 AND id > ?`, last);
-  const latest = r.top ? db.get("SELECT id, club, league, title FROM option_releases WHERE id = ?", r.top) : null;
-  return { n: r.n, latest };
-}
-
-export function markOptionsRead(db, userId, releaseId) {
-  const id = Number(releaseId);
-  if (!Number.isInteger(id) || id < 0) throw new Error("Expected a release id");
-  db.run(`INSERT INTO option_reads(user_id, release_id) VALUES (?, ?)
-    ON CONFLICT(user_id) DO UPDATE SET release_id = max(release_id, excluded.release_id)`, userId, id);
-}
-
 // Everything the Options tab shows for the latest season: the releases, every decision (with whether it makes the
 // player a free agent, worked out exactly as the free-agent upload does), and which clubs have posted.
 export function optionsPayload(db, userId, watch = null) {
@@ -115,8 +100,10 @@ export function optionsPayload(db, userId, watch = null) {
     ?? seasonFor();
   const releases = db.all(`SELECT id, club, league, title, url, published, found_at, source, alert FROM option_releases WHERE season = ?
     ORDER BY coalesce(published, substr(found_at, 1, 10)) DESC, id DESC`, season);
-  const decisions = db.all(`SELECT id, club, league, name, position, decision, decision_raw, announced, source_url, notes, player_id
-    FROM roster_decisions WHERE season = ? ORDER BY club, name`, season);
+  const decisions = db.all(`SELECT d.id, d.club, d.league, d.name, d.position, d.decision, d.decision_raw, d.announced, d.source_url, d.notes,
+      d.player_id, i.impect_id, i.impect_name, i.impect_squad, i.impect_competition, i.iteration_id, i.minutes, i.position_group, i.data_pct
+    FROM roster_decisions d LEFT JOIN roster_decision_impect i ON i.season = d.season AND i.club = d.club AND i.name = d.name
+    WHERE d.season = ? ORDER BY d.club, d.name`, season);
   const { entries } = entriesFromDecisions(decisions.map((d) => ({ player: d.name, club: d.club, decision: d.decision,
     pub_date: d.announced, source_url: d.source_url })));
   const fa = new Map(entries.map((e) => [`${e.club}\n${e.name}`, e]));
@@ -128,6 +115,5 @@ export function optionsPayload(db, userId, watch = null) {
   const posted = new Set(releases.map((r) => r.club)), moved = new Set(decisions.map((d) => d.club));
   const clubs = OPTION_CLUBS.filter((c) => ALERT_LEAGUES.has(c.league))
     .map((c) => ({ club: c.club, league: c.league, status: posted.has(c.club) ? "posted" : moved.has(c.club) ? "moves" : "none" }));
-  const last_read = db.get("SELECT release_id FROM option_reads WHERE user_id = ?", userId)?.release_id ?? 0;
-  return { season, releases, decisions, clubs, last_read, watch };
+  return { season, releases, decisions, clubs, watch };
 }

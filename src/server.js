@@ -19,7 +19,7 @@ import { TM_FIELDS, backfillCollegeLeagues, manualTmOverrides, releaseTmOverride
 import { loadPhysical, matchPhysical, repairKeys, resolveAutoLinks, searchPhysical, rowsByKeys, teamOverlap, meta as physMeta } from "./lib/physical.js";
 import {
   impectConfigured, iterations as impectIterations, searchImpect, getImpectPlayer, matchImpect,
-  shortLists as impectShortLists, shortListPlayerMeta, warmPool, poolStatus,
+  shortLists as impectShortLists, shortListPlayerMeta, warmPool, poolStatus, playerPool as impectPlayerPool,
 } from "./lib/impect.js";
 import { BENCHMARK_LEAGUES, cohortStatus, playerKpiCard, warmCohort, warmDefinitions } from "./lib/impect_kpi.js";
 import { playingTime } from "./lib/playing_time.js";
@@ -44,8 +44,9 @@ import {
 } from "./lib/ncaa.js";
 import { linkL2, saveL2Report } from "./lib/l2.js";
 import { FREE_AGENT_SQL, freeAgentFor, freeAgentOverride, linkFreeAgents, saveFreeAgents } from "./lib/free_agents.js";
-import { linkRosterDecisions, markOptionsRead, optionsPayload, optionsUnread, saveRosterDecisions } from "./lib/roster_decisions.js";
+import { linkRosterDecisions, optionsPayload, saveRosterDecisions } from "./lib/roster_decisions.js";
 import { runOptionWatch, startOptionWatch, watchState } from "./lib/option_watch.js";
+import { enrichOptions, enrichState, GOOD_DATA, GOOD_MINUTES } from "./lib/options_impect.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
 import { ogTags, playerPreview, sitePreview } from "./lib/share.js";
 import { connectedDuplicate, connectionMergeProblem, mergeConnection, resolvePlayerId } from "./lib/player_connections.js";
@@ -474,7 +475,7 @@ app.get("/api/config", (c) =>
 );
 // app: the deployed front end's version, so a tab left open across a deploy can offer a reload.
 app.get("/api/changes", (c) => c.json({ version: db.get("SELECT coalesce(max(id), 0) AS v FROM activity").v,
-  review_open: reviewCount(db, c.get("user")), app: ASSET_VERSION, options: c.get("user") ? optionsUnread(db, c.get("user").id) : null }));
+  review_open: reviewCount(db, c.get("user")), app: ASSET_VERSION }));
 
 /* ---------- players ---------- */
 app.get("/api/players", (c) => {
@@ -909,9 +910,7 @@ app.put("/api/worker/free-agents", bodyLimit({ maxSize: 4 * 1024 * 1024 }), asyn
   } catch (e) { fail(400, e.message); }
   logActivity(db, null, null, "imported_free_agents", { season: result.season, clubs: result.clubs, entries: result.entries, in_pine: result.in_pine,
     ...(result.decisions != null ? { decisions: result.decisions } : {}) });
-  for (const r of result.new_releases || []) {
-    logActivity(db, null, null, "found_option_release", { release_id: r.id, club: r.club, league: r.league, title: r.title, url: r.url, from_upload: true });
-  }
+  if (result.decisions != null) linkOptionsToImpect(); // new players get their Impect link and tags in the background
   return c.json({ ok: true, ...result });
 });
 linkFreeAgents(db);
@@ -920,11 +919,33 @@ linkRosterDecisions(db);
 /* ---------- Options tab: end-of-season roster decisions and releases (src/lib/roster_decisions.js) ---------- */
 const watchSummary = () => ({ enabled: watchState.enabled, running: watchState.running, last_run: watchState.last_run, next_run: watchState.next_run,
   feeds: watchState.feeds, failed: watchState.failed, found: watchState.found, note: watchState.note });
-app.get("/api/options", (c) => c.json(optionsPayload(db, c.get("user").id, watchSummary())));
-app.post("/api/options/read", async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  try { markOptionsRead(db, c.get("user").id, body.release_id); } catch (e) { fail(400, e.message); }
-  return c.json({ ok: true, options: optionsUnread(db, c.get("user").id) });
+// Every player on the tab gets an Impect link and this season's minutes and KPI-profile percentile, after each
+// upload and twice a day (src/lib/options_impect.js).
+function linkOptionsToImpect() {
+  if (!impectConfigured()) return;
+  enrichOptions(db, { playerPool: impectPlayerPool, playerKpiCard }).catch((e) => console.warn("[options] Impect linking failed:", e.message));
+}
+if (process.env.PINE_OPTION_WATCH !== "off") {
+  setTimeout(linkOptionsToImpect, 3 * 60_000).unref?.();
+  setInterval(linkOptionsToImpect, 12 * 60 * 60_000).unref?.();
+}
+const impectSummary = () => ({ configured: impectConfigured(), running: enrichState.running, last_run: enrichState.last_run,
+  matched: enrichState.matched, scored: enrichState.scored, total: enrichState.total, error: enrichState.error });
+app.get("/api/options", (c) => c.json({ ...optionsPayload(db, c.get("user").id, watchSummary()),
+  tags: { good_minutes: GOOD_MINUTES, good_data: GOOD_DATA }, impect: impectSummary() }));
+// An Options player's Impect profile, whether or not he's in PINE.
+app.get("/api/impect/players/:impectId/kpis", async (c) => {
+  if (!impectConfigured()) fail(503, "Impect isn't configured on this copy of PINE");
+  const id = Number(c.req.param("impectId"));
+  if (!Number.isInteger(id) || id <= 0) fail(400, "Expected an Impect player id");
+  return c.json(await playerKpiCard(id, { iterationId: c.req.query("iteration") || null }));
+});
+// Admins can relink now instead of waiting for the next pass.
+app.post("/api/options/impect", (c) => {
+  if (!c.get("user").is_admin) fail(403, "Only admins can relink Options players to Impect");
+  if (!impectConfigured()) fail(503, "Impect isn't configured on this copy of PINE");
+  linkOptionsToImpect();
+  return c.json({ ok: true, impect: impectSummary() });
 });
 // Admins can run the watcher now instead of waiting for its next pass.
 app.post("/api/options/check", async (c) => {

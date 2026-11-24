@@ -286,14 +286,9 @@ function checkAppVersion(server) {
   pill.innerHTML = `<button class="btn sm" type="button">PINE was updated · reload</button>`;
   $("button", pill).addEventListener("click", () => location.reload());
 }
-// What /api/changes says beyond the version: the War Room and Options badges, a toast for a club's new roster
-// release (not on the first check after loading), and whether PINE was redeployed.
+// What /api/changes says beyond the version: the War Room badge, and whether PINE was redeployed.
 function applyChanges(c) {
   setReviewBadge(c.review_open);
-  setOptionsBadge(c.options?.n || 0);
-  const top = c.options?.latest;
-  if (top && S.optionsTop !== undefined && top.id > (S.optionsTop || 0) && route().view !== "options") toast(`${top.club} posted roster decisions · see Options`);
-  if (top || S.optionsTop === undefined) S.optionsTop = top ? Math.max(top.id, S.optionsTop || 0) : 0;
   checkAppVersion(c.app);
 }
 async function syncVersion() { try { const c = await api("GET", "/api/changes"); S.version = c.version; applyChanges(c); } catch {} }
@@ -426,7 +421,7 @@ function renderShell() {
       <a href="#/short-board" data-v="short-board">Short Board</a>
       <a href="#/ncaa" data-v="ncaa">NCAA</a>
       <a href="#/activity" data-v="activity">Activity</a>
-      <a href="#/options" data-v="options">Options<span class="nav-badge" id="options-badge" title="New roster releases" ${S.optionsNew ? "" : "hidden"}>${S.optionsNew || ""}</span></a>
+      <a href="#/options" data-v="options">Options</a>
       <button class="nav-trigger" id="operations-trigger" type="button" popovertarget="operations-menu" aria-controls="operations-menu" aria-expanded="false">Operations<span class="nav-caret" aria-hidden="true">▾</span></button>
       <div class="nav-menu" id="operations-menu" popover role="group" aria-label="Operations">
         <a href="#/players" data-v="players">Database</a>
@@ -547,8 +542,9 @@ async function render() {
   if (link && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = link.offsetLeft - nav.offsetLeft - (nav.clientWidth - link.offsetWidth) / 2;
   $("#upd").hidden = !S.staleNotified; // the reload prompt stays up until they reload
   const views = { compare: (main, arg) => renderCompare(main, arg, { api, setTitle, players: S.players, physicalGroups: PHYS_KEY }), analysis: (main, arg) => renderAnalysis(main, arg, { api, setTitle }), board: renderBoard, roster: renderRoster, "war-room": renderReview, "short-board": renderShortBoard, ncaa: renderNcaa, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
-  views.options = (main) => renderOptions(main, { api, esc, photo, nameWithMark, openAddPlayer, toast, oops, relTime, setOptionsBadge, state: S,
-    players: () => S.players, byId: () => S.byId, isAdmin: () => Boolean(S.me.is_admin) });
+  views.options = (main) => renderOptions(main, { api, esc, photo, nameWithMark, openAddPlayer, toast, oops, relTime, state: S,
+    players: () => S.players, byId: () => S.byId, isAdmin: () => Boolean(S.me.is_admin), modal, closeModal,
+    afterAdd: async () => { await syncVersion(); await reloadPlayers(); } });
   views.monitoring = main => {
     if (!S.me.is_admin) { location.hash = '#/board'; return; }
     stopMonitoring = renderMonitoring(main, { api, esc });
@@ -3964,13 +3960,6 @@ const sendLabel = (p) => `Send to ${sbTo(p)}`;
 const TM_LINK = /transfermarkt\.[a-z.]+\/.+\/spieler\/\d+/i;
 
 // The count is kept so the nav shows it however it's drawn: boot fetches it before the nav exists.
-function setOptionsBadge(n) {
-  S.optionsNew = n || 0;
-  const b = $("#options-badge");
-  if (!b) return;
-  b.hidden = !n;
-  b.textContent = n || "";
-}
 function setReviewBadge(n) {
   S.reviewOpen = n || 0;
   const b = $("#review-badge");

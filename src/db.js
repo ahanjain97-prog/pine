@@ -190,6 +190,14 @@ CREATE TABLE IF NOT EXISTS roster_decisions(
 );
 CREATE INDEX IF NOT EXISTS roster_decisions_club ON roster_decisions(season, club);
 CREATE INDEX IF NOT EXISTS roster_decisions_player ON roster_decisions(player_id);
+-- Each decision's Impect player and this season's tags (minutes, KPI-profile percentile), worked out in the
+-- background by src/lib/options_impect.js and keyed like the decisions so a new upload keeps them.
+CREATE TABLE IF NOT EXISTS roster_decision_impect(
+  season INTEGER NOT NULL, club TEXT NOT NULL, name TEXT NOT NULL,
+  impect_id INTEGER, impect_name TEXT, impect_squad TEXT, impect_competition TEXT, iteration_id INTEGER,
+  minutes INTEGER, position_group TEXT, data_pct REAL, checked_at TEXT,
+  PRIMARY KEY(season, club, name)
+);
 -- Roster-decision releases: spotted on a club's news page by the option watcher, or first seen in an upload.
 -- alert = 1 raises the Options badge and an Activity line (0: found while seeding, an MLS first team, or capped).
 CREATE TABLE IF NOT EXISTS option_releases(

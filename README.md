@@ -205,12 +205,13 @@ Minute share divides recorded player minutes by actual match duration across the
 | `PINE_DB` | SQLite file, default `data/pine.db` |
 | `PHYS_DATA_URL` | Physical data JSON, default the player-physical-data site |
 | `PINE_OPTION_WATCH` | `off` stops the option watcher from reading the clubs' news pages (it's on otherwise) |
+| `PINE_OPTION_WATCH_MINUTES` | How often the option watcher reads them, default 15 (never under 5) |
 | `PINE_COLLEGE_DATA_URL` | College scouting `data.json` for the NCAA section, default the college-soccer-scouting-2026 repository on GitHub |
 
 ## What's where
 
 **Big Board**, **Review** (for the review team), **Short Board**, **NCAA**, **Activity** and
-**Options** have their own top-bar tabs. Review shows its pending-review count; Options shows new roster releases.
+**Options** have their own top-bar tabs. Review shows its pending-review count.
 **Operations** opens Database, Roster, Compare players, Impect, Analysis and Staff (for admins). It stays
 highlighted on those pages and on player profiles. Click a link to go directly
 to that page; click away or press Escape to close the dropdown.
@@ -319,13 +320,18 @@ syncs leave the signing status alone.
 - **Options** (top bar, next to Activity): every end-of-season roster decision the USL Championship, USL League One and MLS
   Next Pro clubs announce (options declined or picked up, out of contract, under contract, re-signed, in talks), club by
   club, with which clubs have posted, links to each release, and filters for league, free agents and who's in PINE.
-  Players PINE follows open their profile; the rest get **+ Add** (prefilled). The decisions come from the clubs'
+  Every player links somewhere: his PINE profile, else his Impect profile (a pop-up with this season's position,
+  minutes and KPI-profile percentiles, and **+ Add to PINE from Impect**), else the release. Two tags: **Good minutes**
+  (1,000+ league minutes this season) and **Good data** (his KPI profile averages the 60th percentile or better
+  across his position's categories, against the pooled USL Championship / League One / Next Pro benchmark), with
+  filters for both and for position (Impect's groups; a release's GK/D/M/F when Impect has none). Players are
+  matched to Impect by name within their league's season (a PINE player's own link first), after each upload
+  and twice a day, in the background (`src/lib/options_impect.js`). The decisions come from the clubs'
   releases and never go in this repository: `scripts/free-agents.mjs` uploads them with the free agents
   (`decisions` on `PUT /api/worker/free-agents`; an older copy of the script sends only the free agents). The
-  **option watcher** reads every club's news page (and the MLS first teams', where Next Pro clubs post) every two
-  hours and records new roster releases by headline and date only; each one raises a badge on the Options tab,
-  a toast and an Activity line. A page's first read is taken in quietly, MLS first-team releases never alert, and a
-  run that finds a pile at once alerts for none. Code: `src/lib/roster_decisions.js`, `src/lib/option_watch.js`,
+  **option watcher** reads every club's news page (and the MLS first teams', where Next Pro clubs post) every 15
+  minutes and records new roster releases by headline and date only, so the tab lists them (Latest releases, and
+  the club counts as posted) as soon as a club posts. It raises no alerts in PINE. Code: `src/lib/roster_decisions.js`, `src/lib/option_watch.js`,
   `src/lib/option_clubs.js` (the clubs, their PINE names and news pages), `public/options.js`.
 - **College reports written in PINE**: any college player can get a grade and report like the imported ones.
   On a player page, **+ Add report** (grade now and ceiling on the college database's scale D- to A+++, class,
@@ -503,6 +509,7 @@ src/lib/backup.js              Daily database snapshots + download
 src/lib/roster_decisions.js    End-of-season roster decisions and releases for the Options tab
 src/lib/option_watch.js        Reads the clubs' news pages for new roster releases (badge, toast, Activity)
 src/lib/option_clubs.js        The clubs followed, their PINE names, leagues and news pages
+src/lib/options_impect.js      Links Options players to Impect; good-minutes and good-data tags
 public/                        index.html, app.js (no build step), styles.css
 scripts/check.mjs              npm run check: syntax-check every file
 scripts/pull-backup.sh         Pull a database snapshot to a Mac (daily via com.pine.backup.plist)
