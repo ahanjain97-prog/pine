@@ -209,8 +209,8 @@ Minute share divides recorded player minutes by actual match duration across the
 
 ## What's where
 
-**Big Board**, **Review** (for the review team), **Short Board**, **NCAA** and
-**Activity** have their own top-bar tabs. Review shows its pending-review count.
+**Big Board**, **Review** (for the review team), **Short Board**, **NCAA**, **Activity** and
+**Options** have their own top-bar tabs. Review shows its pending-review count; Options shows new roster releases.
 **Operations** opens Database, Roster, Compare players, Impect, Analysis and Staff (for admins). It stays
 highlighted on those pages and on player profiles. Click a link to go directly
 to that page; click away or press Escape to close the dropdown.
@@ -316,14 +316,14 @@ syncs leave the signing status alone.
   the PDF locally and replaces that year's list in PINE (`PUT /api/worker/l2-prospects`; `--output FILE` to check
   it first). Entries match PINE players by name, like the college import, and birth years more than a year apart
   rule a match out; players added later are matched when they're created. Code: `src/lib/l2.js`.
-- **Options** (Operations menu): every end-of-season roster decision the USL Championship, USL League One and MLS
+- **Options** (top bar, next to Activity): every end-of-season roster decision the USL Championship, USL League One and MLS
   Next Pro clubs announce (options declined or picked up, out of contract, under contract, re-signed, in talks), club by
   club, with which clubs have posted, links to each release, and filters for league, free agents and who's in PINE.
   Players PINE follows open their profile; the rest get **+ Add** (prefilled). The decisions come from the clubs'
   releases and never go in this repository: `scripts/free-agents.mjs` uploads them with the free agents
   (`decisions` on `PUT /api/worker/free-agents`; an older copy of the script sends only the free agents). The
   **option watcher** reads every club's news page (and the MLS first teams', where Next Pro clubs post) every two
-  hours and records new roster releases by headline and date only; each one raises a badge on Operations › Options,
+  hours and records new roster releases by headline and date only; each one raises a badge on the Options tab,
   a toast and an Activity line. A page's first read is taken in quietly, MLS first-team releases never alert, and a
   run that finds a pile at once alerts for none. Code: `src/lib/roster_decisions.js`, `src/lib/option_watch.js`,
   `src/lib/option_clubs.js` (the clubs, their PINE names and news pages), `public/options.js`.

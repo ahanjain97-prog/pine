@@ -1,4 +1,4 @@
-// Operations > Options: every end-of-season roster decision the clubs have announced, club by club, with the
+// The Options tab: every end-of-season roster decision the clubs have announced, club by club, with the
 // releases they came in and which clubs haven't posted yet. Players PINE follows open their profile; the rest show
 // the release and an Add button. The list itself never lives in the repository (see src/lib/roster_decisions.js).
 

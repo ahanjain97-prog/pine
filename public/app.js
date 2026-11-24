@@ -292,7 +292,7 @@ function applyChanges(c) {
   setReviewBadge(c.review_open);
   setOptionsBadge(c.options?.n || 0);
   const top = c.options?.latest;
-  if (top && S.optionsTop !== undefined && top.id > (S.optionsTop || 0) && route().view !== "options") toast(`${top.club} posted roster decisions · see Operations › Options`);
+  if (top && S.optionsTop !== undefined && top.id > (S.optionsTop || 0) && route().view !== "options") toast(`${top.club} posted roster decisions · see Options`);
   if (top || S.optionsTop === undefined) S.optionsTop = top ? Math.max(top.id, S.optionsTop || 0) : 0;
   checkAppVersion(c.app);
 }
@@ -426,11 +426,11 @@ function renderShell() {
       <a href="#/short-board" data-v="short-board">Short Board</a>
       <a href="#/ncaa" data-v="ncaa">NCAA</a>
       <a href="#/activity" data-v="activity">Activity</a>
-      <button class="nav-trigger" id="operations-trigger" type="button" popovertarget="operations-menu" aria-controls="operations-menu" aria-expanded="false">Operations<span class="nav-badge" id="options-badge-top" title="New roster releases on the Options tab" ${S.optionsNew ? "" : "hidden"}>${S.optionsNew || ""}</span><span class="nav-caret" aria-hidden="true">▾</span></button>
+      <a href="#/options" data-v="options">Options<span class="nav-badge" id="options-badge" title="New roster releases" ${S.optionsNew ? "" : "hidden"}>${S.optionsNew || ""}</span></a>
+      <button class="nav-trigger" id="operations-trigger" type="button" popovertarget="operations-menu" aria-controls="operations-menu" aria-expanded="false">Operations<span class="nav-caret" aria-hidden="true">▾</span></button>
       <div class="nav-menu" id="operations-menu" popover role="group" aria-label="Operations">
         <a href="#/players" data-v="players">Database</a>
         <a href="#/roster" data-v="roster">Roster</a>
-        <a href="#/options" data-v="options">Options<span class="nav-badge" id="options-badge" ${S.optionsNew ? "" : "hidden"}>${S.optionsNew || ""}</span></a>
         <a href="#/compare" data-v="compare">Compare players</a>
         <a href="#/impect" data-v="impect">Impect</a>
         <a href="#/analysis" data-v="analysis">Analysis</a>
@@ -541,7 +541,7 @@ async function render() {
     if (a.dataset.v === view) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   });
-  const inOperations = ["players", "player", "roster", "options", "compare", "impect", "analysis", "staff", "monitoring"].includes(view);
+  const inOperations = ["players", "player", "roster", "compare", "impect", "analysis", "staff", "monitoring"].includes(view);
   $("#operations-trigger").classList.toggle("on", inOperations);
   const link = $("#nav > .on"), nav = $("#nav");
   if (link && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = link.offsetLeft - nav.offsetLeft - (nav.clientWidth - link.offsetWidth) / 2;
@@ -3966,11 +3966,10 @@ const TM_LINK = /transfermarkt\.[a-z.]+\/.+\/spieler\/\d+/i;
 // The count is kept so the nav shows it however it's drawn: boot fetches it before the nav exists.
 function setOptionsBadge(n) {
   S.optionsNew = n || 0;
-  for (const b of [$("#options-badge"), $("#options-badge-top")]) {
-    if (!b) continue;
-    b.hidden = !n;
-    b.textContent = n || "";
-  }
+  const b = $("#options-badge");
+  if (!b) return;
+  b.hidden = !n;
+  b.textContent = n || "";
 }
 function setReviewBadge(n) {
   S.reviewOpen = n || 0;

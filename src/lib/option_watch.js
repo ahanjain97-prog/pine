@@ -1,7 +1,7 @@
 // The option watcher. Every couple of hours PINE reads the news of each USL Championship, USL League One and MLS
 // Next Pro club (and of the MLS first teams, where most Next Pro clubs post) and records any new end-of-season
 // roster release ("2027 roster decisions", "end-of-year roster update") in option_releases. Staff then get a badge
-// on Operations > Options and a line in Activity as soon as a club posts. It reads headlines and publish dates only;
+// on the Options tab and a line in Activity as soon as a club posts. It reads headlines and publish dates only;
 // the players are coded separately and arrive with scripts/free-agents.mjs.
 //
 // Headlines and links come from other sites, so they're kept as text, links must be http(s) on the club's own
