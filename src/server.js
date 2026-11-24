@@ -1324,7 +1324,7 @@ app.get("/api/maps/:id/json", (c) => {
 
 // Map worker API (X-PINE-Worker-Token, checked in the /api gate above).
 function runningMap(c) {
-  const map = db.get("SELECT id, player_id, impect_id, iteration_id, position, status FROM maps WHERE id = ?", Number(c.req.param("id")))
+  const map = db.get("SELECT id, player_id, impect_id, iteration_id, position, status, progress, progress_matches FROM maps WHERE id = ?", Number(c.req.param("id")))
     || fail(404, "Maps job not found");
   if (map.status !== "running") fail(409, `Maps job ${map.id} is ${map.status}, not running`);
   return map;
