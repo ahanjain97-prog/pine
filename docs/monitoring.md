@@ -21,7 +21,7 @@ automatically when there are any; recent build activity is collapsed until opene
 - **Jobs:** current queued/running counts, oldest queue age, and jobs running longer than the
   existing 15-minute retry threshold. Up to 50 active jobs per type are listed, with player
   links, match-download progress and attempt counts. Totals cover the full queue.
-- **Build activity:** requests, starts/retries, completions and failures, with the latest 40
+- **Build activity:** requests, starts/retries, automatic repair/download stages, completions and failures, with the latest 40
   events listed. New observations persist for 14 days, including when map rebuilds replace old
   job rows. Retention cleanup runs at most hourly when another event is saved. Events are
   private operational data and must never be committed or copied into public PRs.
@@ -55,3 +55,16 @@ Worker contact is kept in memory and persisted at most once per 30 seconds per j
 restart may therefore make its last-contact timestamp up to 30 seconds older. Event write
 failures do not fail builds/uploads; the dashboard warns if observations were dropped during
 this server run. There are no automated retries, worker restarts, alerts or external probes.
+
+Card/map recovery uses fixed worker codes. Active jobs and build activity show
+`reconciling_data` (automatic season repair), `fetching_events` (refresh missing
+or stale matches), and `retrying_provider` (one transient provider retry).
+Repeated identical progress posts are not duplicated in history. Final failures
+explain data disagreement after repair, provider unavailability, timeout, missing
+coverage or drawing errors. The job number identifies its local worker diagnostics;
+raw provider output, paths, secrets and tracebacks never enter the dashboard.
+
+Deploy this expanded code contract before the worker update. Older workers remain
+compatible; their generic historical failures cannot be reconstructed retroactively.
+The worker repairs inputs during the existing job, with bounded refreshes and retries;
+monitoring itself does not enqueue jobs or restart workers.

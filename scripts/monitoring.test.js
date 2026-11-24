@@ -165,3 +165,22 @@ test('summary names slow items first, counts errors and notes first use after a 
   assert.match(monitoringSummary(null, buildReport([row('server', 'config', 2, 20, [2, 0, 0, 0])], limits), esc), /needs 3 timings/);
   assert.match(monitoringSummary(null, buildReport([], limits), esc), /No timings yet/);
 });
+
+test('recovery stages and actionable errors survive restart without raw diagnostics', async t => {
+  const { db, monitor, read } = setup(t);
+  t.after(() => db.raw.close());
+  const player = Number(db.run("INSERT INTO players(name) VALUES ('Fictional Forward')").lastInsertRowid);
+  const id = Number(db.run("INSERT INTO cards(player_id,impect_id,iteration_id,position,status,attempts) VALUES (?,99,7,'CF','running',1)", player).lastInsertRowid);
+  db.run("UPDATE cards SET progress='reconciling_data' WHERE id=?", id);
+  monitor.recordJob('cards', id, 'progress');
+  db.run("UPDATE cards SET status='failed',error='data_mismatch' WHERE id=?", id);
+  monitor.recordJob('cards', id, 'failed');
+  const data = await setup(t, db).read();
+  assert.equal(data.events[0].error, 'data_mismatch');
+  assert.equal(data.events[1].error, 'reconciling_data');
+  const html = monitoringActivity(data, String);
+  assert.match(html, /Repairing season data automatically/);
+  assert.match(html, /Provider data still disagrees after automatic repair/);
+  assert.match(html, /Scouting cards #/);
+  assert.match(monitoringJobs({ ...data, active: [{ kind: 'cards', id, player_id: player, progress: 'retrying_provider' }] }, String), /Retrying the data provider automatically/);
+});

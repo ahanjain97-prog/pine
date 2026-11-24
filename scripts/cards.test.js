@@ -180,3 +180,10 @@ test('card files are named by UTC time, season and position, and never overwritt
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('recovery codes are fixed and arbitrary provider text is rejected', () => {
+  for (const code of ['data_mismatch', 'provider_unavailable', 'build_timeout']) assert.equal(cardErrorCode(code), code);
+  for (const code of ['reconciling_data', 'retrying_provider']) assert.deepEqual(cardProgress(code, null), { code, matches: null });
+  assert.equal(cardErrorCode('token=private-provider-error'), 'failed');
+  assert.equal(cardProgress('token=private-provider-error', null), null);
+});

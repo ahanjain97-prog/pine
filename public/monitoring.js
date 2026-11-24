@@ -1,3 +1,4 @@
+import { buildFailure, buildProgress } from './build-status.js';
 import { loadPerformancePanel } from './performance.js';
 import { buildTimingChart, speedVerdict } from './performance-charts.js';
 
@@ -57,14 +58,14 @@ export function monitoringJobs(data, esc) {
   const status = job => job.status === 'running' ? 'Building' : 'Queued';
   return `${rows.length ? `<p class="hint">Showing ${rows.length} of ${total} active jobs; up to ${data.active_limit_per_kind} per type, oldest first.</p>
     <div class="table-wrap"><table class="grid"><thead><tr><th>Player</th><th>Job</th><th>Status</th><th>Waiting / building</th><th>Progress</th><th>Attempt</th></tr></thead><tbody>${rows.map(job =>
-      `<tr><td>${jobLink(job, esc)}</td><td>${kindName(job.kind)} #${job.id}<br><span class="muted sm">${esc(job.season || '—')} · ${esc(job.position)}</span></td><td>${badge(status(job), 'hold', esc)}</td><td>${duration(job.age_ms)}</td><td>${job.progress === 'fetching_events' ? `Downloading match events${job.progress_matches ? ` (${job.progress_matches} matches)` : ''}` : '—'}</td><td>${job.attempts}</td></tr>`).join('')}</tbody></table></div>` : '<p class="hint">No jobs waiting or building.</p>'}`;
+      `<tr><td>${jobLink(job, esc)}</td><td>${kindName(job.kind)} #${job.id}<br><span class="muted sm">${esc(job.season || '—')} · ${esc(job.position)}</span></td><td>${badge(status(job), 'hold', esc)}</td><td>${duration(job.age_ms)}</td><td>${esc(buildProgress(job.progress) || '—')}${job.progress_matches ? ` (${job.progress_matches} matches)` : ''}</td><td>${job.attempts}</td></tr>`).join('')}</tbody></table></div>` : '<p class="hint">No jobs waiting or building.</p>'}`;
 }
 
 export function monitoringActivity(data, esc) {
-  const labels = { requested: 'Requested', started: 'Started', done: 'Completed', failed: 'Failed' };
+  const labels = { requested: 'Requested', started: 'Started', done: 'Completed', failed: 'Failed', progress: 'Recovering' };
   return `<p class="hint">Latest 40 events, kept for 14 days. History starts when monitoring is deployed; old jobs are not backfilled. Map rebuilds keep their event history here.</p>
     ${data.events.length ? `<div class="table-wrap"><table class="grid"><thead><tr><th>Time</th><th>Player</th><th>Job</th><th>Activity</th><th>Detail</th></tr></thead><tbody>${data.events.map(event =>
-      `<tr><td>${esc(new Date(event.at).toLocaleString())}</td><td>${jobLink(event, esc)}</td><td>${kindName(event.kind)} #${event.job_id}<br><span class="muted sm">${esc(event.season || '—')} · ${esc(event.position)}</span></td><td>${badge(labels[event.event] || event.event, event.event === 'done' ? 'pass' : event.event === 'failed' ? 'fail' : 'hold', esc)}</td><td>${event.event === 'done' ? `Built in ${duration(event.build_ms)}` : event.event === 'started' ? `Queue ${duration(event.queue_ms)} · attempt ${event.attempts}` : event.event === 'failed' ? esc(event.error || 'failed') : 'Waiting for worker'}</td></tr>`).join('')}</tbody></table></div>` : '<p class="hint">No build events observed yet.</p>'}`;
+      `<tr><td>${esc(new Date(event.at).toLocaleString())}</td><td>${jobLink(event, esc)}</td><td>${kindName(event.kind)} #${event.job_id}<br><span class="muted sm">${esc(event.season || '—')} · ${esc(event.position)}</span></td><td>${badge(labels[event.event] || event.event, event.event === 'done' ? 'pass' : event.event === 'failed' ? 'fail' : 'hold', esc)}</td><td>${event.event === 'done' ? `Built in ${duration(event.build_ms)}` : event.event === 'started' ? `Queue ${duration(event.queue_ms)} · attempt ${event.attempts}` : event.event === 'failed' ? esc(buildFailure(event.error)) : event.event === 'progress' ? esc(buildProgress(event.error)) : 'Waiting for worker'}</td></tr>`).join('')}</tbody></table></div>` : '<p class="hint">No build events observed yet.</p>'}`;
 }
 
 export function renderMonitoring(main, { api, esc }) {
