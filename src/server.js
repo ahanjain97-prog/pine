@@ -111,11 +111,14 @@ async function warmImpect({ force = false } = {}) {
         impectRefresh.failed.push({ name, error: e.message }); // keep going: one league failing shouldn't stop the rest
       }
     }
-    // Prepare current-season fixture data once for every player, rather than asking the first
-    // person opening each club's profile to download it. Foreground requests take queue priority.
-    for (const it of leagues.filter((i) => String(i.season) === newest)) {
+    // Prepare fixture data once for every player, rather than asking the first person opening each
+    // club's profile to download it (a cold past season took minutes). Current season first; past
+    // seasons are kept on disk only and, once saved, are rarely downloaded again. Foreground requests
+    // take queue priority.
+    const bySeason = [...leagues].sort((x, y) => String(y.season).localeCompare(String(x.season)));
+    for (const it of bySeason) {
       impectRefresh.current = `${it.competition} ${it.season} playing time`;
-      try { await playingTime.warm(it, { force }); }
+      try { await playingTime.warm(it, { force, keep: String(it.season) === newest }); }
       catch (e) { impectRefresh.failed.push({ name: impectRefresh.current, error: e.message }); }
     }
     console.log(`[impect] ${force ? "refresh" : "warm"} in ${Math.round((Date.now() - started) / 1000)}s; downloaded: ${impectRefresh.done.join(", ") || "nothing (all fresh)"}${impectRefresh.failed.length ? `; failed: ${impectRefresh.failed.map((f) => f.name).join(", ")}` : ""}`);

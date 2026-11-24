@@ -2,13 +2,15 @@
 // before caching; a squad/match download is shared by every player and survives server restarts.
 import { createHash } from "node:crypto";
 import { impectGet, iterations, getImpectPlayer } from "./impect.js";
-import { readDisk, writeDisk } from "./disk_cache.js";
+import { diskSavedAt, readDisk, writeDisk } from "./disk_cache.js";
+import { requestTimings, timeExternal } from "./request_timing.js";
 import { norm } from "./physical.js";
 
 const TTL = 12 * 60 * 60 * 1000;
 const FORMAT = 1;
 const HOUR = 60 * 60 * 1000;
-const WEEK = 7 * 24 * HOUR;
+const DAY = 24 * HOUR;
+const WEEK = 7 * DAY;
 const round = (n) => Math.round(n * 100) / 100;
 const positive = (v) => Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : 0;
 
@@ -35,41 +37,52 @@ export function reduceMatch(raw) {
 // 6,000 is under ~25 MB and holds every current-season game the warm-up downloads (about 1,000 across the
 // three leagues) with room for older seasons. At 256 the warm-up pushed its own games out, so whenever the
 // disk cache couldn't save, opening a player downloaded their games from Impect again.
+// Impect answers a match download in ~4 s (13 s at p90), so throughput is set by how many run at once.
+// The warm-up may use `backgroundSlots`; a person opening a player may use up to `slots`, so there is
+// always room for them even while the warm-up is busy.
 export function createPlayingTimeService({ get = impectGet, list = iterations, player = getImpectPlayer,
-  read = readDisk, write = writeDisk, now = Date.now, intervalMs = 180, memoryEntries = 6000 } = {}) {
+  read = readDisk, write = writeDisk, savedAt = diskSavedAt, now = Date.now, intervalMs = 180, memoryEntries = 6000,
+  slots = 6, backgroundSlots = 3 } = {}) {
   const memory = new Map(), building = new Map(), retryAfter = new Map(), queue = [];
-  let active = 0, nextStart = 0, timer = null;
+  let active = 0, activeBackground = 0, nextStart = 0, timer = null;
   function pump() {
-    if (!queue.length || active >= 3 || timer) return;
+    if (!queue.length || active >= slots || timer) return;
+    const foreground = queue.findIndex((t) => !t.owner.background);
+    if (foreground < 0 && activeBackground >= backgroundSlots) return;
     const delay = nextStart - Date.now();
     if (delay > 0) { timer = setTimeout(() => { timer = null; pump(); }, delay); return; }
-    const foreground = queue.findIndex((t) => !t.owner.background);
     const task = queue.splice(foreground < 0 ? 0 : foreground, 1)[0];
+    const background = foreground < 0;
     active++;
+    if (background) activeBackground++;
     nextStart = Date.now() + intervalMs;
-    Promise.resolve().then(task.run).then(task.resolve, task.reject).finally(() => { active--; pump(); });
+    // Run outside whichever request happened to start it; the waiting request counts its own wait below.
+    Promise.resolve().then(() => requestTimings.exit(task.run)).then(task.resolve, task.reject)
+      .finally(() => { active--; if (background) activeBackground--; pump(); });
     pump();
   }
-  const download = (path, owner) => new Promise((resolve, reject) => {
+  // Time queued for a slot is time waiting on Impect, so it counts as provider time in monitoring.
+  const download = (path, owner) => timeExternal(() => new Promise((resolve, reject) => {
     queue.push({ owner, run: () => get(path, { store: false }), resolve, reject });
     pump();
-  });
+  }));
   function remember(key, value) {
     memory.delete(key);
     memory.set(key, value);
     while (memory.size > memoryEntries) memory.delete(memory.keys().next().value);
     return value;
   }
-  function refresh(key, build, background) {
+  function refresh(key, build, background, keep = true) {
     if (building.has(key)) {
       const owner = building.get(key);
       if (!background) owner.background = false;
-      return owner.promise;
+      // Waiting on someone else's download is waiting on Impect too.
+      return background ? owner.promise : timeExternal(() => owner.promise);
     }
     const owner = { background, promise: null };
     owner.promise = Promise.resolve().then(() => build(owner)).then((data) => {
       const value = { format: FORMAT, at: now(), data };
-      remember(key, value);
+      if (keep) remember(key, value);
       write(key, value);
       retryAfter.delete(key);
       return data;
@@ -81,20 +94,38 @@ export function createPlayingTimeService({ get = impectGet, list = iterations, p
     building.set(key, owner);
     return owner.promise;
   }
-  async function cached(key, build, { maxAge = TTL, stale = false, background = false } = {}) {
+  // stale: a saved copy past maxAge is returned at once and replaced in the background.
+  // keep: false leaves a download out of memory (disk only), for warming seasons nobody may open.
+  async function cached(key, build, { maxAge = TTL, stale = false, background = false, keep = true } = {}) {
     const hit = memory.get(key) || read(key);
     if (hit?.format === FORMAT) {
       remember(key, hit);
       if (now() - hit.at < maxAge) return hit.data;
       if (stale) {
-        if (!(retryAfter.get(key) > now())) refresh(key, build, true).catch((e) => console.warn(`[playing time] refresh failed: ${e.message}`));
+        if (!(retryAfter.get(key) > now())) {
+          requestTimings.exit(() => refresh(key, build, true)).catch((e) => console.warn(`[playing time] refresh failed: ${e.message}`));
+        }
         return hit.data;
       }
     }
-    return refresh(key, build, background);
+    return refresh(key, build, background, keep);
   }
-  const indexAge = (it) => Number(String(it.season).slice(0, 4)) < new Date(now()).getUTCFullYear() ? WEEK : 6 * HOUR;
-  function seasonIndex(it, background = false, force = false) {
+  // Whether a saved copy is younger than maxAge, without reading it (memory, else the file's date).
+  function fresh(key, maxAge) {
+    const at = memory.get(key)?.at ?? savedAt(key);
+    return at != null && now() - at < maxAge;
+  }
+  const pastSeason = (label) => Number(String(label).slice(0, 4)) < new Date(now()).getUTCFullYear();
+  // A finished season's fixture list and minutes no longer change.
+  const indexAge = (it) => pastSeason(it.season) ? 30 * DAY : 6 * HOUR;
+  // Impect may correct a game in the days after it; one that is two months old is settled.
+  const matchAge = (f) => {
+    const age = now() - Date.parse(f.date);
+    return age > 60 * DAY ? 365 * DAY : age > WEEK ? 30 * DAY : 6 * HOUR;
+  };
+  // A person opening a player is served any saved index or game straight away (refreshed behind them);
+  // the warm-up (background) waits for fresh copies.
+  function seasonIndex(it, background = false, force = false, keep = true) {
     return cached(`playing-time-index-${it.id}`, async (owner) => {
       const [squads, matches] = await Promise.all([
         download(`/v5/customerapi/iterations/${it.id}/squads`, owner),
@@ -110,11 +141,12 @@ export function createPlayingTimeService({ get = impectGet, list = iterations, p
         id: m.id, date: m.scheduledDate, home: m.homeSquadId, away: m.awaySquadId,
         available: m.available === true, stage: m.matchDay?.name || null,
       })), names: Object.fromEntries(squads.map((s) => [s.id, s.name])) };
-    }, { maxAge: force ? 0 : indexAge(it), background });
+    }, { maxAge: force ? 0 : indexAge(it), background, stale: !background, keep });
   }
-  const match = (f, background = false, force = false) => cached(`playing-time-match-${f.id}`, async (owner) =>
+  const matchKey = (f) => `playing-time-match-${f.id}`;
+  const match = (f, background = false, force = false, keep = true) => cached(matchKey(f), async (owner) =>
     reduceMatch(await download(`/v5/customerapi/matches/${f.id}/player-kpis`, owner)),
-    { maxAge: force ? 0 : now() - Date.parse(f.date) > WEEK ? 30 * 24 * HOUR : 6 * HOUR, background });
+    { maxAge: force ? 0 : matchAge(f), background, stale: !background, keep });
 
   async function buildManifest(id) {
     const [p, its] = await Promise.all([player(Number(id)), list()]);
@@ -191,13 +223,17 @@ export function createPlayingTimeService({ get = impectGet, list = iterations, p
   function season(id, label, context = {}) {
     // Key profile-dependent transfer bounds separately; a changed link/club/join date cannot reuse them.
     const signature = createHash("sha1").update(JSON.stringify([Number(id), String(label), context.joined || "", context.club || ""])).digest("hex");
-    const maxAge = Number(String(label).slice(0, 4)) < new Date(now()).getUTCFullYear() ? WEEK : 6 * HOUR;
+    const maxAge = pastSeason(label) ? WEEK : 6 * HOUR;
     return cached(`playing-time-player-${signature}`, (owner) => buildSeason(id, label, context, owner.background), { maxAge, stale: true });
   }
-  async function warm(it, { force = false } = {}) {
-    const index = await seasonIndex(it, true, force);
+  // Downloads every finished game in a league season that has no fresh saved copy. Saved copies are only
+  // checked by date, not read. keep: false (older seasons) saves new downloads to disk but not memory, so
+  // warming past seasons doesn't push the current one out.
+  async function warm(it, { force = false, keep = true } = {}) {
+    const index = await seasonIndex(it, true, force, keep);
     const games = index.matches.filter((f) => f.available && Date.parse(f.date) <= now());
-    const results = await Promise.allSettled(games.map((f) => match(f, true, force)));
+    const results = await Promise.allSettled(games.map((f) =>
+      !force && fresh(matchKey(f), matchAge(f)) ? null : match(f, true, force, keep)));
     const failed = results.filter((r) => r.status === "rejected");
     if (failed.length) throw new Error(`${failed.length} playing-time games could not be refreshed`);
     return games.length;
