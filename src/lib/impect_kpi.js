@@ -8,6 +8,7 @@ import { impectGet, iterations as impectIterations, getImpectPlayer } from "./im
 import { CATEGORIES, COMPOSITES, POSITION_MAP, POSITION_LABEL, MIN_MATCH_SHARE, ALL_METRICS } from "./impect_categories.js";
 import { benchmark, fixedFloor } from "./impect_benchmark.js";
 import { diskSavedAt, readDisk, writeDisk } from "./disk_cache.js";
+import { timeExternal } from "./request_timing.js";
 import { categoryDisplay, phasesFor, metricKind, METRIC_KINDS, shortLeague } from "./impect_display.js";
 import { addBallSecurity, addDefending, defendingOutlook, DERIVED_META } from "./defending.js";
 
@@ -277,7 +278,8 @@ function cachedCohort(iterationId) {
 
 export async function cohort(iterationId) {
   const co = cachedCohort(iterationId);
-  if (!co) return refreshCohort(iterationId);
+  // Possibly joining the warm-up's download, which monitoring would otherwise show as app processing.
+  if (!co) return timeExternal(() => refreshCohort(iterationId));
   if (Date.now() - co.at > TTL_MS) refreshCohort(iterationId).catch((e) => console.warn(`[impect] cohort ${iterationId} refresh failed: ${e.message}`));
   return co;
 }

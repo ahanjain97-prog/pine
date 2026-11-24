@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createPlayingTimeService, reduceMatch } from "../src/lib/playing_time.js";
+import { newRequestTiming, requestTimings } from "../src/lib/request_timing.js";
 
 const clock = Date.parse("2026-10-29T12:00:00Z");
 function fixture({ broken = false } = {}) {
@@ -123,6 +124,8 @@ test('completed historical matches are reused when the season index expires', as
   for (const [key] of disk) if (key.startsWith('playing-time-player-')) disk.delete(key);
   await createPlayingTimeService({ ...options, now: () => clock + 13 * 60 * 60 * 1000 }).season(1, '2026');
   assert.equal(calls.get('/v5/customerapi/matches/1/player-kpis'), 1);
+  // The expired index is served at once and replaced behind the request.
+  for (let n = 0; n < 40 && calls.get('/v5/customerapi/iterations/100/matches') < 2; n++) await new Promise((r) => setTimeout(r, 5));
   assert.equal(calls.get('/v5/customerapi/iterations/100/matches'), 2);
 });
 
@@ -210,4 +213,57 @@ test('the old 256-entry memory re-downloaded part of a warmed season (guards the
   const warmed = calls();
   await service.season(1, '2026');
   assert.ok(calls().matchCalls > warmed.matchCalls);
+});
+
+test('an expired season index or game is served at once to a person opening a player', async () => {
+  const { service, disk, options } = fixture();
+  const original = await service.season(1, '2026');
+  for (const [key] of disk) if (key.startsWith('playing-time-player-')) disk.delete(key);
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const get = options.get;
+  const later = createPlayingTimeService({ ...options, now: () => clock + 40 * 24 * 60 * 60 * 1000,
+    get: async (path) => { await gate; return get(path); } });
+  const result = await Promise.race([later.season(1, '2026'), new Promise((_, reject) => setTimeout(() => reject(Error('Blocked on refresh')), 100))]);
+  assert.equal(result.minutes, original.minutes);
+  release();
+});
+
+test('the warm-up leaves slots free for people, and queued time counts as provider time', async () => {
+  const { options } = fixture();
+  let running = 0, peak = 0, peakBackground = 0, foregroundStarted = false;
+  const service = createPlayingTimeService({ ...options, slots: 4, backgroundSlots: 2,
+    get: async (path) => {
+      running++; peak = Math.max(peak, running);
+      if (!foregroundStarted) peakBackground = Math.max(peakBackground, running);
+      try { await new Promise((r) => setTimeout(r, 2)); return await options.get(path); } finally { running--; }
+    } });
+  const warming = service.warm({ id: 100, season: '2026' });
+  await new Promise((r) => setTimeout(r, 1));
+  foregroundStarted = true;
+  const timing = newRequestTiming();
+  assert.equal((await requestTimings.run(timing, () => service.season(1, '2024'))).season, '2024');
+  await warming;
+  assert.ok(peakBackground <= 2, `warm-up ran ${peakBackground} downloads at once`);
+  assert.ok(peak <= 4, `ran ${peak} downloads at once`);
+  assert.ok(timing.externalMs > 0, 'waiting on queued downloads is provider time');
+});
+
+test('the warm-up checks saved games by date without reading them', async () => {
+  const it = { id: 100, season: '2026' };
+  const index = { teams: [], names: {}, matches: [1, 2, 3].map((id) => ({ id, date: '2026-02-01T12:00:00Z', home: 10, away: 30, available: true })) };
+  const read = [];
+  const service = createPlayingTimeService({ get: async () => { throw Error('should not download'); }, now: () => clock, intervalMs: 0,
+    read: (key) => { read.push(key); return key === 'playing-time-index-100' ? { format: 1, at: clock, data: index } : null; },
+    write: () => {}, savedAt: () => clock - 60_000 });
+  assert.equal(await service.warm(it), 3);
+  assert.deepEqual(read, ['playing-time-index-100']);
+});
+
+test('warming a past season keeps its games out of memory', async () => {
+  const { service, it, calls } = bigSeason();
+  await service.warm(it, { keep: false });
+  const warmed = calls().matchCalls;
+  await service.season(1, '2026');
+  assert.equal(calls().matchCalls, warmed * 2, 'with no disk, a disk-only warm-up is downloaded again on view');
 });

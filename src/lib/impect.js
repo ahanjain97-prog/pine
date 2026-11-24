@@ -1,5 +1,5 @@
 // Impect Customer API: player pool across our iterations, used for search/import and to link PINE players.
-import { timedFetch } from "./request_timing.js";
+import { timedFetch, timeExternal } from "./request_timing.js";
 import { norm } from "./physical.js";
 import { diskSavedAt, readDisk, writeDisk } from "./disk_cache.js";
 
@@ -93,7 +93,7 @@ function poolFromDisk() {
 }
 
 export async function playerPool() {
-  if (!poolFromDisk()) return buildPool();
+  if (!poolFromDisk()) return timeExternal(buildPool); // may join the warm-up's download
   if (Date.now() - poolCache.at > TTL_MS) buildPool().catch((e) => console.warn(`[impect] player pool refresh failed: ${e.message}`));
   return poolCache;
 }
