@@ -2,10 +2,12 @@ import { BUILD_FAILURES, buildProgress } from "./build-status.js";
 import { renderAnalysis } from "./analysis.js";
 import { loadPlayingTimePanel } from "./playing-time.js";
 import { renderCompare } from "./compare.js";
-import { createTimings, timingMetric, renderMetric } from "./performance.js";
+import { coldness, createTimings, timingMetric, renderMetric } from "./performance.js";
 import { renderMonitoring } from "./monitoring.js";
 
 const recordTiming = createTimings(new URL(import.meta.url).searchParams.get('v'));
+// When the server last answered in the first minute after a break, so a page open waiting on it is marked too.
+let coldAt = -Infinity, coldKind = null;
 
 // PINE front end: single page, no build step.
 // Routes: #/board  #/short-board  #/roster  #/ncaa[/database]  #/players  #/player/:id  #/impect  #/activity  #/staff
@@ -34,11 +36,13 @@ const S = {
 async function api(method, path, body) {
   const started = performance.now(), visible = !document.hidden;
   const metric = method === 'GET' ? timingMetric(path) : null;
-  let outcome = 'error';
+  let outcome = 'error', cold = null;
   try {
     const opt = { method, headers: { "X-PINE": "1" }, credentials: "same-origin" };
     if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
     const res = await fetch(path, opt);
+    cold = coldness(res.headers);
+    if (cold) { coldAt = performance.now(); coldKind = cold; }
     let data = null;
     try { data = await res.json(); } catch {}
     if (!res.ok) {
@@ -51,7 +55,7 @@ async function api(method, path, body) {
     outcome = 'ok';
     return data;
   } finally {
-    if (visible) recordTiming(metric, performance.now() - started, outcome);
+    if (visible) recordTiming(metric, performance.now() - started, outcome, cold);
   }
 }
 
@@ -547,7 +551,7 @@ async function render() {
   await views[view](main, arg);
   const root = main.firstElementChild;
   requestAnimationFrame(() => requestAnimationFrame(() => {
-    if (visible && root?.isConnected && canonicalUrl(route()) === want) recordTiming(renderMetric(view), performance.now() - started);
+    if (visible && root?.isConnected && canonicalUrl(route()) === want) recordTiming(renderMetric(view), performance.now() - started, 'ok', coldAt >= started ? coldKind : null);
   }));
 }
 
