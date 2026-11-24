@@ -1,3 +1,4 @@
+import { BUILD_FAILURES, buildProgress } from "./build-status.js";
 import { renderAnalysis } from "./analysis.js";
 import { loadPlayingTimePanel } from "./playing-time.js";
 import { renderCompare } from "./compare.js";
@@ -2432,18 +2433,21 @@ async function loadImpectPanel(root, p) {
 
 /* ---------- player card (a PDF the card worker renders, shown as its PNG; every version is kept) ---------- */
 const CARD_FAILED = {
+  ...BUILD_FAILURES,
   not_covered: "This season isn't in the card data yet.",
   no_minutes: "The card data has no minutes for this player in this season.",
   position_unavailable: "The card data doesn't have this position for this player in this season.",
   goalkeeper: "Goalkeepers don't have a player card.",
   data_missing: "Some of the data this card needs is missing.",
   render_failed: "The card couldn't be drawn.",
-  failed: "The card couldn't be generated.",
+  failed: BUILD_FAILURES.failed,
 };
 const cardFailed = (c) => CARD_FAILED[c.error] || CARD_FAILED.failed;
 // Why a running card is slower, from the worker's progress note. Impect events take about 3 s a match.
 const cardNote = (c) => {
-  if (c.status !== "running" || c.progress !== "fetching_events") return "";
+  if (c.status !== "running") return "";
+  if (c.progress !== "fetching_events") return buildProgress(c.progress)
+    ? `<p class="card-line muted">${esc(buildProgress(c.progress))}. No action needed.</p>` : "";
   const n = c.progress_matches;
   const what = n ? `event data for ${n} match${n === 1 ? "" : "es"}` : "match event data";
   const wait = !n ? "" : n * 3 < 45 ? ", under a minute" : `, about ${Math.round((n * 3) / 60)} min`;
@@ -2565,13 +2569,14 @@ const MAP_GLYPHS = {
   defend: [["dot", "#14705b"], ["cross", "#2b4a72"], ["diamond", "#8a4fb0"]],
 };
 const MAP_FAILED = {
+  ...BUILD_FAILURES,
   not_covered: "This season isn't in the event data yet.",
   no_minutes: "The event data has no minutes for this player in this season.",
   position_unavailable: "The event data doesn't have this position for this player in this season.",
   goalkeeper: "Goalkeepers don't have pitch maps.",
   data_missing: "Some of the data these maps need is missing.",
   render_failed: "The maps couldn't be built.",
-  failed: "The maps couldn't be built.",
+  failed: BUILD_FAILURES.failed,
 };
 const PITCH_VIEWBOX = "-1.5 -2.6 71 110.2"; // the 68 x 105 m pitch plus its goals
 const mapOpen = (m) => m.status === "queued" || m.status === "running";
@@ -2746,6 +2751,9 @@ function mapsStatusHTML(view, { done, open, failed }, meta) {
       const n = open.progress_matches;
       const wait = !n ? "" : n * 3 < 45 ? ", under a minute" : `, about ${Math.round((n * 3) / 60)} min`;
       out.push(`<p class="card-line muted sm">${esc(`Downloading event data for ${n ? `${n} match${n === 1 ? "" : "es"}` : "its matches"} from Impect first${wait}. Later maps and cards reuse it.`)}</p>`);
+    }
+    if (!queued && open.progress !== "fetching_events" && buildProgress(open.progress)) {
+      out.push(`<p class="card-line muted sm">${esc(buildProgress(open.progress))}. No action needed.</p>`);
     }
     // The builder polls every 5 seconds; say why a job is still waiting after half a minute.
     const seen = toDate(meta.worker_seen_at), mapsSeen = toDate(meta.maps_worker_seen_at);

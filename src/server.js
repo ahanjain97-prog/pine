@@ -1253,6 +1253,7 @@ app.post("/api/worker/cards/:id/progress", async (c) => {
   const card = runningCard(c);
   const note = cardProgress(code, matches) || fail(400, "Unknown progress code");
   db.run("UPDATE cards SET progress = ?, progress_matches = ? WHERE id = ?", note.code, note.matches, card.id);
+  if (card.progress !== note.code || card.progress_matches !== note.matches) monitoring.recordJob('cards', card.id, 'progress');
   return c.json({ ok: true });
 });
 app.post("/api/worker/cards/:id/fail", async (c) => {
@@ -1364,6 +1365,7 @@ app.post("/api/worker/maps/:id/progress", async (c) => {
   const map = runningMap(c);
   const note = mapProgress(code, matches) || fail(400, "Unknown progress code");
   db.run("UPDATE maps SET progress = ?, progress_matches = ? WHERE id = ?", note.code, note.matches, map.id);
+  if (map.progress !== note.code || map.progress_matches !== note.matches) monitoring.recordJob('maps', map.id, 'progress');
   return c.json({ ok: true });
 });
 // A failure keeps the view's last good build; only an earlier failure is replaced.

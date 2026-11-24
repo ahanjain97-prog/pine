@@ -9,10 +9,10 @@ export const MAX_CARD_BYTES = 10 * 1024 * 1024; // per file, PDF or PNG
 export const DAILY_CARD_LIMIT = 30; // across PINE, per rolling 24 hours
 const STALE_MINUTES = 15; // a running job untouched this long is handed out again
 const MAX_ATTEMPTS = 3;
-const ERROR_CODES = ["not_covered", "no_minutes", "position_unavailable", "goalkeeper", "data_missing", "render_failed", "failed"];
+const ERROR_CODES = ["not_covered", "no_minutes", "position_unavailable", "goalkeeper", "data_missing", "render_failed", "data_mismatch", "provider_unavailable", "build_timeout", "failed"];
 // What a running card is doing that makes it slower. fetching_events: downloading the player's match
 // events from Impect, which a card needs once per match; the worker sends how many matches.
-const PROGRESS_CODES = ["fetching_events"];
+const PROGRESS_CODES = ["fetching_events", "reconciling_data", "retrying_provider"];
 
 export const cardErrorCode = (code) => (ERROR_CODES.includes(code) ? code : "failed");
 // { code, matches } to store, or null for a code outside the contract. A bad count is dropped, not the note.

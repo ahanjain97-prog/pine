@@ -1,9 +1,9 @@
 import { statfsSync } from 'node:fs';
-import { cardErrorCode, sqlTime } from './cards.js';
+import { cardErrorCode, cardProgress, sqlTime } from './cards.js';
 
 const DAY = 86400000;
 const KINDS = new Set(['cards', 'maps']);
-const EVENTS = new Set(['requested', 'started', 'done', 'failed']);
+const EVENTS = new Set(['requested', 'started', 'progress', 'done', 'failed']);
 const timestamp = value => value ? Date.parse(`${value.replace(' ', 'T')}Z`) : NaN;
 const elapsed = (end, start) => Number.isFinite(end - start) && end >= start ? end - start : null;
 
@@ -55,11 +55,11 @@ export function registerMonitoring(app, { db, version, root, now = Date.now,
     try {
       const job = db.get(`SELECT * FROM ${kind} WHERE id = ?`, id);
       if (!job) return;
-      if (job.status !== { requested: 'queued', started: 'running', done: 'done', failed: 'failed' }[event]) return;
+      if (job.status !== { requested: 'queued', started: 'running', progress: 'running', done: 'done', failed: 'failed' }[event]) return;
       const time = now(), requested = timestamp(job.requested_at), began = timestamp(job.started_at);
       db.run(`INSERT INTO monitoring_events(at, kind, job_id, player_id, position, season, event, attempts, error, queue_ms, build_ms)
         VALUES (?,?,?,?,?,?,?,?,?,?,?)`, time, kind, id, job.player_id, job.position, job.season,
-      event, job.attempts, event === 'failed' ? cardErrorCode(job.error) : null,
+      event, job.attempts, event === 'failed' ? cardErrorCode(job.error) : event === 'progress' ? cardProgress(job.progress)?.code ?? null : null,
       event === 'started' ? elapsed(began, requested) : null,
       event === 'done' ? elapsed(timestamp(job.generated_at), began) : null);
       if (time >= pruneAt) {
