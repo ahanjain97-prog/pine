@@ -93,22 +93,6 @@ export function linkRosterDecisions(db) {
   return linked;
 }
 
-// New alerting releases since this user last opened the tab or dismissed the banner: how many, the newest, and
-// the newest few (for the banner on every page).
-export function optionsUnread(db, userId) {
-  const last = db.get("SELECT release_id FROM option_reads WHERE user_id = ?", userId)?.release_id ?? 0;
-  const recent = db.all(`SELECT id, club, league, title FROM option_releases WHERE alert = 1 AND id > ? ORDER BY id DESC LIMIT 5`, last);
-  const n = recent.length < 5 ? recent.length : db.get("SELECT count(*) AS n FROM option_releases WHERE alert = 1 AND id > ?", last).n;
-  return { n, latest: recent[0] || null, recent };
-}
-
-export function markOptionsRead(db, userId, releaseId) {
-  const id = Number(releaseId);
-  if (!Number.isInteger(id) || id < 0) throw new Error("Expected a release id");
-  db.run(`INSERT INTO option_reads(user_id, release_id) VALUES (?, ?)
-    ON CONFLICT(user_id) DO UPDATE SET release_id = max(release_id, excluded.release_id)`, userId, id);
-}
-
 // Everything the Options tab shows for the latest season: the releases, every decision (with whether it makes the
 // player a free agent, worked out exactly as the free-agent upload does), and which clubs have posted.
 export function optionsPayload(db, userId, watch = null) {
@@ -131,6 +115,5 @@ export function optionsPayload(db, userId, watch = null) {
   const posted = new Set(releases.map((r) => r.club)), moved = new Set(decisions.map((d) => d.club));
   const clubs = OPTION_CLUBS.filter((c) => ALERT_LEAGUES.has(c.league))
     .map((c) => ({ club: c.club, league: c.league, status: posted.has(c.club) ? "posted" : moved.has(c.club) ? "moves" : "none" }));
-  const last_read = db.get("SELECT release_id FROM option_reads WHERE user_id = ?", userId)?.release_id ?? 0;
-  return { season, releases, decisions, clubs, last_read, watch };
+  return { season, releases, decisions, clubs, watch };
 }

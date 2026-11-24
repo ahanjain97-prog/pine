@@ -211,7 +211,7 @@ Minute share divides recorded player minutes by actual match duration across the
 ## What's where
 
 **Big Board**, **Review** (for the review team), **Short Board**, **NCAA**, **Activity** and
-**Options** have their own top-bar tabs. Review shows its pending-review count; Options shows new roster releases.
+**Options** have their own top-bar tabs. Review shows its pending-review count.
 **Operations** opens Database, Roster, Compare players, Impect, Analysis and Staff (for admins). It stays
 highlighted on those pages and on player profiles. Click a link to go directly
 to that page; click away or press Escape to close the dropdown.
@@ -330,9 +330,8 @@ syncs leave the signing status alone.
   releases and never go in this repository: `scripts/free-agents.mjs` uploads them with the free agents
   (`decisions` on `PUT /api/worker/free-agents`; an older copy of the script sends only the free agents). The
   **option watcher** reads every club's news page (and the MLS first teams', where Next Pro clubs post) every 15
-  minutes and records new roster releases by headline and date only; each one raises a red banner on every page
-  (View opens Options, × dismisses), a badge on the Options tab and an Activity line. A page's first read is taken in quietly, MLS first-team releases never alert, and a
-  run that finds a pile at once alerts for none. Code: `src/lib/roster_decisions.js`, `src/lib/option_watch.js`,
+  minutes and records new roster releases by headline and date only, so the tab lists them (Latest releases, and
+  the club counts as posted) as soon as a club posts. It raises no alerts in PINE. Code: `src/lib/roster_decisions.js`, `src/lib/option_watch.js`,
   `src/lib/option_clubs.js` (the clubs, their PINE names and news pages), `public/options.js`.
 - **College reports written in PINE**: any college player can get a grade and report like the imported ones.
   On a player page, **+ Add report** (grade now and ceiling on the college database's scale D- to A+++, class,

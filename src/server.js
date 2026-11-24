@@ -44,7 +44,7 @@ import {
 } from "./lib/ncaa.js";
 import { linkL2, saveL2Report } from "./lib/l2.js";
 import { FREE_AGENT_SQL, freeAgentFor, freeAgentOverride, linkFreeAgents, saveFreeAgents } from "./lib/free_agents.js";
-import { linkRosterDecisions, markOptionsRead, optionsPayload, optionsUnread, saveRosterDecisions } from "./lib/roster_decisions.js";
+import { linkRosterDecisions, optionsPayload, saveRosterDecisions } from "./lib/roster_decisions.js";
 import { runOptionWatch, startOptionWatch, watchState } from "./lib/option_watch.js";
 import { enrichOptions, enrichState, GOOD_DATA, GOOD_MINUTES } from "./lib/options_impect.js";
 import { runBulkMatch, matchState } from "./lib/tm_match.js";
@@ -475,7 +475,7 @@ app.get("/api/config", (c) =>
 );
 // app: the deployed front end's version, so a tab left open across a deploy can offer a reload.
 app.get("/api/changes", (c) => c.json({ version: db.get("SELECT coalesce(max(id), 0) AS v FROM activity").v,
-  review_open: reviewCount(db, c.get("user")), app: ASSET_VERSION, options: c.get("user") ? optionsUnread(db, c.get("user").id) : null }));
+  review_open: reviewCount(db, c.get("user")), app: ASSET_VERSION }));
 
 /* ---------- players ---------- */
 app.get("/api/players", (c) => {
@@ -910,9 +910,6 @@ app.put("/api/worker/free-agents", bodyLimit({ maxSize: 4 * 1024 * 1024 }), asyn
   } catch (e) { fail(400, e.message); }
   logActivity(db, null, null, "imported_free_agents", { season: result.season, clubs: result.clubs, entries: result.entries, in_pine: result.in_pine,
     ...(result.decisions != null ? { decisions: result.decisions } : {}) });
-  for (const r of result.new_releases || []) {
-    logActivity(db, null, null, "found_option_release", { release_id: r.id, club: r.club, league: r.league, title: r.title, url: r.url, from_upload: true });
-  }
   if (result.decisions != null) linkOptionsToImpect(); // new players get their Impect link and tags in the background
   return c.json({ ok: true, ...result });
 });
@@ -949,11 +946,6 @@ app.post("/api/options/impect", (c) => {
   if (!impectConfigured()) fail(503, "Impect isn't configured on this copy of PINE");
   linkOptionsToImpect();
   return c.json({ ok: true, impect: impectSummary() });
-});
-app.post("/api/options/read", async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  try { markOptionsRead(db, c.get("user").id, body.release_id); } catch (e) { fail(400, e.message); }
-  return c.json({ ok: true, options: optionsUnread(db, c.get("user").id) });
 });
 // Admins can run the watcher now instead of waiting for its next pass.
 app.post("/api/options/check", async (c) => {

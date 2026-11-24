@@ -52,16 +52,13 @@ export function groupDecisions(decisions, releases, f, inPine, tags = DEFAULT_TA
 }
 
 export function renderOptions(main, ctx) {
-  const { api, esc, photo, nameWithMark, openAddPlayer, toast, oops, setOptionsBadge, players, byId, isAdmin, modal, closeModal, afterAdd } = ctx;
+  const { api, esc, photo, nameWithMark, openAddPlayer, toast, oops, players, byId, isAdmin, modal, closeModal, afterAdd } = ctx;
   const f = (ctx.state.optFilter ||= { league: "", show: "", pine: "", pos: "", goodMin: false, goodData: false, q: "" });
   main.innerHTML = `<div class="page"><div class="page-h"><div><h1>Options</h1><div class="sub">Loading the clubs' roster decisions…</div></div></div></div>`;
   let data;
   const load = async () => {
     try { data = await api("GET", "/api/options"); } catch (e) { oops(e); return; }
     draw();
-    // Opening the tab clears the badge: everything up to the newest release counts as seen.
-    const top = Math.max(0, ...data.releases.filter((r) => r.alert).map((r) => r.id));
-    if (top > data.last_read) api("POST", "/api/options/read", { release_id: top }).then((r) => setOptionsBadge(r.options?.n || 0, r.options?.recent)).catch(() => {});
   };
 
   const pineName = new Map(players().map((p) => [fold(p.name), p]));
@@ -83,6 +80,8 @@ export function renderOptions(main, ctx) {
       isAdmin() ? ` <button type="button" class="linkish" id="opt-relink">Relink now</button>` : ""}</div>`;
   }
   const releaseLink = (r, label) => webLink(r.url) ? `<a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${esc(label ?? r.title)} <span aria-hidden="true">↗</span></a>` : esc(label ?? r.title);
+  // New = posted in the last three days (not a per-person alert).
+  const isRecent = (r) => { const d = new Date(`${String(r.published || r.found_at || "").slice(0, 10)}T12:00:00Z`); return Date.now() - d < 3 * 864e5; };
   const leagueTag = (lg) => `<span class="opt-lg lg-${esc(lg || "other")}">${esc(LEAGUE_SHORT[lg] || "Other")}</span>`;
 
   function cover() {
@@ -141,18 +140,18 @@ export function renderOptions(main, ctx) {
   function releasesTable() {
     if (!data.releases.length) return "";
     return `<section class="panel opt-releases"><h2>Releases</h2><div class="table-wrap"><table class="grid"><thead><tr><th>Date</th><th>League</th><th>Club</th><th>Release</th><th>Found by</th></tr></thead><tbody>${
-      data.releases.map((r) => `<tr class="${r.alert && r.id > data.last_read ? "is-new" : ""}"><td class="opt-date">${esc(day(r.published || r.found_at))}</td><td>${leagueTag(r.league)}</td>
-        <td>${esc(r.club)}${r.alert && r.id > data.last_read ? ` <span class="opt-new-pill">New</span>` : ""}</td><td>${releaseLink(r)}</td>
+      data.releases.map((r) => `<tr class="${isRecent(r) ? "is-new" : ""}"><td class="opt-date">${esc(day(r.published || r.found_at))}</td><td>${leagueTag(r.league)}</td>
+        <td>${esc(r.club)}${isRecent(r) ? ` <span class="opt-new-pill">New</span>` : ""}</td><td>${releaseLink(r)}</td>
         <td class="muted">${r.source === "upload" ? "Research upload" : "Club site"}</td></tr>`).join("")}</tbody></table></div></section>`;
   }
   const seg = (id, opts, cur) => `<div class="seg" id="${id}">${opts.map(([k, l]) => `<button type="button" data-k="${k}" class="${cur === k ? "on" : ""}">${l}</button>`).join("")}</div>`;
 
   function draw() {
-    const fresh = data.releases.filter((r) => r.alert && r.id > data.last_read);
+    const fresh = data.releases.filter(isRecent).slice(0, 8);
     main.innerHTML = `<div class="page opt-page">
       <div class="page-h"><div><h1>Options</h1><div class="sub">End-of-${data.season}-season roster decisions from the clubs' own releases: USL Championship, USL League One and MLS Next Pro (with the MLS first-team releases that carry Next Pro players).</div></div>
         <div class="spacer"></div><div class="opt-watch">${watchLine(data.watch)}${isAdmin() ? ` <button type="button" class="btn sm" id="opt-check">Check club sites now</button>` : ""}${impectLine(data.impect)}</div></div>
-      ${fresh.length ? `<section class="panel opt-fresh"><h2>New since you last looked</h2><ul>${fresh.map((r) => `<li>${leagueTag(r.league)} <b>${esc(r.club)}</b> ${releaseLink(r)}${r.published ? ` <span class="muted">${esc(day(r.published))}</span>` : ""}</li>`).join("")}</ul></section>` : ""}
+      ${fresh.length ? `<section class="panel opt-fresh"><h2>Latest releases</h2><ul>${fresh.map((r) => `<li>${leagueTag(r.league)} <b>${esc(r.club)}</b> ${releaseLink(r)}${r.published ? ` <span class="muted">${esc(day(r.published))}</span>` : ""}</li>`).join("")}</ul></section>` : ""}
       ${cover()}
       <div class="opt-filters">
         ${seg("of-league", [["", "All"], ["USLC", "Championship"], ["USL1", "League One"], ["MLSNP", "Next Pro"], ["MLS", "MLS"]], f.league)}

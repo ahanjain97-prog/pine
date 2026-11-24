@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import { openDb } from "../src/db.js";
 import { findClub } from "../src/lib/option_clubs.js";
-import { markOptionsRead, optionsPayload, optionsUnread, saveRosterDecisions, seasonFor } from "../src/lib/roster_decisions.js";
+import { optionsPayload, saveRosterDecisions, seasonFor } from "../src/lib/roster_decisions.js";
 import { articleDate, isReleaseTitle, ownLink, parseMlsCards, parseWpFeed, runOptionWatch } from "../src/lib/option_watch.js";
 import { groupDecisions, groupsOf } from "../public/options.js";
 import { enrichOptions, findImpect, scoringIteration, summarizeCard } from "../src/lib/options_impect.js";
@@ -83,8 +83,7 @@ test("the watcher takes in a page quietly the first time, then alerts once per n
     "https://www.columbuscrew.com/news": mlsPage,
   }) });
   assert.deepEqual(found.map((r) => [r.club, r.league, r.alert]).sort((a, b) => a[0].localeCompare(b[0])), [["Columbus Crew", "MLS", 0], ["Columbus Crew 2", "MLSNP", 1], ["FC Tulsa", "USLC", 1]]);
-  const acts = db.all("SELECT action, detail FROM activity").map((a) => JSON.parse(a.detail).club).sort();
-  assert.deepEqual(acts, ["Columbus Crew 2", "FC Tulsa"]);
+  assert.equal(db.get("SELECT count(*) AS n FROM activity").n, 0, "no alerts in PINE: the tab just lists them");
   assert.deepEqual((await runOptionWatch(db, { now, fetch: fakeWeb({ "https://www.fctulsa.com/": wp([["Testers Announce Further 2027 Roster Moves", "second", "2026-11-24"]]) }) })), [],
     "a release already seen isn't found again");
 });
@@ -159,20 +158,14 @@ test("uploaded decisions file under PINE names, link players, and announce a clu
     ...["Ola", "Oli", "Oma", "Ona", "Ora"].map((n) => dec(`${n} Example`, "Union Omaha", "option_exercised", omaha))] }).new_releases.length, 0, "and only once");
   assert.throws(() => saveRosterDecisions(db, { season: 2026, decisions: [dec("Bad Code", "FC Tulsa", "maybe")] }), /unknown decision/);
 
-  const unread = optionsUnread(db, 90);
-  assert.deepEqual([unread.n, unread.latest.club], [2, "Union Omaha"]);
-  assert.deepEqual(unread.recent.map((r) => r.club), ["Union Omaha", "Phoenix Rising FC"], "newest first, for the banner");
   const page = optionsPayload(db, 90);
+  assert.deepEqual(page.releases.map((r) => r.club).sort(), ["Phoenix Rising FC", "Union Omaha"]);
   const fa = Object.fromEntries(page.decisions.map((d) => [`${d.name}|${d.club}`, d.free_agent]));
   assert.equal(fa["Alan Declined|Minnesota United FC 2"], true);
   assert.equal(fa["Sid Moved|Real Monarchs SLC"], false, "signed by another club since");
   assert.equal(fa["Kim Kept|Minnesota United FC 2"], false);
   const status = Object.fromEntries(page.clubs.map((c) => [c.club, c.status]));
   assert.deepEqual([status["Phoenix Rising FC"], status["FC Tulsa"], status["Union Omaha"], status["Charleston Battery"], status["Brooklyn FC"]], ["posted", "moves", "posted", "none", "none"]);
-  markOptionsRead(db, 90, unread.latest.id);
-  assert.equal(optionsUnread(db, 90).n, 0);
-  markOptionsRead(db, 90, 0);
-  assert.equal(optionsUnread(db, 90).n, 0, "reading never goes backwards");
 });
 
 test("the tab's filters: league, free agents, in or not in PINE, and a search on player or club", () => {
@@ -191,7 +184,7 @@ test("the tab's filters: league, free agents, in or not in PINE, and a search on
   assert.deepEqual(names({ q: "omaha" }), ["Cal Example"]);
 });
 
-test("HTTP: the upload carries the decisions, the tab lists them, and the badge counts until it's opened", { timeout: 30000 }, async (t) => {
+test("HTTP: the upload carries the decisions and the tab lists them, without alerts", { timeout: 30000 }, async (t) => {
   const dir = mkdtempSync(join(tmpdir(), "pine-options-")), file = join(dir, "pine.db");
   const db = openDb(file);
   db.run("INSERT INTO players(id, name, club, league) VALUES (10001, 'Alan Declined', 'Toronto FC II', 'MLS Next Pro')");
@@ -223,18 +216,13 @@ test("HTTP: the upload carries the decisions, the tab lists them, and the badge 
     decisions: ["Una", "Uri", "Ula", "Uma"].map((n) => dec(`${n} Example`, "Union Omaha", "guaranteed_contract", { source_url: "https://www.example-club.com/omaha" })) }, "local-test-token");
   assert.equal(later.status, 200);
   assert.deepEqual((await later.json()).new_releases.map((r) => r.club), ["Union Omaha"], "a club's first decisions after the first upload alert");
-  const changes = async () => (await (await call("/api/changes")).json()).options;
-  const c1 = await changes();
-  assert.deepEqual([c1.n, c1.latest.club, c1.recent.map((r) => r.title)], [1, "Union Omaha", ["Union Omaha roster decisions"]]);
+  assert.equal((await (await call("/api/changes")).json()).options, undefined, "no Options alerts in the change poll");
   const tab = await (await call("/api/options")).json();
   assert.deepEqual([tab.season, tab.decisions.length - 3, tab.releases.map((r) => r.club), tab.watch.enabled], [2026, 3, ["Union Omaha"], false], "Toronto's two rows are single moves, not a release");
   assert.equal(tab.decisions.find((d) => d.name === "Alan Declined").player_id, 10001);
-  assert.equal((await call("/api/options/read", "POST", { release_id: c1.latest.id })).status, 200);
-  assert.deepEqual(((({ n, recent }) => [n, recent.length])(await changes())), [0, 0], "dismissed or opened: no banner");
-  assert.equal((await call("/api/options/read", "POST", { release_id: "x" })).status, 400);
   assert.equal((await call("/api/options/check", "POST", {})).status, 200, "auth off: the acting admin can run it (offline here, so it finds nothing)");
   const acts = (await (await call("/api/activity")).json());
-  assert.ok(JSON.stringify(acts).includes("found_option_release"));
+  assert.ok(!JSON.stringify(acts).includes("found_option_release"), "and nothing in Activity");
 });
 
 // A made-up Impect pool: two leagues' 2026 seasons and one older season.

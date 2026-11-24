@@ -286,11 +286,9 @@ function checkAppVersion(server) {
   pill.innerHTML = `<button class="btn sm" type="button">PINE was updated · reload</button>`;
   $("button", pill).addEventListener("click", () => location.reload());
 }
-// What /api/changes says beyond the version: the War Room and Options badges, the new-option-decisions banner,
-// and whether PINE was redeployed.
+// What /api/changes says beyond the version: the War Room badge, and whether PINE was redeployed.
 function applyChanges(c) {
   setReviewBadge(c.review_open);
-  setOptionsBadge(c.options?.n || 0, c.options?.recent);
   checkAppVersion(c.app);
 }
 async function syncVersion() { try { const c = await api("GET", "/api/changes"); S.version = c.version; applyChanges(c); } catch {} }
@@ -423,7 +421,7 @@ function renderShell() {
       <a href="#/short-board" data-v="short-board">Short Board</a>
       <a href="#/ncaa" data-v="ncaa">NCAA</a>
       <a href="#/activity" data-v="activity">Activity</a>
-      <a href="#/options" data-v="options">Options<span class="nav-badge" id="options-badge" title="New roster releases" ${S.optionsNew ? "" : "hidden"}>${S.optionsNew || ""}</span></a>
+      <a href="#/options" data-v="options">Options</a>
       <button class="nav-trigger" id="operations-trigger" type="button" popovertarget="operations-menu" aria-controls="operations-menu" aria-expanded="false">Operations<span class="nav-caret" aria-hidden="true">▾</span></button>
       <div class="nav-menu" id="operations-menu" popover role="group" aria-label="Operations">
         <a href="#/players" data-v="players">Database</a>
@@ -446,7 +444,6 @@ function renderShell() {
     </div>
   </header>
   <div class="update-pill" id="upd" hidden><button class="btn sm" type="button">New changes from staff · refresh</button></div>
-  <div class="opt-banner" id="opt-banner" role="status" hidden></div>
   <main id="main"></main>`;
   $("#add-btn").addEventListener("click", () => openAddPlayer());
   $("#theme-btn").addEventListener("click", toggleTheme);
@@ -467,14 +464,6 @@ function renderShell() {
     } catch (err) { oops(err); }
   });
   $("#upd button").addEventListener("click", () => { $("#upd").hidden = true; refresh(); });
-  $("#opt-banner").addEventListener("click", async (e) => {
-    if (!e.target.closest("[data-dismiss]")) return;
-    // Dismissing counts the releases as seen, as opening the Options tab does.
-    const top = Math.max(0, ...(S.optionsRecent || []).map((r) => r.id));
-    setOptionsBadge(0, []);
-    try { const r = await api("POST", "/api/options/read", { release_id: top }); setOptionsBadge(r.options?.n || 0, r.options?.recent); } catch (err) { oops(err); }
-  });
-  paintOptionsBanner();
   wireNavMenus();
   wireGlobalSearch();
 }
@@ -552,9 +541,8 @@ async function render() {
   const link = $("#nav > .on"), nav = $("#nav");
   if (link && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = link.offsetLeft - nav.offsetLeft - (nav.clientWidth - link.offsetWidth) / 2;
   $("#upd").hidden = !S.staleNotified; // the reload prompt stays up until they reload
-  paintOptionsBanner();
   const views = { compare: (main, arg) => renderCompare(main, arg, { api, setTitle, players: S.players, physicalGroups: PHYS_KEY }), analysis: (main, arg) => renderAnalysis(main, arg, { api, setTitle }), board: renderBoard, roster: renderRoster, "war-room": renderReview, "short-board": renderShortBoard, ncaa: renderNcaa, players: renderTable, player: renderPlayer, impect: renderImpect, activity: renderActivity, staff: renderStaff };
-  views.options = (main) => renderOptions(main, { api, esc, photo, nameWithMark, openAddPlayer, toast, oops, relTime, setOptionsBadge, state: S,
+  views.options = (main) => renderOptions(main, { api, esc, photo, nameWithMark, openAddPlayer, toast, oops, relTime, state: S,
     players: () => S.players, byId: () => S.byId, isAdmin: () => Boolean(S.me.is_admin), modal, closeModal,
     afterAdd: async () => { await syncVersion(); await reloadPlayers(); } });
   views.monitoring = main => {
@@ -3972,29 +3960,6 @@ const sendLabel = (p) => `Send to ${sbTo(p)}`;
 const TM_LINK = /transfermarkt\.[a-z.]+\/.+\/spieler\/\d+/i;
 
 // The count is kept so the nav shows it however it's drawn: boot fetches it before the nav exists.
-function setOptionsBadge(n, recent) {
-  S.optionsNew = n || 0;
-  if (recent) S.optionsRecent = recent;
-  const b = $("#options-badge");
-  if (b) { b.hidden = !n; b.textContent = n || ""; }
-  paintOptionsBanner();
-}
-// The red banner under the top bar while there are new option decisions this person hasn't seen. Not on the
-// Options tab itself, which marks them seen.
-const LEAGUE_LONG = { USLC: "USL Championship", USL1: "USL League One", MLSNP: "MLS Next Pro" };
-function paintOptionsBanner() {
-  const el = $("#opt-banner");
-  if (!el) return;
-  const recent = S.optionsNew ? (S.optionsRecent || []) : [];
-  el.hidden = !recent.length || route().view === "options";
-  if (el.hidden) return;
-  const clubs = [...new Set(recent.map((r) => r.club))];
-  const what = recent.length === 1
-    ? `${esc(recent[0].club)} <span class="opt-banner-lg">${esc(LEAGUE_LONG[recent[0].league] || recent[0].league)}</span> posted roster decisions: “${esc(recent[0].title)}”`
-    : `${S.optionsNew} new roster releases from ${clubs.slice(0, 3).map(esc).join(", ")}${S.optionsNew > 3 && clubs.length >= 3 ? " and more" : ""}`;
-  el.innerHTML = `<span class="opt-banner-dot" aria-hidden="true"></span><span class="opt-banner-text"><b>New option decisions</b> · ${what}</span>
-    <a class="btn sm primary" href="#/options">View</a><button type="button" class="icon-btn" data-dismiss aria-label="Dismiss">×</button>`;
-}
 function setReviewBadge(n) {
   S.reviewOpen = n || 0;
   const b = $("#review-badge");

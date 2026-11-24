@@ -1,13 +1,12 @@
 // The option watcher. Every 15 minutes PINE reads the news of each USL Championship, USL League One and MLS
 // Next Pro club (and of the MLS first teams, where most Next Pro clubs post) and records any new end-of-season
-// roster release ("2027 roster decisions", "end-of-year roster update") in option_releases. Staff then get a red
-// banner on every page, a badge on the Options tab and a line in Activity as soon as a club posts. It reads headlines and publish dates only;
+// roster release ("2027 roster decisions", "end-of-year roster update") in option_releases, so the Options tab lists
+// it (and counts the club as posted) as soon as a club posts. It raises no alerts in PINE. It reads headlines and publish dates only;
 // the players are coded separately and arrive with scripts/free-agents.mjs.
 //
 // Headlines and links come from other sites, so they're kept as text, links must be http(s) on the club's own
 // site, and the front end escapes both. A news page's first good read is taken in quietly (no alerts for what was
 // already there), and a run that suddenly finds a pile of releases (a site redesign, say) alerts for none of them.
-import { logActivity } from "../db.js";
 import { ALERT_LEAGUES, seasonFor } from "./roster_decisions.js";
 import { OPTION_CLUBS } from "./option_clubs.js";
 
@@ -160,9 +159,6 @@ export async function runOptionWatch(db, { fetch: fetchFn = globalThis.fetch, no
       for (const url of marks) db.run("INSERT OR IGNORE INTO option_watch_seen(url) VALUES (?)", url);
       for (const f of okFeeds) db.run("INSERT OR IGNORE INTO option_watch_feeds(feed) VALUES (?)", f);
       db.run("DELETE FROM option_watch_seen WHERE seen_at < datetime('now', '-240 days')");
-      for (const r of recorded.filter((r) => r.alert)) {
-        logActivity(db, null, null, "found_option_release", { release_id: r.id, club: r.club, league: r.league, title: r.title, url: r.url });
-      }
     });
     Object.assign(watchState, { last_run: now.toISOString(), feeds: feeds.length, failed, found: recorded.length,
       note: capped ? `Found ${alerting.length} new releases at once, so none raised an alert (probably a site change)` : null });
