@@ -596,7 +596,7 @@ test('sent with no verdict: the other scout looks first, his Pass or Hold sends 
   assert.deepEqual(db.all('SELECT action FROM activity WHERE player_id = 2').map((a) => a.action), ['review_sb_review']);
   assert.equal(db.get('SELECT no_verdict FROM review_items WHERE id = ?', id).no_verdict, 1);
   assert.deepEqual(peers(db, id), ['3:open']);
-  assert.equal(db.get('SELECT context FROM notes WHERE player_id = 2').context, 'Review: sent to Ford to look at first');
+  assert.equal(db.get('SELECT count(*) AS n FROM notes WHERE player_id = 2').n, 0, 'the note asks Ford to look: not a report, so no Staff reports copy');
   const sent = JSON.parse(db.get("SELECT detail FROM activity WHERE action = 'review_sb_review'").detail);
   assert.deepEqual([sent.to, sent.lead, sent.no_verdict], ['Ford', 'Ray', true]);
   assert.deepEqual([reviewCount(db, FORD), reviewCount(db, AHAN), reviewCount(db, RAY)], [1, 0, 0]);
@@ -629,7 +629,7 @@ test('sent with no verdict: the other scout looks first, his Pass or Hold sends 
   assert.deepEqual(forRay.takes.map((x) => `${x.name}:${x.verdict}:${x.sent}:${x.note.body}`),
     ['Ahan:pass:true:Watched two games: agree.', 'Ford:hold:false:Presses well, loose on the ball.']);
   assert.deepEqual(db.all('SELECT u.name, n.context FROM notes n JOIN users u ON u.id = n.user_id WHERE n.player_id = 2 ORDER BY n.id').map((r) => `${r.name}|${r.context}`),
-    ['Ahan|Review: sent to Ford to look at first', 'Ford|Review: reviewed, Hold', 'Ahan|Review: reviewed, Pass']);
+    ['Ford|Review: reviewed, Hold', 'Ahan|Review: reviewed, Pass']);
   resolveItem(db, RAY, id, { outcome: 'added_sb', role: 'FWD1', note: 'Yes.' });
   assert.deepEqual(statuses(db), ['sb_review:added_sb']);
 });
@@ -665,6 +665,17 @@ test('sent with no verdict: a Fail from either scout stops it, and it needs anot
   db.run("INSERT INTO verdicts(player_id, user_id, verdict) VALUES (5, 3, 'pass')");
   assert.deepEqual(resolveItem(db, AHAN, c, { outcome: 'reviewed', verdict: 'hold' }), { to_lead: true, stopped: false });
   assert.deepEqual([peers(db, c), reviewCount(db, RAY)], [['2:reviewed'], 1]);
+});
+
+test("the note sent with no verdict never stands in for the sender's report on Ray's card", (t) => {
+  const db = setup(t);
+  const id = createItem(db, AHAN, { kind: 'sb_review', player_id: 2, no_verdict: true, note: "Haven't watched him yet." });
+  resolveItem(db, FORD, id, { outcome: 'reviewed', verdict: 'pass', note: 'Good engine.' });
+  resolveItem(db, AHAN, id, { outcome: 'reviewed', verdict: 'pass' }); // no note of his own
+  const forRay = reviewBoard(db, RAY).items[0];
+  assert.deepEqual(forRay.takes.map((x) => `${x.name}:${x.verdict}:${x.note?.body ?? null}:${x.reports}`), ['Ahan:pass:null:0', 'Ford:pass:Good engine.:1']);
+  assert.deepEqual(forRay.notes.map((n) => `${n.user_name}/${n.kind}`), ['Ahan/ask', 'Ford/answer'], 'the question is still in the thread, under the cards');
+  assert.deepEqual(warRoomLog(db, AHAN, 2)[0].notes.map((n) => n.body), ["Haven't watched him yet.", 'Good engine.'], "and on the player's page");
 });
 
 test("withdrawing a request that came back keeps the sender's own review in Staff reports", (t) => {

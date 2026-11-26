@@ -357,8 +357,9 @@ syncs leave the signing status alone.
       a Fail stops him there, with a note saying why.
     - **No verdict yet:** for a player the sender hasn't watched. The other scout looks first. Their Pass or Hold
       sends the player back to the sender (under "From Ford", counted in his badge) to watch; the sender's Pass or
-      Hold then sends him on to the lead. A Fail from either scout stops him. Sending this way sets no verdict.
-      It isn't offered when there's no one to look first.
+      Hold then sends him on to the lead. A Fail from either scout stops him. Sending this way sets no verdict,
+      and its note isn't copied to Staff reports (it asks the other scout to look; it isn't a report). It isn't
+      offered when there's no one to look first.
   - **The lead decides** on each request:
     - **Add to Short Board:** pick the role and write the reason. It goes through the Big Board's audited moves:
       it adds the role if needed, then promotes him, with the note saved as the board reason.

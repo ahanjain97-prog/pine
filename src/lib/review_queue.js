@@ -23,7 +23,8 @@
 // Every item keeps a short note thread (why it was sent, replies). Players both scouts have passed, and that no one
 // has sent up yet, are suggested to the scouts.
 // Notes that report on the player also go in the author's Staff evaluation on the player page: the lead's note when
-// assigning, a scout's note when reviewing, declining or sending a player up, and the lead's Short Board decision.
+// assigning, a scout's note when reviewing, declining or sending a player up (not one sent with no verdict: that asks
+// the other scout to look, it doesn't report), and the lead's Short Board decision.
 // Thread replies and watch lists stay in the Review tab, which drops what settled more than 30 days ago; the player's
 // page keeps every War Room note on him for good (warRoomLog).
 // A thread stays open for replies after its item settles, so a question in the lead's decision note can be answered.
@@ -137,12 +138,11 @@ export function markRead(db, user, itemId) {
 }
 
 // What the copied note was, shown as its context in the evaluation.
-function evalContext(action, { to, verdict, role, spot, noVerdict } = {}) {
+function evalContext(action, { to, verdict, role, spot } = {}) {
   const r = role && ROLES[role];
   return {
     assignment: `Review: asked ${to || "the scouts"} to review`,
-    sb_review: noVerdict ? `Review: sent to ${to || "the other scout"} to look at first`
-      : `Review: sent to ${to || "the lead"} for the Short Board`, // "Ford, then Ray" when it goes to the other scout first
+    sb_review: `Review: sent to ${to || "the lead"} for the Short Board`, // "Ford, then Ray" when it goes to the other scout first
     reviewed: `Review: reviewed${verdict ? `, ${verdict[0].toUpperCase()}${verdict.slice(1)}` : ""}`,
     declined: "Review: declined to review",
     added_sb: `Review: put on the Short Board${r ? ` (${r.position} ${r.label})` : ""}`,
@@ -233,8 +233,10 @@ export function createItem(db, user, input) {
     const sentTo = peers.length ? names(peers) : to?.name ?? (names(scouts) || null);
     if (note) {
       const nid = addNoteRow(db, id, me.id, note, "ask");
-      if (kind !== "watch") addEvalNote(db, { playerId: player.id, userId: me.id, reviewNoteId: nid, body: note,
-        context: evalContext(kind, { to: noVerdict ? sentTo : peers.length ? `${sentTo}, then ${to.name},` : sentTo, noVerdict }) });
+      // Not one sent with no verdict: that note is a question to the other scout, not a report on the player (it
+      // would show as the sender's report on the lead's card). The thread and the player's page keep it.
+      if (kind !== "watch" && !noVerdict) addEvalNote(db, { playerId: player.id, userId: me.id, reviewNoteId: nid, body: note,
+        context: evalContext(kind, { to: peers.length ? `${sentTo}, then ${to.name},` : sentTo }) });
     }
     logActivity(db, me.id, player.id, `review_${kind}`, { to: sentTo, ...(peers.length ? { lead: to.name } : {}), note, item: id,
       ...(noVerdict ? { no_verdict: true } : {}) });
