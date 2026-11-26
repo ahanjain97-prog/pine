@@ -351,6 +351,14 @@ syncs leave the signing status alone.
     **Withdraw** it while it waits (under "Sent to Ray"): it leaves the lead's queue, the War Room and Activity. Players both scouts have
     passed are suggested under "Ready for Ray" until someone sends them. That tab also lists the lead's assignments
     you've answered that wait for his Short Board decision.
+  - **To the other scout first:** a request goes to the other scout before the lead, unless they're already Pass
+    or Hold on the player (an NCAA player skips Ford). The sender picks his own verdict when sending:
+    - **Pass or Hold:** the other scout answers Pass, Hold or Fail. Pass or Hold sends the player on to the lead;
+      a Fail stops him there, with a note saying why.
+    - **No verdict yet:** for a player the sender hasn't watched. The other scout looks first. Their Pass or Hold
+      sends the player back to the sender (under "From Ford", counted in his badge) to watch; the sender's Pass or
+      Hold then sends him on to the lead. A Fail from either scout stops him. Sending this way sets no verdict.
+      It isn't offered when there's no one to look first.
   - **The lead decides** on each request:
     - **Add to Short Board:** pick the role and write the reason. It goes through the Big Board's audited moves:
       it adds the role if needed, then promotes him, with the note saved as the board reason.
@@ -376,6 +384,12 @@ syncs leave the signing status alone.
     review"). That covers the lead's note when assigning; a scout's note when reviewing, declining or sending a
     player up; and the lead's Short Board decision. Thread replies and watch lists stay in the War Room. The
     copy is the author's to edit or delete; the thread keeps the original.
+  - **War Room notes on the player page:** every War Room note on a player is kept in a "War Room notes" panel
+    under Staff reports, a thread per item, with no time limit (the War Room tab itself drops what settled more
+    than 30 days ago). That includes replies, watch-list notes and withdrawal notes, which have no Staff reports
+    copy. It follows the War Room's visibility: a watch list shows only to its owner, a request shows to the lead
+    only once it has reached him, a withdrawn request shows to the scouts only, and staff outside the review team
+    see none.
   - **Badge:** the nav badge counts what's waiting on you (the lead's Decisions, a scout's open assignments).
   - **Player page:** has Watch / Send to Ray / Assign for review buttons.
   - **Activity:** entries appear there, except watch lists, which are private.
