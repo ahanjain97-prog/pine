@@ -1572,3 +1572,13 @@ tr.not-pine .opt-p .nm { color: var(--ink-2); }
   .opt-table td.opt-num { display: none; }
   .opt-imp-cat { grid-template-columns: minmax(0, 1fr) 90px 30px; }
 }
+
+/* War Room notes on a player's page: every thread on him, folded, newest open. */
+.wr-thread { border-top: 1px solid var(--line); padding: 8px 0; }
+.wr-thread:first-of-type { border-top: 0; padding-top: 0; }
+.wr-thread > summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 13px; list-style: none; }
+.wr-thread > summary::-webkit-details-marker { display: none; }
+.wr-thread > summary::before { content: "▸"; color: var(--muted); }
+.wr-thread[open] > summary::before { content: "▾"; }
+.wr-head { font-weight: 600; }
+#wr-log .panel-h { flex-wrap: wrap; }

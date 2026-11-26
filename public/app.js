@@ -1622,6 +1622,7 @@ async function renderPlayer(main, idArg) {
         </section>
         ${collegePanel(d)}
         <section class="panel"><header class="panel-h"><h2>Staff reports</h2></header>${evalsHTML(d.staff)}</section>
+        ${warRoomPanel(d.war_room)}
       </div>
       <div class="p-side">
         ${p.tm_url ? "" : `<section class="panel" id="tm-panel"><header class="panel-h"><h2>Transfermarkt</h2></header><div class="loading sm">Searching Transfermarkt…</div></section>`}
@@ -1983,6 +1984,35 @@ function evalsHTML(staff) {
   return `<div class="evals">${active.map(evalHTML).join("")}${hide ? "" : quiet.map(evalHTML).join("")}</div>${quiet.length ? `
     <p class="evals-quiet muted sm">${hide ? `No verdict or notes yet from ${esc(list)}.` : `${quiet.length} with no verdict or notes yet.`}
       <button type="button" class="btn link sm" data-toggle-empty>${hide ? "Show them" : "Hide empty"}</button></p>` : ""}`;
+}
+
+// Every War Room note on the player that you could see there (server: warRoomLog), a thread per item, newest first.
+// Kept for good: the War Room tab lets go of what settled more than 30 days ago, and replies, watch notes and
+// withdrawal notes have no copy in Staff reports.
+function warRoomPanel(log) {
+  if (!log?.length) return "";
+  const count = log.reduce((n, i) => n + i.notes.length, 0);
+  return `<section class="panel" id="wr-log"><header class="panel-h"><h2>War Room notes</h2>
+    <span class="muted sm">${count} note${count === 1 ? "" : "s"} · every note written on him in the War Room is kept here</span></header>
+    ${log.map((item, i) => warRoomThread(item, i === 0)).join("")}</section>`;
+}
+function warRoomThread(item, open) {
+  const who = (id, name) => (id === S.me.id ? "you" : name || "someone");
+  const from = who(item.from_user, item.from_name), lead = item.lead_name || reviewLead()?.name || "the lead";
+  const asked = item.to_name && item.to_name !== item.lead_name ? item.to_name : null; // the scouts it went to, not a request's lead
+  const head = item.kind === "watch" ? "Your watch list · only you see this"
+    : item.kind === "sb_review" ? `Short Board request · from ${from}${asked ? `, ${item.status === "open" && item.with_peer && !item.with_sender ? "to" : "via"} ${asked}` : ""}`
+    : `Assigned for review · from ${from}${asked ? `, to ${asked}` : ""}`;
+  const [label, tone] = item.status !== "open" ? (item.kind === "watch" ? ["Off the watch list", ""]
+      : item.kind === "sb_review" && item.status === "removed" ? [`Withdrawn · not shown to ${lead}`, ""] : rvStatus(item))
+    : item.kind === "watch" ? ["Watching", ""] : item.with_sender ? [`Back with ${from}`, "hold"] : item.with_peer ? [`With ${asked || "the other scout"}`, "hold"]
+    : item.kind === "sb_review" ? [`With ${lead}`, "hold"] : ["Out for review", "hold"];
+  const what = (n) => n.kind === "ask" ? (item.kind === "assignment" ? "assigning" : item.kind === "watch" ? "watching" : "sending")
+    : n.kind === "answer" ? "reviewing" : n.kind === "decision" ? (item.kind === "watch" ? "taking him off" : "deciding") : "replying";
+  return `<details class="wr-thread" ${open ? "open" : ""}><summary><span class="wr-head">${esc(head)}</span>
+      <span class="dchip ${tone ? "v-" + tone : ""}">${esc(label)}</span><span class="muted sm">${item.notes.length} note${item.notes.length === 1 ? "" : "s"} · ${rvWhen(item.created_at)}</span></summary>
+    <ol class="rv-notes">${item.notes.map((n) => `<li><b>${esc(n.user_id === S.me.id ? "You" : n.user_name)}, ${what(n)}:</b> ${esc(n.body)}
+      <span class="when">${rvWhen(n.created_at)}${n.updated_at ? ` · edited ${rvWhen(n.updated_at)}` : ""}</span></li>`).join("")}</ol></details>`;
 }
 
 function evalHTML(s) {
@@ -3607,7 +3637,8 @@ function describeMove(a, onPlayerPage = false) {
     case "edited_note": return `edited a note on ${who}`;
     case "marked_reviewed": return `marked ${who} reviewed`;
     case "review_watch": return `added ${who} to their watch list`;
-    case "review_sb_review": return d.lead ? `sent ${who} to ${esc(d.to)}, on the way to ${esc(d.lead)}'s Short Board decision`
+    case "review_sb_review": return d.no_verdict ? `sent ${who} to ${esc(d.to || "the other scout")} to look at first, with no verdict of their own yet`
+      : d.lead ? `sent ${who} to ${esc(d.to)}, on the way to ${esc(d.lead)}'s Short Board decision`
       : `sent ${who} to ${esc(d.to || "the lead")} for a Short Board decision`;
     case "review_assignment": return `asked ${esc(d.to || "a scout")} to review ${who}`;
     case "review_resolved": return {
@@ -3616,7 +3647,8 @@ function describeMove(a, onPlayerPage = false) {
       moved_bb: `moved ${who} on the Big Board from review${d.role ? ` (${esc(roleLabel(d.role))}${d.spot != null ? `, to #${d.spot + 1}` : ""})` : ""}`,
       not_sb: `decided ${who} isn't for the Short Board for now`,
       reviewed: `reviewed ${who}${d.verdict ? ` ${chip(d.verdict)}` : ""}${d.kind !== "sb_review" ? ""
-        : d.to_lead ? `: on to ${esc(d.lead || "the lead")} for a Short Board decision` : d.stopped ? `: not sent to ${esc(d.lead || "the lead")}` : ""}`,
+        : d.to_lead ? `: on to ${esc(d.lead || "the lead")} for a Short Board decision` : d.back_to ? `: back to ${esc(d.back_to)} to watch`
+        : d.stopped ? `: not sent to ${esc(d.lead || "the lead")}` : ""}`,
       declined: `declined to review ${who}`,
       removed: d.kind === "watch" ? `took ${who} off their watch list` : `withdrew the review of ${who}`,
     }[d.outcome] || `updated the review of ${who}`;
@@ -4030,8 +4062,14 @@ function reviewCard(item, actions, always = false, openThread = false) {
   // An assignment reads "To the scouts" for whoever sent it, "From Bobby, to the scouts" for the lead when someone else did.
   // A Short Board request that went to the other scout first: "From Ahan, to Ford" while it's with him, then
   // "From Ahan, via Ford".
-  const route = item.kind === "sb_review" ? `From ${esc(item.from_user === S.me.id ? "you" : item.from_name)}${item.assignees?.length
-      ? `${item.with_peer ? ", to" : ", via"} ${esc(item.assignees.map((x) => (x.user_id === S.me.id ? "you" : x.name)).join(" and "))}` : ""}` : item.kind === "assignment"
+  // One sent with no verdict says so while the other scout has it; once they pass or hold him it's "back from Ford"
+  // for the scout who sent it, and "to you, back with Ahan" for the other.
+  const asked = (item.assignees || []).filter((x) => item.kind !== "sb_review" || x.user_id !== item.from_user);
+  const askedNames = esc(asked.map((x) => (x.user_id === S.me.id ? "you" : x.name)).join(" and "));
+  const noVerdictYet = item.kind === "sb_review" && item.no_verdict && item.with_peer && !item.with_sender && !SENDS_UP.includes(p.verdicts?.[item.from_name]);
+  const route = item.kind === "sb_review" ? `From ${esc(item.from_user === S.me.id ? "you" : item.from_name)}${noVerdictYet ? " (no verdict yet)" : ""}${!asked.length ? ""
+      : item.with_sender ? (item.from_user === S.me.id ? `, back from ${askedNames}` : `, to ${askedNames}, back with ${esc(item.from_name)}`)
+      : `${item.with_peer ? ", to" : ", via"} ${askedNames}`}` : item.kind === "assignment"
     ? (canAssign() ? `${item.from_user === S.me.id ? "To" : `From ${esc(item.from_name)}, to`} ${esc(item.to_name)}`
       : `From ${esc(item.from_name)}${others.length ? `, with ${esc(others.join(" and "))}` : ""}`) : "Watching";
   // Each scout's answer on a shared assignment. A settled one is credited by these, not by whoever answered last.
@@ -4133,9 +4171,13 @@ async function renderReview(main) {
     const others = reviewScouts().filter((x) => x.id !== S.me.id).map((x) => x.name).join(" and ") || "the other scouts";
     const myNudge = (i) => i.assignees?.find((x) => x.user_id === S.me.id)?.nudged_at || "";
     // ...and players you sent to them, before they go on to the lead.
-    const waitingOn = [...asg.filter((i) => open(i) && myAnswer(i) && myAnswer(i) !== "open"), ...sb.filter((i) => i.with_peer && i.from_user === S.me.id)]
+    // Also one sent with no verdict that you've passed or held, now back with the scout who sent it. Not one of your
+    // own that has come back to you: that's yours to answer, below.
+    const waitingOn = [...asg.filter((i) => open(i) && myAnswer(i) && myAnswer(i) !== "open"),
+      ...sb.filter((i) => i.with_peer && myAnswer(i) !== "open" && (i.from_user === S.me.id || myAnswer(i)))]
       .sort((a, b) => (lastMove(b) > lastMove(a) ? 1 : -1));
-    // Players the other scout sent you: Pass or Hold sends them on to the lead, a Fail stops them.
+    // Players the other scout sent you: Pass or Hold sends them on to the lead, a Fail stops them. One of yours sent
+    // with no verdict comes back here once they've passed or held him, for you to watch and answer.
     const peerIn = sb.filter((i) => i.with_peer && myAnswer(i) === "open").sort((a, b) => (myNudge(b) > myNudge(a) ? 1 : myNudge(b) < myNudge(a) ? -1 : 0));
     const withdrawBtn = (i, where) => `<button type="button" class="btn sm ghost" data-rv-resolve="removed" data-rv-withdraw title="Take this request back: it leaves ${esc(where)} and Activity">Withdraw</button>`;
     // Yours to review, any you've been nudged on first.
@@ -4145,9 +4187,9 @@ async function renderReview(main) {
       { id: "assigned", label: "Assigned to you", list: toReview, urgent: true, empty: "Nothing assigned to you to review.",
         html: (l) => rows(l, () => `<button type="button" class="btn sm primary" data-rv-review>Review</button><button type="button" class="btn sm" data-rv-resolve="declined">Decline</button>`) },
       { id: "peer", label: `From ${others}`, list: peerIn, urgent: true, empty: `Nothing from ${others} for you to pass, hold or fail.`,
-        html: (l) => rows(l, () => `<button type="button" class="btn sm primary" data-rv-peer>Pass / Hold / Fail</button>`) },
+        html: (l) => rows(l, (i) => `<button type="button" class="btn sm primary" data-rv-peer>Pass / Hold / Fail</button>${i.from_user === S.me.id ? withdrawBtn(i, "your list") : ""}`) },
       { id: "waiting", label: `Waiting on ${others}`, list: waitingOn, empty: `Nothing you've answered or sent is waiting on ${others}.`,
-        html: (l) => rows(l, (i) => (i.kind === "sb_review" ? `${nudgeButton(i)}${withdrawBtn(i, `${others}'s list`)}` : nudgeButton(i))) },
+        html: (l) => rows(l, (i) => (i.kind === "sb_review" && i.from_user === S.me.id ? `${nudgeButton(i)}${withdrawBtn(i, `${others}'s list`)}` : nudgeButton(i))) },
       { id: "ready", label: `Ready for ${leadName}`, list: [...withLead, ...ready],
         empty: `Nothing waiting on ${leadName}: no reviews back with him, and no players ${reviewScouts().map((x) => x.name).join(" and ")} have both passed to send.`,
         html: () => `${withLead.length ? `${heading(`Reviewed, waiting on ${leadName}'s Short Board decision`, withLead.length)}${rows(withLead, () => "", true)}` : ""}${
@@ -4190,11 +4232,12 @@ async function renderReview(main) {
 
 // One small dialog for every review action: an optional extra field (role, scout, verdict) and a note.
 // needNote(form): a note is required only for some choices (a Fail on a Short Board request).
-function reviewDialog({ title, player, extra = "", noteLabel = "Note", required = false, submit = "Save", note: prefill = "", hint = "", needNote = null }) {
+// wire(m): hooks for a dialog whose hint (#rv-d-hint) or note label (#rv-d-note-l) follows a choice in it.
+function reviewDialog({ title, player, extra = "", noteLabel = "Note", required = false, submit = "Save", note: prefill = "", hint = "", needNote = null, wire = null }) {
   return new Promise((resolve) => {
     const m = modal(`<header class="m-h"><h2>${esc(title)}</h2><button type="button" class="icon-btn" data-close aria-label="Close">×</button></header>
-      <p class="hint">${esc(player)}</p>${hint ? `<p class="hint">${esc(hint)}</p>` : ""}<form id="rv-dialog">${extra}
-      <label class="lbl" for="rv-d-note">${esc(noteLabel)} ${required ? "*" : "(optional)"}</label>
+      <p class="hint">${esc(player)}</p>${hint ? `<p class="hint" id="rv-d-hint">${esc(hint)}</p>` : ""}<form id="rv-dialog">${extra}
+      <label class="lbl" for="rv-d-note"><span id="rv-d-note-l">${esc(noteLabel)}</span> ${required ? "*" : "(optional)"}</label>
       <textarea id="rv-d-note" name="note" rows="4" maxlength="4000" ${required ? "required" : ""}>${esc(prefill)}</textarea>
       <div class="m-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" class="btn primary">${esc(submit)}</button></div></form>`);
     const done = (v) => { obs.disconnect(); resolve(v); };
@@ -4210,6 +4253,7 @@ function reviewDialog({ title, player, extra = "", noteLabel = "Note", required 
       const out = Object.fromEntries([...new FormData(e.target)].map(([k, v]) => [k, String(v).trim()]));
       obs.disconnect(); closeModal(); resolve(out);
     });
+    wire?.(m);
     $("select, textarea", m)?.focus();
   });
 }
@@ -4264,24 +4308,37 @@ const assignScoutsFor = (p) => {
 };
 const assignLabel = (p) => `Assign to ${assignScoutsFor(p).map((s) => s.name).join(" and ") || "the scouts"}`;
 
-// Pass / Hold / Fail as a required choice, his current verdict picked.
-const verdictSeg = (p, options) => `<label class="lbl">Your verdict *</label><div class="seg" role="radiogroup">${options.map((v) =>
-  `<label class="v-${v}"><input type="radio" name="verdict" value="${v}" required ${p.verdicts?.[S.me.name] === v ? "checked" : ""}> ${cap(v)}</label>`).join("")}</div>`;
+// Pass / Hold / Fail as a required choice, his current verdict picked. noneFor: also offer "No verdict yet", for a
+// player sent to the other scout (named) to look at first.
+const verdictSeg = (p, options, noneFor = null) => `<label class="lbl">Your verdict *</label><div class="seg" role="radiogroup">${options.map((v) =>
+  `<label class="v-${v}"><input type="radio" name="verdict" value="${v}" required ${p.verdicts?.[S.me.name] === v ? "checked" : ""}> ${cap(v)}</label>`).join("")}${
+  noneFor ? `<label class="v-none" title="You haven't watched him yet: ${esc(noneFor)} looks first"><input type="radio" name="verdict" value="none" required> No verdict yet</label>` : ""}</div>`;
 
 async function reviewSendDialog(p, kind, note = "") {
   const lead = reviewLead()?.name || "the lead";
   // A Short Board request: you Pass or Hold him; it goes to the other scout first unless they already have.
   const peers = kind === "sb_review" ? sbPeers(p) : [], to = sbTo(p);
   const already = kind === "sb_review" && !peers.length ? assignScoutsFor(p).filter((s) => s.id !== S.me.id && SENDS_UP.includes(p.verdicts?.[s.name])) : [];
+  // With someone to send him to first, you can also send him with no verdict of your own: they look first, and their
+  // Pass or Hold brings him back to you to watch. The hint and the note's label follow the choice.
+  const withVerdict = `If ${to} passes or holds him too, he goes on to ${lead} for a Short Board decision. A Fail stops him there.`;
+  const noVerdict = `${to} looks at him first. If ${to} passes or holds him, he comes back to you to watch, and your Pass or Hold then sends him on to ${lead}. A Fail from either of you stops him.`;
+  const why = "Why should he go on the Short Board?", look = `What should ${to} look at?`;
   const v = await reviewDialog({ player: p.name, note,
     submit: kind === "watch" ? "Add" : kind === "sb_review" ? `Send to ${to}` : "Assign",
     title: kind === "watch" ? "Add to your watch list" : kind === "sb_review" ? (peers.length ? `Send to ${to}` : `Send to ${lead} for a Short Board decision`) : assignLabel(p),
-    hint: kind !== "sb_review" ? "" : peers.length ? `If ${to} passes or holds him too, he goes on to ${lead} for a Short Board decision. A Fail stops him there.`
+    hint: kind !== "sb_review" ? "" : peers.length ? withVerdict
       : already.length ? `${already.map((s) => `${s.name} is already ${cap(p.verdicts[s.name])}`).join(" and ")}, so he goes straight to ${lead}.` : "",
-    extra: kind === "sb_review" ? verdictSeg(p, SENDS_UP) : "",
-    noteLabel: kind === "assignment" ? "Why are you assigning him?" : kind === "sb_review" ? "Why should he go on the Short Board?" : "What to follow up on" });
+    extra: kind === "sb_review" ? verdictSeg(p, SENDS_UP, peers.length ? to : null) : "",
+    wire: kind === "sb_review" && peers.length ? (m) => $(".seg", m).addEventListener("change", (e) => {
+      const none = e.target.value === "none";
+      $("#rv-d-hint", m).textContent = none ? noVerdict : withVerdict;
+      $("#rv-d-note-l", m).textContent = none ? look : why;
+    }) : null,
+    noteLabel: kind === "assignment" ? "Why are you assigning him?" : kind === "sb_review" ? why : "What to follow up on" });
   if (!v) return false;
-  await reviewCreate(kind, p.id, { note: v.note || undefined, ...(kind === "sb_review" ? { verdict: v.verdict } : {}) });
+  await reviewCreate(kind, p.id, { note: v.note || undefined,
+    ...(kind !== "sb_review" ? {} : v.verdict === "none" ? { no_verdict: true } : { verdict: v.verdict }) });
   return true;
 }
 
@@ -4427,13 +4484,23 @@ function wireReview(root, d) {
         // A Short Board request from the other scout: Pass or Hold sends him on to the lead, a Fail stops him (say why).
         const it = d.items.find((i) => i.id === Number(itemId)), asked = it?.notes.find((n) => n.id === it.ask_note_id);
         const lead = it?.lead_name || reviewLead()?.name || "the lead";
-        const extra = `${asked ? `<p class="rv-asked"><b>${esc(asked.user_name)}, sending:</b> ${esc(asked.body)}</p>` : ""}${verdictSeg(p, S.config.decisions)}`;
-        const v = await reviewDialog({ title: `${it?.from_name || "A scout"} sent him for ${lead}'s Short Board`, player: p.name, extra,
-          hint: `Pass or Hold sends him on to ${lead}. Fail stops him here: say why.`, noteLabel: "What did you think?",
+        // One you sent with no verdict, back from the other scout: you watch him and answer last. One sent to you
+        // that way: your Pass or Hold sends him back to the sender, not on to the lead.
+        const from = it?.from_name || "A scout", back = !!it?.with_sender && it.from_user === S.me.id;
+        const first = !back && !!it?.no_verdict && !SENDS_UP.includes(p.verdicts?.[it.from_name]);
+        const looked = (it?.assignees || []).filter((x) => x.user_id !== it.from_user);
+        const theirs = back ? it.notes.filter((n) => n.kind === "answer" && n.user_id !== S.me.id) : [];
+        const extra = `${asked && !back ? `<p class="rv-asked"><b>${esc(asked.user_name)}, sending:</b> ${esc(asked.body)}</p>` : ""}${
+          theirs.map((n) => `<p class="rv-asked"><b>${esc(n.user_name)}, reviewing:</b> ${esc(n.body)}</p>`).join("")}${verdictSeg(p, S.config.decisions)}`;
+        const v = await reviewDialog({ player: p.name, extra, noteLabel: "What did you think?",
+          title: back ? `Back from ${looked.map((x) => x.name).join(" and ")}: your verdict` : first ? `${from} sent him for you to look at first` : `${from} sent him for ${lead}'s Short Board`,
+          hint: back ? `${looked.map((x) => `${x.name} is ${cap(p.verdicts?.[x.name] || "through with him")}`).join(" and ")}. Your Pass or Hold sends him on to ${lead}. Fail stops him here: say why.`
+            : first ? `${from} hasn't given a verdict yet. Your Pass or Hold sends him back to ${from} to watch; if ${from} passes or holds him too, he goes on to ${lead}. Fail stops him here: say why.`
+            : `Pass or Hold sends him on to ${lead}. Fail stops him here: say why.`,
           needNote: (f) => f.elements.verdict.value === "fail", submit: "Save" });
         if (!v) return;
         const out = await resolve({ outcome: "reviewed", verdict: v.verdict, note: v.note || undefined });
-        toast(out.to_lead ? `${p.name} goes on to ${lead}` : out.stopped ? `Not sent to ${lead}` : "Saved");
+        toast(out.to_lead ? `${p.name} goes on to ${lead}` : out.back_to ? `${p.name} goes back to ${out.back_to} to watch` : out.stopped ? `Not sent to ${lead}` : "Saved");
         await afterMutation();
       } else if (t.matches("[data-rv-review]")) {
         const it = d.items.find((i) => i.id === Number(itemId)), asked = it?.notes.find((n) => n.id === it.ask_note_id);
@@ -4449,7 +4516,7 @@ function wireReview(root, d) {
         if (t.matches("[data-rv-withdraw]")) {
           // Withdrawing a request leaves no trace for others, so no note: just confirm.
           const it = d.items.find((i) => i.id === Number(itemId));
-          const where = it?.with_peer ? `${it.to_name}'s list` : `${reviewLead()?.name || "the lead"}'s queue`;
+          const where = it?.with_sender ? "your list" : it?.with_peer ? `${it.to_name}'s list` : `${reviewLead()?.name || "the lead"}'s queue`;
           if (!confirm(`Withdraw your request on ${p.name}? It leaves ${where} and Activity.`)) return;
           await resolve({ outcome });
           toast("Request withdrawn");
