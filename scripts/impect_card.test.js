@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ALL_METRICS } from '../src/lib/impect_categories.js';
-import { playerKpiCard, DISPLAY_OVERRIDES } from '../src/lib/impect_kpi.js';
+import { playerKpiCard, DISPLAY_OVERRIDES, goalsVsXg } from '../src/lib/impect_kpi.js';
+import { CATEGORIES } from '../src/lib/impect_categories.js';
 
 test('live card assembly pools three same-season leagues and withholds a cameo target', async () => {
   const oldFetch = globalThis.fetch;
@@ -97,4 +98,22 @@ test('display labels cover the metrics whose Impect label misstates the number',
   const labels = Object.values(DISPLAY_OVERRIDES);
   assert.equal(new Set(labels).size, labels.length, 'two metrics share a label');
   for (const l of labels) assert.doesNotMatch(l, /\*|Percent/, `"${l}" still reads as a percentage`);
+});
+
+test('no Finishing category: goals against xG is a warning beside Shooting, not a score', () => {
+  for (const g of ['AM', 'W', 'ST']) {
+    assert.ok(!CATEGORIES[g]['Finishing quality'], `${g} still scores finishing`);
+    assert.ok(CATEGORIES[g]['Shooting threat'], `${g} keeps Shooting`);
+  }
+  assert.deepEqual(ALL_METRICS.filter((m) => /RATIO_(GOALS|SHOTS|POSTSHOT)/.test(m)), []);
+  // Per-90 values over a season at the position (playDuration is in seconds): 2,700 minutes = 30 x 90.
+  const row = (goals90, xg90, minutes = 2700) => ({ values: { kpi__GOALS: goals90, kpi__SHOT_XG: xg90 }, playDuration: minutes * 60 });
+  assert.deepEqual(goalsVsXg(row(0.5, 0.3)), { goals: 15, xg: 9, ratio: 1.7, trend: 'over' });
+  assert.deepEqual(goalsVsXg(row(0.2, 0.4)), { goals: 6, xg: 12, ratio: 0.5, trend: 'under' });
+  assert.deepEqual(goalsVsXg(row(0.4, 0.38)), { goals: 12, xg: 11.4, ratio: 1.1, trend: 'even' });
+  assert.equal(goalsVsXg(row(0.47, 0.36, 567)).trend, 'small', '3 goals from 2.3 xG: 30% over but under 2 goals apart, not flagged');
+  assert.equal(goalsVsXg(row(0.28, 0.13, 978)).trend, 'small', '3 goals from 1.4 xG');
+  assert.equal(goalsVsXg(row(0.21, 0.27, 435)).trend, 'small', '1 goal from 1.3 xG');
+  assert.equal(goalsVsXg(row(0.5, 0.3, 270)), null, 'under 1 xG: too few chances to say');
+  assert.equal(goalsVsXg({ values: { kpi__GOALS: 0.3 }, playDuration: 162000 }), null, 'no xG recorded');
 });

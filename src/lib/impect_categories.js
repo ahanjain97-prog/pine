@@ -668,6 +668,12 @@ CATEGORIES.MID = { ...pick(CATEGORIES.DM, ["Circulation and tempo", "Ball securi
   "Receiving and positioning", "Chance creation"]), "Shooting threat": CATEGORIES.CM["Shooting threat"],
   ...pick(CATEGORIES.DM, ["Carrying and pressure escape"]), ...DEFENDING_V2.MID };
 
+// No Finishing category (removed 2026-11-27, at the owner's request): goals and shots on target relative to xG don't
+// repeat from one season to the next. In the study the category's adjacent-season stability was -0.01 for strikers
+// (338 player pairs), 0.10 for wingers and -0.04 for attacking mids, and each of its five metrics was 0.00-0.07, against
+// 0.30 for Shooting threat; it forecast nothing ("descriptive only"). Shot volume and chance quality (Shooting) stay.
+for (const g of ["AM", "W", "ST"]) delete CATEGORIES[g]["Finishing quality"];
+
 // Every metric a category shows, plus the Impect inputs PINE derives others from (derived__ names aren't Impect's).
 // Ball security per touch at every outfield position (defending.js): replaces the study's per-match loss counts
 // ("Ball security", and "Ball security and directness" for attacking mids and wingers).

@@ -1730,6 +1730,20 @@ function kpiMetric(m, neutral = false) {
   </div>`;
 }
 
+// Goals against xG beside Shooting (server: goalsVsXg): a warning, not part of any score, since it doesn't repeat.
+const gxNum = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+function goalsVsXgNote(g) {
+  if (!g) return "";
+  const what = `${g.goals} goal${g.goals === 1 ? "" : "s"} from ${gxNum(g.xg)} xG`;
+  const text = g.trend === "over" ? `Scoring ${gxNum(g.ratio)}× his xG: ${what}. Goals above xG don't carry over from one season to the next, so expect fewer from the same chances.`
+    : g.trend === "under" ? `Scoring ${gxNum(g.ratio)}× his xG: ${what}. Goals below xG don't carry over either, so expect more from the same chances.`
+    : g.trend === "small" ? `${cap(what)}: too few goals either way to read anything into.`
+    : `Scoring in line with his xG: ${what}.`;
+  return `<p class="kpi-gx ${g.trend}">${esc(text)} <span class="muted">Not part of the score.</span></p>`;
+}
+const goalsVsXgTag = (g) => (g && (g.trend === "over" || g.trend === "under")
+  ? `<small class="kpi-outlook kpi-gx-tag ${g.trend}" title="Goals against xG don't repeat from season to season: expect ${g.trend === "over" ? "fewer" : "more"} goals from the same chances">Scoring ${gxNum(g.ratio)}× his xG · ${g.trend === "over" ? "expect fewer" : "expect more"}</small>` : "");
+
 function kpiCategory(c, d) {
   const pct = wholePct(c.percentile);
   const neutral = c.phase === "defstyle";
@@ -1741,12 +1755,13 @@ function kpiCategory(c, d) {
     ? `The overall score averages its ${c.components.length} Defending categories equally and ranks against ${c.peer_count} ${esc(peers)}; across the back six it predicted fewer goals conceded better than any single measure.`
     : `The category score averages its ${c.components.length} metrics, flipped where lower is better, and ranks against ${c.peer_count} ${esc(peers)}.`;
   return `<li class="${c.composite ? "kpi-headline" : ""}"><details>
-    <summary><span class="kpi-name" title="${esc(`Study category: ${c.name}`)}">${esc(c.label)}${c.outlook ? `<small class="kpi-outlook" title="One season of defending stats is about half signal (its reliability here is ${c.outlook.reliability}), so the score is pulled toward the median: this is where his true level likely sits among peers (80% range).">Likely level ${c.outlook.expected} · range ${c.outlook.low}–${c.outlook.high}</small>` : ""}</span>${c.composite ? kpiRangeBar(pct, c.outlook) : kpiBar(pct, neutral)}<b>${pct ?? "–"}</b><span class="kpi-chev" aria-hidden="true"></span></summary>
+    <summary><span class="kpi-name" title="${esc(`Study category: ${c.name}`)}">${esc(c.label)}${c.outlook ? `<small class="kpi-outlook" title="One season of defending stats is about half signal (its reliability here is ${c.outlook.reliability}), so the score is pulled toward the median: this is where his true level likely sits among peers (80% range).">Likely level ${c.outlook.expected} · range ${c.outlook.low}–${c.outlook.high}</small>` : ""}${goalsVsXgTag(c.goals_vs_xg)}</span>${c.composite ? kpiRangeBar(pct, c.outlook) : kpiBar(pct, neutral)}<b>${pct ?? "–"}</b><span class="kpi-chev" aria-hidden="true"></span></summary>
     <div class="kpi-detail">
       <p class="kpi-about">${pct == null || neutral ? "" : `<span class="kpi-tier" style="--c:${band(pct)}">${tier(pct)}</span>`}${c.description ? `<span>${esc(c.description)}</span>` : ""}</p>
       <div class="kpi-m kpi-mh"><span>${c.composite ? "Category" : "Metric"}</span><span>${c.composite ? "Score" : `Value · ${esc(league)} median`}</span><span>vs ${d.peer_count} ${esc(peers)}</span><span>Pct</span>
         <span title="${esc(`Percentile against ${d.iteration.competition} ${peers} only`)}">${esc(league)}</span></div>
       ${kinds.map((k) => `<h4 class="kpi-kind">${esc(k.name)} <span>${esc(k.note)}</span></h4>${k.rows.map((m) => kpiMetric(m, neutral)).join("")}`).join("")}
+      ${goalsVsXgNote(c.goals_vs_xg)}
       <p class="kpi-foot">${foot}
         Against ${esc(d.iteration.competition)} ${esc(peers)} alone (${c.league_peer_count}) it ranks ${wholePct(c.league_percentile) ?? "–"}.</p>
     </div>

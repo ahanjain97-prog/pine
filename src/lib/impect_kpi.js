@@ -38,7 +38,6 @@ export const DISPLAY_OVERRIDES = {
   score__RATIO_GROUND_DUELS: "Ground duels won (0-1)",
   score__RATIO_GROUND_DUELS_DEFENSIVE: "Defensive ground duels won (0-1)",
   score__RATIO_GROUND_DUELS_OFFENSIVE: "Offensive ground duels won (0-1)",
-  score__RATIO_SHOTS_ON_TARGET: "Shots on target (share, 0-1)",
   score__GK_CAUGHT_HIGH_BALLS_PERCENT: "High balls caught (share, 0-1)",
   score__GK_CAUGHT_AND_PUNCHED_HIGH_BALLS_PERCENT: "High balls caught or punched (share, 0-1)",
   score__GK_SUCCESSFUL_LAUNCHES_PERCENT: "Goal kicks completed (share, 0-1)",
@@ -52,10 +51,6 @@ export const DISPLAY_OVERRIDES = {
   score__GK_PREVENTED_GOALS_POST_SHOT_XG_BY_ACTION_HEADER_SHOT_RATIO: "Goals prevented \u00f7 post-shot xG: headers",
   score__GK_PREVENTED_GOALS_POST_SHOT_XG_BY_ACTION_LONG_RANGE_SHOT_RATIO: "Goals prevented \u00f7 post-shot xG: long-range shots",
   score__GK_PREVENTED_GOALS_POST_SHOT_XG_BY_ACTION_MID_RANGE_SHOT_RATIO: "Goals prevented \u00f7 post-shot xG: mid-range shots",
-  score__RATIO_POSTSHOT_XG_SHOT_XG: "Post-shot xG \u00f7 shot xG",
-  score__RATIO_GOALS_SHOT_XG: "Goals \u00f7 shot xG",
-  score__RATIO_GOALS_POSTSHOT_XG: "Goals \u00f7 post-shot xG",
-  score__RATIO_SHOTS_PER_GOAL: "Shots per goal",
   score__RATIO_REMOVED_OPPONENTS: "Opponents taken out per ball win",
 
   // Distances are metres gained towards the opponent's goal, not distance run.
@@ -241,6 +236,23 @@ async function buildCohort(iterationId) {
   return { at: Date.now(), iterationId, byGroup, shares };
 }
 
+// Goals against xG, shown as a warning beside Shooting rather than scored: it doesn't repeat from season to season
+// (the study's Finishing category scored -0.01 for strikers), so a big gap says where his scoring is likely to go
+// back to. Season totals from the per-90 values at this position. Too few chances (under 1 xG) to say: null.
+export function goalsVsXg(row) {
+  const per90 = (m) => row?.values?.[m], mins = (row?.playDuration || 0) / 60;
+  const g90 = per90("kpi__GOALS"), x90 = per90("kpi__SHOT_XG");
+  if (!Number.isFinite(g90) || !Number.isFinite(x90) || !(mins > 0)) return null;
+  const goals = Math.round((g90 * mins) / 90), xg = (x90 * mins) / 90;
+  if (xg < 1) return null;
+  const ratio = goals / xg;
+  // Flagged only for a real gap: 20% either way and at least 2 goals, so one lucky goal in a few games isn't news
+  // ("small": 20% out but under 2 goals; "even": within 20%).
+  const off = ratio >= 1.2 || ratio <= 0.8;
+  return { goals, xg: Math.round(xg * 10) / 10, ratio: Math.round(ratio * 10) / 10,
+    trend: !off ? "even" : Math.abs(goals - xg) < 2 ? "small" : ratio > 1 ? "over" : "under" };
+}
+
 const COHORT_FORMAT = 6; // bump when the cohort's shape changes, so old disk copies are rebuilt (6: ball losses per touch)
 const toDisk = (co) => ({ format: COHORT_FORMAT, at: co.at, iterationId: co.iterationId, byGroup: [...co.byGroup], shares: [...co.shares] });
 const fromDisk = (d) => (d?.format === COHORT_FORMAT
@@ -347,6 +359,7 @@ export async function playerKpiCard(impectId, { iterationId = null, minShare = M
       ...c, ...categoryDisplay(row.group, c.name), percentile: round(c.percentile, 1), score: round(c.score, 3),
       league_percentile: round(league.categories[i].percentile, 1),
       league_peer_count: league.categories[i].peer_count,
+      ...(c.name === "Shooting threat" ? { goals_vs_xg: goalsVsXg(row) } : {}),
       // The pooled median mixes three leagues' raw scales; the player's own league is the fair comparison.
       components: c.components.map(({ median: _pooledMedian, ...m }, j) => ({ ...m,
         label: m.label || m.metric, kind: metricKind(m.metric), value: round(m.value, 3), percentile: round(m.percentile, 1),
