@@ -236,6 +236,23 @@ async function buildCohort(iterationId) {
   return { at: Date.now(), iterationId, byGroup, shares };
 }
 
+// Goals against xG, shown as a warning beside Shooting rather than scored: it doesn't repeat from season to season
+// (the study's Finishing category scored -0.01 for strikers), so a big gap says where his scoring is likely to go
+// back to. Season totals from the per-90 values at this position. Too few chances (under 1 xG) to say: null.
+export function goalsVsXg(row) {
+  const per90 = (m) => row?.values?.[m], mins = (row?.playDuration || 0) / 60;
+  const g90 = per90("kpi__GOALS"), x90 = per90("kpi__SHOT_XG");
+  if (!Number.isFinite(g90) || !Number.isFinite(x90) || !(mins > 0)) return null;
+  const goals = Math.round((g90 * mins) / 90), xg = (x90 * mins) / 90;
+  if (xg < 1) return null;
+  const ratio = goals / xg;
+  // Flagged only for a real gap: 20% either way and at least 2 goals, so one lucky goal in a few games isn't news
+  // ("small": 20% out but under 2 goals; "even": within 20%).
+  const off = ratio >= 1.2 || ratio <= 0.8;
+  return { goals, xg: Math.round(xg * 10) / 10, ratio: Math.round(ratio * 10) / 10,
+    trend: !off ? "even" : Math.abs(goals - xg) < 2 ? "small" : ratio > 1 ? "over" : "under" };
+}
+
 const COHORT_FORMAT = 6; // bump when the cohort's shape changes, so old disk copies are rebuilt (6: ball losses per touch)
 const toDisk = (co) => ({ format: COHORT_FORMAT, at: co.at, iterationId: co.iterationId, byGroup: [...co.byGroup], shares: [...co.shares] });
 const fromDisk = (d) => (d?.format === COHORT_FORMAT
@@ -342,6 +359,7 @@ export async function playerKpiCard(impectId, { iterationId = null, minShare = M
       ...c, ...categoryDisplay(row.group, c.name), percentile: round(c.percentile, 1), score: round(c.score, 3),
       league_percentile: round(league.categories[i].percentile, 1),
       league_peer_count: league.categories[i].peer_count,
+      ...(c.name === "Shooting threat" ? { goals_vs_xg: goalsVsXg(row) } : {}),
       // The pooled median mixes three leagues' raw scales; the player's own league is the fair comparison.
       components: c.components.map(({ median: _pooledMedian, ...m }, j) => ({ ...m,
         label: m.label || m.metric, kind: metricKind(m.metric), value: round(m.value, 3), percentile: round(m.percentile, 1),
