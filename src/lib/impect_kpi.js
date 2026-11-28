@@ -38,7 +38,6 @@ export const DISPLAY_OVERRIDES = {
   score__RATIO_GROUND_DUELS: "Ground duels won (0-1)",
   score__RATIO_GROUND_DUELS_DEFENSIVE: "Defensive ground duels won (0-1)",
   score__RATIO_GROUND_DUELS_OFFENSIVE: "Offensive ground duels won (0-1)",
-  score__RATIO_SHOTS_ON_TARGET: "Shots on target (share, 0-1)",
   score__GK_CAUGHT_HIGH_BALLS_PERCENT: "High balls caught (share, 0-1)",
   score__GK_CAUGHT_AND_PUNCHED_HIGH_BALLS_PERCENT: "High balls caught or punched (share, 0-1)",
   score__GK_SUCCESSFUL_LAUNCHES_PERCENT: "Goal kicks completed (share, 0-1)",
@@ -52,10 +51,6 @@ export const DISPLAY_OVERRIDES = {
   score__GK_PREVENTED_GOALS_POST_SHOT_XG_BY_ACTION_HEADER_SHOT_RATIO: "Goals prevented \u00f7 post-shot xG: headers",
   score__GK_PREVENTED_GOALS_POST_SHOT_XG_BY_ACTION_LONG_RANGE_SHOT_RATIO: "Goals prevented \u00f7 post-shot xG: long-range shots",
   score__GK_PREVENTED_GOALS_POST_SHOT_XG_BY_ACTION_MID_RANGE_SHOT_RATIO: "Goals prevented \u00f7 post-shot xG: mid-range shots",
-  score__RATIO_POSTSHOT_XG_SHOT_XG: "Post-shot xG \u00f7 shot xG",
-  score__RATIO_GOALS_SHOT_XG: "Goals \u00f7 shot xG",
-  score__RATIO_GOALS_POSTSHOT_XG: "Goals \u00f7 post-shot xG",
-  score__RATIO_SHOTS_PER_GOAL: "Shots per goal",
   score__RATIO_REMOVED_OPPONENTS: "Opponents taken out per ball win",
 
   // Distances are metres gained towards the opponent's goal, not distance run.

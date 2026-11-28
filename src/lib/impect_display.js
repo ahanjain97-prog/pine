@@ -7,7 +7,7 @@
 export const PHASES = [
   { id: "gk", name: "Goalkeeping", desc: "Stopping shots, claiming high balls and sweeping behind the line" },
   { id: "build", name: "On-Ball", desc: "Keeping, moving and progressing the ball" },
-  { id: "attack", name: "Final third", desc: "Creating chances, shooting and finishing" },
+  { id: "attack", name: "Final third", desc: "Creating chances and shooting" },
   { id: "defend", name: "Off-Ball", desc: "Getting open to receive, winning the ball back, and duels at both ends" },
   // Centre-backs, full-backs and midfielders (Defending v2, defending.js): quality, then style.
   { id: "defending", name: "Defending", desc: "What predicted fewer goals conceded across the back six, checked on players who changed clubs" },
@@ -42,7 +42,6 @@ const CATEGORY_DISPLAY = {
   "Chance creation": ["Chance creation", "attack", "Shot assists, expected assists and shot-creating actions."],
   "Crossing and chance creation": ["Crossing & chance creation", "attack", "Crosses, shot assists, expected assists and shot-creating actions."],
   "Shooting threat": ["Shooting", "attack", "How often the player shoots and hits the target, and the quality of those chances."],
-  "Finishing quality": ["Finishing", "attack", "Scoring and hitting the target relative to the quality of the chances."],
   "Set-piece and box threat": ["Set-piece & box threat", "attack", "Attacking headers, presence in the box, and shots."],
 
   "Receiving and positioning": ["Receiving & movement", "defend", "Getting on the ball between the lines and in the box, and the threat added on receipt."],
