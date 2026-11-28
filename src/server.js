@@ -53,7 +53,7 @@ import { connectedDuplicate, connectionMergeProblem, mergeConnection, resolvePla
 import { registerSigning } from "./lib/signing.js";
 import { registerRoster, rosterSpot } from "./lib/roster.js";
 import { addBoardRole, boardHistory, BOARD_SOURCES, BOARD_EXIT_REASONS, recordBoardReason, registerBoardMoves, validateBoardReason } from "./lib/board_reasons.js";
-import { REVIEW_ROLE, registerReviewQueue, reviewCount, reviewTeam, syncReviewNote } from "./lib/review_queue.js";
+import { REVIEW_ROLE, registerReviewQueue, reviewCount, reviewTeam, syncReviewNote, warRoomLog } from "./lib/review_queue.js";
 import { boardLastReviews, registerReview, REVIEW_AFTER_DAYS } from "./lib/review.js";
 import { registerPerformance } from "./lib/performance.js";
 import { registerMonitoring } from "./lib/monitoring.js";
@@ -525,6 +525,7 @@ app.get("/api/players/:id", (c) => {
     ORDER BY a.id DESC LIMIT 1`, player.id) || null;
   return c.json({
     player: { ...player, decision_by_name: decision_by, summary_updated }, staff, activity, lists, board_history: boardHistory(db, player.id),
+    war_room: warRoomLog(db, me, player.id),
     college: prospectDetail(db, { playerId: player.id }), ncaa: ncaaPlace(player), agent: getAgent(db, player.id),
   });
 });

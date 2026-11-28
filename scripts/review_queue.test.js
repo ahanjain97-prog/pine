@@ -4,7 +4,7 @@ import { openDb } from '../src/db.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { REVIEW_ROLE, addNote, registerReviewQueue, copyReviewNotesToEvals, createItem, markBacklogRead, markRead, nudgeAssignees as nudge, resolveItem, reviewBoard, reviewCount, reviewTeam, seedNoteReads, syncReviewNote } from '../src/lib/review_queue.js';
+import { REVIEW_ROLE, addNote, registerReviewQueue, copyReviewNotesToEvals, createItem, markBacklogRead, markRead, nudgeAssignees as nudge, resolveItem, reviewBoard, reviewCount, reviewTeam, seedNoteReads, syncReviewNote, warRoomLog } from '../src/lib/review_queue.js';
 
 // openDb seeds Ray (1, lead), Ahan (2, scout), Ford (3, scout), Bobby (4, assigner), Alex (5, not on the review team).
 const RAY = { id: 1 }, AHAN = { id: 2 }, FORD = { id: 3 }, BOBBY = { id: 4 }, ALEX = { id: 5 };
@@ -587,4 +587,147 @@ test("Ray's call on a player's assignment settles a request still with the other
   assert.deepEqual(statuses(db), ['assignment:not_sb', 'sb_review:not_sb']);
   assert.deepEqual([reviewCount(db, FORD), reviewCount(db, RAY)], [0, 0]);
   assert.throws(() => resolveItem(db, FORD, sb, { outcome: 'reviewed', verdict: 'pass' }), /already been dealt with/);
+});
+
+test('sent with no verdict: the other scout looks first, his Pass or Hold sends it back to the sender, whose Pass or Hold sends it to Ray', (t) => {
+  const db = setup(t);
+  const id = createItem(db, AHAN, { kind: 'sb_review', player_id: 2, no_verdict: true, note: 'Have a look at his pressing.' });
+  assert.equal(db.get('SELECT count(*) AS n FROM verdicts WHERE player_id = 2').n, 0, 'sending sets no verdict');
+  assert.deepEqual(db.all('SELECT action FROM activity WHERE player_id = 2').map((a) => a.action), ['review_sb_review']);
+  assert.equal(db.get('SELECT no_verdict FROM review_items WHERE id = ?', id).no_verdict, 1);
+  assert.deepEqual(peers(db, id), ['3:open']);
+  assert.equal(db.get('SELECT count(*) AS n FROM notes WHERE player_id = 2').n, 0, 'the note asks Ford to look: not a report, so no Staff reports copy');
+  const sent = JSON.parse(db.get("SELECT detail FROM activity WHERE action = 'review_sb_review'").detail);
+  assert.deepEqual([sent.to, sent.lead, sent.no_verdict], ['Ford', 'Ray', true]);
+  assert.deepEqual([reviewCount(db, FORD), reviewCount(db, AHAN), reviewCount(db, RAY)], [1, 0, 0]);
+  assert.throws(() => resolveItem(db, AHAN, id, { outcome: 'reviewed', verdict: 'pass' }), /the other scout answers first/);
+  const forFord = reviewBoard(db, FORD).items[0];
+  assert.deepEqual([forFord.no_verdict, forFord.with_peer, forFord.with_sender, forFord.to_name], [1, true, false, 'Ford']);
+
+  // Ford holds him: back to Ahan, not on to Ray.
+  assert.deepEqual(resolveItem(db, FORD, id, { outcome: 'reviewed', verdict: 'hold', note: 'Presses well, loose on the ball.' }),
+    { to_lead: false, stopped: false, back_to: 'Ahan' });
+  assert.deepEqual(peers(db, id), ['2:open', '3:reviewed']);
+  assert.deepEqual([reviewCount(db, AHAN), reviewCount(db, FORD), reviewCount(db, RAY)], [1, 0, 0]);
+  assert.equal(reviewBoard(db, RAY).items.length, 0, 'Ray has not got it yet');
+  assert.equal(db.get('SELECT status FROM review_items WHERE id = ?', id).status, 'open');
+  const back = reviewBoard(db, AHAN).items[0];
+  assert.deepEqual([back.with_peer, back.with_sender, back.to_name, back.lead_name], [true, true, 'Ford', 'Ray']);
+  assert.deepEqual(unread(db, AHAN), [], "Ford's answer isn't a new note: the player is waiting in Ahan's list");
+  assert.equal(JSON.parse(db.get("SELECT detail FROM activity WHERE action = 'review_resolved'").detail).back_to, 'Ahan');
+  assert.throws(() => resolveItem(db, FORD, id, { outcome: 'reviewed', verdict: 'pass' }), /already answered/);
+  assert.throws(() => nudge(db, AHAN, id), /Answer it yourself first/);
+  assert.deepEqual(nudge(db, FORD, id), ['Ahan'], 'Ford can nudge him now');
+
+  // Ahan watches him and passes: on to Ray, with both their takes.
+  assert.throws(() => resolveItem(db, AHAN, id, { outcome: 'reviewed' }), /Choose Pass, Hold or Fail/);
+  assert.deepEqual(resolveItem(db, AHAN, id, { outcome: 'reviewed', verdict: 'pass', note: 'Watched two games: agree.' }), { to_lead: true, stopped: false });
+  assert.deepEqual(peers(db, id), ['2:reviewed', '3:reviewed']);
+  assert.deepEqual([reviewCount(db, AHAN), reviewCount(db, RAY)], [0, 1]);
+  const forRay = reviewBoard(db, RAY).items[0];
+  assert.deepEqual([forRay.with_peer, forRay.with_sender, forRay.to_name], [false, false, 'Ford']);
+  assert.deepEqual(forRay.takes.map((x) => `${x.name}:${x.verdict}:${x.sent}:${x.note.body}`),
+    ['Ahan:pass:true:Watched two games: agree.', 'Ford:hold:false:Presses well, loose on the ball.']);
+  assert.deepEqual(db.all('SELECT u.name, n.context FROM notes n JOIN users u ON u.id = n.user_id WHERE n.player_id = 2 ORDER BY n.id').map((r) => `${r.name}|${r.context}`),
+    ['Ford|Review: reviewed, Hold', 'Ahan|Review: reviewed, Pass']);
+  resolveItem(db, RAY, id, { outcome: 'added_sb', role: 'FWD1', note: 'Yes.' });
+  assert.deepEqual(statuses(db), ['sb_review:added_sb']);
+});
+
+test('sent with no verdict: a Fail from either scout stops it, and it needs another scout who has not passed him yet', (t) => {
+  const db = setup(t);
+  // Ford fails him: it stops there, and Ahan is never asked.
+  const a = createItem(db, AHAN, { kind: 'sb_review', player_id: 1, no_verdict: true });
+  assert.throws(() => resolveItem(db, FORD, a, { outcome: 'reviewed', verdict: 'fail' }), /Note is required/);
+  assert.deepEqual(resolveItem(db, FORD, a, { outcome: 'reviewed', verdict: 'fail', note: 'Not at the level.' }), { to_lead: false, stopped: true });
+  assert.deepEqual([peers(db, a), reviewCount(db, AHAN), reviewCount(db, RAY)], [['3:reviewed'], 0, 0]);
+  assert.deepEqual(unread(db, AHAN), [a], 'the why is a new note for Ahan');
+
+  // Ford passes him, then Ahan fails him: it stops with Ahan, and Ford hears why.
+  const b = createItem(db, AHAN, { kind: 'sb_review', player_id: 3, no_verdict: true });
+  assert.equal(resolveItem(db, FORD, b, { outcome: 'reviewed', verdict: 'pass' }).back_to, 'Ahan');
+  assert.throws(() => resolveItem(db, AHAN, b, { outcome: 'reviewed', verdict: 'fail' }), /Note is required/);
+  assert.deepEqual(resolveItem(db, AHAN, b, { outcome: 'reviewed', verdict: 'fail', note: 'Too slow on the turn.' }), { to_lead: false, stopped: true });
+  assert.equal(db.get('SELECT status FROM review_items WHERE id = ?', b).status, 'reviewed');
+  assert.deepEqual([reviewBoard(db, RAY).items.length, reviewCount(db, RAY), reviewCount(db, AHAN)], [0, 0, 0], 'Ray never sees it');
+  assert.deepEqual(unread(db, FORD), [b]);
+
+  // Nothing for Ford to look at first: he already holds him, or he skips college players.
+  db.run("INSERT INTO verdicts(player_id, user_id, verdict) VALUES (4, 3, 'hold')");
+  assert.throws(() => createItem(db, AHAN, { kind: 'sb_review', player_id: 4, no_verdict: true }), /Ford is already Pass or Hold on him/);
+  db.run("UPDATE players SET league = 'NCAA' WHERE id = 5");
+  assert.throws(() => createItem(db, AHAN, { kind: 'sb_review', player_id: 5, no_verdict: true }), /No other scout takes him/);
+  assert.throws(() => createItem(db, AHAN, { kind: 'sb_review', player_id: 5 }), /Choose Pass or Hold/, 'a page open from before still needs a verdict');
+
+  // The sender passed him on his page while it waited: both are Pass or Hold, so it goes straight on to Ray.
+  db.run("UPDATE players SET league = NULL WHERE id = 5");
+  const c = createItem(db, FORD, { kind: 'sb_review', player_id: 5, no_verdict: true });
+  db.run("INSERT INTO verdicts(player_id, user_id, verdict) VALUES (5, 3, 'pass')");
+  assert.deepEqual(resolveItem(db, AHAN, c, { outcome: 'reviewed', verdict: 'hold' }), { to_lead: true, stopped: false });
+  assert.deepEqual([peers(db, c), reviewCount(db, RAY)], [['2:reviewed'], 1]);
+});
+
+test("the note sent with no verdict never stands in for the sender's report on Ray's card", (t) => {
+  const db = setup(t);
+  const id = createItem(db, AHAN, { kind: 'sb_review', player_id: 2, no_verdict: true, note: "Haven't watched him yet." });
+  resolveItem(db, FORD, id, { outcome: 'reviewed', verdict: 'pass', note: 'Good engine.' });
+  resolveItem(db, AHAN, id, { outcome: 'reviewed', verdict: 'pass' }); // no note of his own
+  const forRay = reviewBoard(db, RAY).items[0];
+  assert.deepEqual(forRay.takes.map((x) => `${x.name}:${x.verdict}:${x.note?.body ?? null}:${x.reports}`), ['Ahan:pass:null:0', 'Ford:pass:Good engine.:1']);
+  assert.deepEqual(forRay.notes.map((n) => `${n.user_name}/${n.kind}`), ['Ahan/ask', 'Ford/answer'], 'the question is still in the thread, under the cards');
+  assert.deepEqual(warRoomLog(db, AHAN, 2)[0].notes.map((n) => n.body), ["Haven't watched him yet.", 'Good engine.'], "and on the player's page");
+});
+
+test("withdrawing a request that came back keeps the sender's own review in Staff reports", (t) => {
+  const db = setup(t);
+  const id = createItem(db, AHAN, { kind: 'sb_review', player_id: 2, no_verdict: true, note: 'Look at him first?' });
+  resolveItem(db, FORD, id, { outcome: 'reviewed', verdict: 'pass', note: 'Good engine.' });
+  resolveItem(db, AHAN, id, { outcome: 'reviewed', verdict: 'hold', note: 'Decent, small for a 6.' });
+  assert.equal(reviewCount(db, RAY), 1);
+  resolveItem(db, AHAN, id, { outcome: 'removed' });
+  assert.equal(reviewCount(db, RAY), 0);
+  assert.deepEqual(db.all('SELECT user_id, body FROM notes WHERE player_id = 2 ORDER BY id').map((r) => `${r.user_id}:${r.body}`),
+    ['3:Good engine.', '2:Decent, small for a 6.'], 'only the note that says he was sent goes');
+});
+
+test("a player's page keeps every War Room note on him, for those who could see it in the War Room", (t) => {
+  const db = setup(t);
+  const log = (who, player = 1) => warRoomLog(db, who, player).map((i) => `${i.kind}:${i.status}:${i.notes.map((n) => `${n.user_name}/${n.kind}/${n.body}`).join(',')}`);
+  // A watch note is its owner's.
+  const w = createItem(db, AHAN, { kind: 'watch', player_id: 1, note: 'Follow up after the cup game.' });
+  assert.deepEqual(log(AHAN), ['watch:open:Ahan/ask/Follow up after the cup game.']);
+  for (const who of [FORD, RAY, BOBBY, ALEX]) assert.deepEqual(log(who), []);
+  resolveItem(db, AHAN, w, { outcome: 'removed', note: 'Signed elsewhere.' });
+  assert.deepEqual(log(AHAN), ['watch:removed:Ahan/ask/Follow up after the cup game.,Ahan/decision/Signed elsewhere.'], 'still there once off the watch list');
+
+  // An assignment's whole thread, replies included, long after the War Room tab has let it go.
+  const a = createItem(db, RAY, { kind: 'assignment', player_id: 1, note: 'Worth a look?' });
+  resolveItem(db, AHAN, a, { outcome: 'reviewed', verdict: 'pass', note: 'Yes, quick.' });
+  resolveItem(db, FORD, a, { outcome: 'declined' });
+  addNote(db, RAY, a, 'Clips?');
+  addNote(db, FORD, a, 'Sending tonight.');
+  resolveItem(db, RAY, a, { outcome: 'not_sb', note: 'Not now.' });
+  db.run("UPDATE review_items SET created_at = datetime('now', '-70 days'), resolved_at = datetime('now', '-60 days') WHERE id = ?", a);
+  assert.equal(reviewBoard(db, RAY).items.length, 0, 'gone from the War Room tab after 30 days');
+  const thread = 'assignment:not_sb:Ray/ask/Worth a look?,Ahan/answer/Yes, quick.,Ray/reply/Clips?,Ford/reply/Sending tonight.,Ray/decision/Not now.';
+  assert.deepEqual(log(RAY), [thread]);
+  assert.deepEqual(log(FORD), [thread]);
+  assert.deepEqual(log(AHAN), ['watch:removed:Ahan/ask/Follow up after the cup game.,Ahan/decision/Signed elsewhere.', thread], 'newest item first');
+  assert.deepEqual(log(BOBBY), [], 'an assigner sees only what he assigned');
+  assert.deepEqual(log(ALEX), [], 'no one outside the review team sees War Room notes');
+  assert.deepEqual(warRoomLog(db, RAY, 1)[0].to_name, 'Ahan and Ford');
+
+  // A request with the other scout isn't Ray's yet; one a scout withdrew stays between the scouts.
+  const s = createItem(db, AHAN, { kind: 'sb_review', player_id: 2, no_verdict: true, note: 'Look at him first?' });
+  addNote(db, FORD, s, 'Which games?');
+  assert.deepEqual(log(RAY, 2), []);
+  assert.deepEqual(log(FORD, 2), ['sb_review:open:Ahan/ask/Look at him first?,Ford/reply/Which games?']);
+  resolveItem(db, AHAN, s, { outcome: 'removed' });
+  assert.equal(reviewBoard(db, AHAN).items.filter((i) => i.kind === 'sb_review').length, 0, 'withdrawn: gone from the War Room tab');
+  assert.deepEqual(log(AHAN, 2), ['sb_review:removed:Ahan/ask/Look at him first?,Ford/reply/Which games?']);
+  assert.deepEqual(log(FORD, 2), log(AHAN, 2));
+  assert.deepEqual(log(RAY, 2), []);
+  // An item with no notes has nothing to keep.
+  createItem(db, FORD, { kind: 'watch', player_id: 3 });
+  assert.deepEqual(log(FORD, 3), []);
 });

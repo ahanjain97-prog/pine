@@ -395,6 +395,11 @@ export function openDb(file) {
     } catch (e) { try { raw.exec("ROLLBACK"); } catch {} throw e; } finally { raw.exec("PRAGMA foreign_keys=ON"); }
     if (raw.prepare("PRAGMA foreign_key_check").all().length) throw new Error("review_items rebuild broke a foreign key");
   }
+  // A Short Board request sent with no verdict of the sender's own: the other scout looks first, and his Pass or Hold
+  // sends it back to the sender to watch (src/lib/review_queue.js). After the rebuild above, which copies named columns.
+  if (!raw.prepare("PRAGMA table_info(review_items)").all().some((c) => c.name === "no_verdict")) {
+    raw.exec("ALTER TABLE review_items ADD COLUMN no_verdict INTEGER NOT NULL DEFAULT 0");
+  }
   // A nudge to a scout who hasn't answered an assignment yet (src/lib/review_queue.js nudgeAssignees).
   if (!raw.prepare("PRAGMA table_info(review_assignees)").all().some((c) => c.name === "nudged_at")) {
     raw.exec("ALTER TABLE review_assignees ADD COLUMN nudged_at TEXT");
