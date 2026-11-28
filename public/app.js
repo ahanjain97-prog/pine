@@ -1622,7 +1622,6 @@ async function renderPlayer(main, idArg) {
         </section>
         ${collegePanel(d)}
         <section class="panel"><header class="panel-h"><h2>Staff reports</h2></header>${evalsHTML(d.staff)}</section>
-        ${warRoomPanel(d.war_room)}
       </div>
       <div class="p-side">
         ${p.tm_url ? "" : `<section class="panel" id="tm-panel"><header class="panel-h"><h2>Transfermarkt</h2></header><div class="loading sm">Searching Transfermarkt…</div></section>`}
@@ -1984,35 +1983,6 @@ function evalsHTML(staff) {
   return `<div class="evals">${active.map(evalHTML).join("")}${hide ? "" : quiet.map(evalHTML).join("")}</div>${quiet.length ? `
     <p class="evals-quiet muted sm">${hide ? `No verdict or notes yet from ${esc(list)}.` : `${quiet.length} with no verdict or notes yet.`}
       <button type="button" class="btn link sm" data-toggle-empty>${hide ? "Show them" : "Hide empty"}</button></p>` : ""}`;
-}
-
-// Every War Room note on the player that you could see there (server: warRoomLog), a thread per item, newest first.
-// Kept for good: the War Room tab lets go of what settled more than 30 days ago, and replies, watch notes and
-// withdrawal notes have no copy in Staff reports.
-function warRoomPanel(log) {
-  if (!log?.length) return "";
-  const count = log.reduce((n, i) => n + i.notes.length, 0);
-  return `<section class="panel" id="wr-log"><header class="panel-h"><h2>War Room notes</h2>
-    <span class="muted sm">${count} note${count === 1 ? "" : "s"} · every note written on him in the War Room is kept here</span></header>
-    ${log.map((item, i) => warRoomThread(item, i === 0)).join("")}</section>`;
-}
-function warRoomThread(item, open) {
-  const who = (id, name) => (id === S.me.id ? "you" : name || "someone");
-  const from = who(item.from_user, item.from_name), lead = item.lead_name || reviewLead()?.name || "the lead";
-  const asked = item.to_name && item.to_name !== item.lead_name ? item.to_name : null; // the scouts it went to, not a request's lead
-  const head = item.kind === "watch" ? "Your watch list · only you see this"
-    : item.kind === "sb_review" ? `Short Board request · from ${from}${asked ? `, ${item.status === "open" && item.with_peer && !item.with_sender ? "to" : "via"} ${asked}` : ""}`
-    : `Assigned for review · from ${from}${asked ? `, to ${asked}` : ""}`;
-  const [label, tone] = item.status !== "open" ? (item.kind === "watch" ? ["Off the watch list", ""]
-      : item.kind === "sb_review" && item.status === "removed" ? [`Withdrawn · not shown to ${lead}`, ""] : rvStatus(item))
-    : item.kind === "watch" ? ["Watching", ""] : item.with_sender ? [`Back with ${from}`, "hold"] : item.with_peer ? [`With ${asked || "the other scout"}`, "hold"]
-    : item.kind === "sb_review" ? [`With ${lead}`, "hold"] : ["Out for review", "hold"];
-  const what = (n) => n.kind === "ask" ? (item.kind === "assignment" ? "assigning" : item.kind === "watch" ? "watching" : "sending")
-    : n.kind === "answer" ? "reviewing" : n.kind === "decision" ? (item.kind === "watch" ? "taking him off" : "deciding") : "replying";
-  return `<details class="wr-thread" ${open ? "open" : ""}><summary><span class="wr-head">${esc(head)}</span>
-      <span class="dchip ${tone ? "v-" + tone : ""}">${esc(label)}</span><span class="muted sm">${item.notes.length} note${item.notes.length === 1 ? "" : "s"} · ${rvWhen(item.created_at)}</span></summary>
-    <ol class="rv-notes">${item.notes.map((n) => `<li><b>${esc(n.user_id === S.me.id ? "You" : n.user_name)}, ${what(n)}:</b> ${esc(n.body)}
-      <span class="when">${rvWhen(n.created_at)}${n.updated_at ? ` · edited ${rvWhen(n.updated_at)}` : ""}</span></li>`).join("")}</ol></details>`;
 }
 
 function evalHTML(s) {
