@@ -25,8 +25,7 @@
 // Notes that report on the player also go in the author's Staff evaluation on the player page: the lead's note when
 // assigning, a scout's note when reviewing, declining or sending a player up (not one sent with no verdict: that asks
 // the other scout to look, it doesn't report), and the lead's Short Board decision.
-// Thread replies and watch lists stay in the Review tab, which drops what settled more than 30 days ago; the player's
-// page keeps every War Room note on him for good (warRoomLog).
+// Thread replies and watch lists stay in the Review tab.
 // A thread stays open for replies after its item settles, so a question in the lead's decision note can be answered.
 // A reply, or a decision or withdrawal note, is new to everyone else on the item (the New notes tab, and a chip on its
 // row) until they reply or mark it read; the War Room badge stays what waits on you. Notes sent with a new item and a scout's own review answer aren't: those already reach
@@ -248,7 +247,7 @@ export function createItem(db, user, input) {
 // A withdrawn Short Board request: its Activity entries are hidden (the send, the other scout's "on to the lead", and
 // the withdrawal just logged) and the copy of its note in the sender's Staff reports goes, since it would say he was
 // sent up. The other scout's verdict and report stay, and so does the sender's own review of a player that came back
-// to him. The item and its thread stay in the database (and on the player's page, for the scouts: warRoomLog).
+// to him. The item and its thread stay in the database.
 function withdrawTraces(db, item) {
   hideLast(db);
   db.run(`UPDATE activity SET hidden = 1 WHERE action = 'review_resolved' AND player_id = ? AND json_extract(detail, '$.kind') = 'sb_review'
@@ -435,27 +434,6 @@ export function reviewBoard(db, user) {
       AND NOT EXISTS (SELECT 1 FROM board_entries b WHERE b.player_id = p.id AND b.shortlist = 1)
       AND NOT EXISTS (SELECT 1 FROM review_items r WHERE r.player_id = p.id AND r.kind = 'sb_review')`, ...scouts.map((u) => u.id)).map((r) => r.player_id) : [];
   return { me, team, items, suggestions };
-}
-
-// Every War Room note on a player that the member may see, for the player's page: each item on him that has notes,
-// newest first, with its whole thread. All of it, however old: the War Room tab drops what settled more than 30 days
-// ago, and replies, watch notes and withdrawal notes have no copy in Staff reports. The tab's own rules hold: a watch
-// list is its owner's, a request reaches the lead only once the scouts are through with it, and one a scout withdrew
-// stays between the scouts (it left the lead's queue as if never sent). No one outside the review team sees any.
-export function warRoomLog(db, user, playerId) {
-  const me = user && db.get(`SELECT id, name, ${REVIEW_ROLE} AS role FROM users WHERE id = ?`, user.id);
-  if (!me?.role) return [];
-  const name = (id) => (id == null ? null : db.get("SELECT name FROM users WHERE id = ?", id)?.name ?? null);
-  return db.all("SELECT * FROM review_items WHERE player_id = ? ORDER BY created_at DESC, id DESC", Number(playerId))
-    .map((i) => (i.kind !== "watch" ? { ...i, assignees: assigneesOf(db, i.id) } : i))
-    .filter((i) => (i.kind === "sb_review" && i.status === "removed" ? me.role === "scout" : canSee(me, i)))
-    .map((i) => ({ id: i.id, kind: i.kind, status: i.status, no_verdict: i.no_verdict, created_at: i.created_at, resolved_at: i.resolved_at,
-      from_user: i.from_user, from_name: name(i.from_user), to_name: sentTo(i) ?? name(i.to_user),
-      lead_name: i.kind === "sb_review" ? name(i.to_user) : null, resolved_by_name: name(i.resolved_by),
-      with_peer: withPeer(i), with_sender: withSender(i),
-      notes: db.all(`SELECT n.id, n.user_id, u.name AS user_name, n.body, n.kind, n.created_at, n.updated_at
-        FROM review_notes n JOIN users u ON u.id = n.user_id WHERE n.item_id = ? ORDER BY n.id`, i.id) }))
-    .filter((i) => i.notes.length);
 }
 
 // Each scout's verdict and latest Staff report on an item's player. A scout who sent it or was assigned it always

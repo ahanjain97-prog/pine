@@ -4,7 +4,7 @@ import { openDb } from '../src/db.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { REVIEW_ROLE, addNote, registerReviewQueue, copyReviewNotesToEvals, createItem, markBacklogRead, markRead, nudgeAssignees as nudge, resolveItem, reviewBoard, reviewCount, reviewTeam, seedNoteReads, syncReviewNote, warRoomLog } from '../src/lib/review_queue.js';
+import { REVIEW_ROLE, addNote, registerReviewQueue, copyReviewNotesToEvals, createItem, markBacklogRead, markRead, nudgeAssignees as nudge, resolveItem, reviewBoard, reviewCount, reviewTeam, seedNoteReads, syncReviewNote } from '../src/lib/review_queue.js';
 
 // openDb seeds Ray (1, lead), Ahan (2, scout), Ford (3, scout), Bobby (4, assigner), Alex (5, not on the review team).
 const RAY = { id: 1 }, AHAN = { id: 2 }, FORD = { id: 3 }, BOBBY = { id: 4 }, ALEX = { id: 5 };
@@ -675,7 +675,6 @@ test("the note sent with no verdict never stands in for the sender's report on R
   const forRay = reviewBoard(db, RAY).items[0];
   assert.deepEqual(forRay.takes.map((x) => `${x.name}:${x.verdict}:${x.note?.body ?? null}:${x.reports}`), ['Ahan:pass:null:0', 'Ford:pass:Good engine.:1']);
   assert.deepEqual(forRay.notes.map((n) => `${n.user_name}/${n.kind}`), ['Ahan/ask', 'Ford/answer'], 'the question is still in the thread, under the cards');
-  assert.deepEqual(warRoomLog(db, AHAN, 2)[0].notes.map((n) => n.body), ["Haven't watched him yet.", 'Good engine.'], "and on the player's page");
 });
 
 test("withdrawing a request that came back keeps the sender's own review in Staff reports", (t) => {
@@ -688,46 +687,4 @@ test("withdrawing a request that came back keeps the sender's own review in Staf
   assert.equal(reviewCount(db, RAY), 0);
   assert.deepEqual(db.all('SELECT user_id, body FROM notes WHERE player_id = 2 ORDER BY id').map((r) => `${r.user_id}:${r.body}`),
     ['3:Good engine.', '2:Decent, small for a 6.'], 'only the note that says he was sent goes');
-});
-
-test("a player's page keeps every War Room note on him, for those who could see it in the War Room", (t) => {
-  const db = setup(t);
-  const log = (who, player = 1) => warRoomLog(db, who, player).map((i) => `${i.kind}:${i.status}:${i.notes.map((n) => `${n.user_name}/${n.kind}/${n.body}`).join(',')}`);
-  // A watch note is its owner's.
-  const w = createItem(db, AHAN, { kind: 'watch', player_id: 1, note: 'Follow up after the cup game.' });
-  assert.deepEqual(log(AHAN), ['watch:open:Ahan/ask/Follow up after the cup game.']);
-  for (const who of [FORD, RAY, BOBBY, ALEX]) assert.deepEqual(log(who), []);
-  resolveItem(db, AHAN, w, { outcome: 'removed', note: 'Signed elsewhere.' });
-  assert.deepEqual(log(AHAN), ['watch:removed:Ahan/ask/Follow up after the cup game.,Ahan/decision/Signed elsewhere.'], 'still there once off the watch list');
-
-  // An assignment's whole thread, replies included, long after the War Room tab has let it go.
-  const a = createItem(db, RAY, { kind: 'assignment', player_id: 1, note: 'Worth a look?' });
-  resolveItem(db, AHAN, a, { outcome: 'reviewed', verdict: 'pass', note: 'Yes, quick.' });
-  resolveItem(db, FORD, a, { outcome: 'declined' });
-  addNote(db, RAY, a, 'Clips?');
-  addNote(db, FORD, a, 'Sending tonight.');
-  resolveItem(db, RAY, a, { outcome: 'not_sb', note: 'Not now.' });
-  db.run("UPDATE review_items SET created_at = datetime('now', '-70 days'), resolved_at = datetime('now', '-60 days') WHERE id = ?", a);
-  assert.equal(reviewBoard(db, RAY).items.length, 0, 'gone from the War Room tab after 30 days');
-  const thread = 'assignment:not_sb:Ray/ask/Worth a look?,Ahan/answer/Yes, quick.,Ray/reply/Clips?,Ford/reply/Sending tonight.,Ray/decision/Not now.';
-  assert.deepEqual(log(RAY), [thread]);
-  assert.deepEqual(log(FORD), [thread]);
-  assert.deepEqual(log(AHAN), ['watch:removed:Ahan/ask/Follow up after the cup game.,Ahan/decision/Signed elsewhere.', thread], 'newest item first');
-  assert.deepEqual(log(BOBBY), [], 'an assigner sees only what he assigned');
-  assert.deepEqual(log(ALEX), [], 'no one outside the review team sees War Room notes');
-  assert.deepEqual(warRoomLog(db, RAY, 1)[0].to_name, 'Ahan and Ford');
-
-  // A request with the other scout isn't Ray's yet; one a scout withdrew stays between the scouts.
-  const s = createItem(db, AHAN, { kind: 'sb_review', player_id: 2, no_verdict: true, note: 'Look at him first?' });
-  addNote(db, FORD, s, 'Which games?');
-  assert.deepEqual(log(RAY, 2), []);
-  assert.deepEqual(log(FORD, 2), ['sb_review:open:Ahan/ask/Look at him first?,Ford/reply/Which games?']);
-  resolveItem(db, AHAN, s, { outcome: 'removed' });
-  assert.equal(reviewBoard(db, AHAN).items.filter((i) => i.kind === 'sb_review').length, 0, 'withdrawn: gone from the War Room tab');
-  assert.deepEqual(log(AHAN, 2), ['sb_review:removed:Ahan/ask/Look at him first?,Ford/reply/Which games?']);
-  assert.deepEqual(log(FORD, 2), log(AHAN, 2));
-  assert.deepEqual(log(RAY, 2), []);
-  // An item with no notes has nothing to keep.
-  createItem(db, FORD, { kind: 'watch', player_id: 3 });
-  assert.deepEqual(log(FORD, 3), []);
 });

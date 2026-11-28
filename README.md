@@ -385,12 +385,6 @@ syncs leave the signing status alone.
     review"). That covers the lead's note when assigning; a scout's note when reviewing, declining or sending a
     player up; and the lead's Short Board decision. Thread replies and watch lists stay in the War Room. The
     copy is the author's to edit or delete; the thread keeps the original.
-  - **War Room notes on the player page:** every War Room note on a player is kept in a "War Room notes" panel
-    under Staff reports, a thread per item, with no time limit (the War Room tab itself drops what settled more
-    than 30 days ago). That includes replies, watch-list notes and withdrawal notes, which have no Staff reports
-    copy. It follows the War Room's visibility: a watch list shows only to its owner, a request shows to the lead
-    only once it has reached him, a withdrawn request shows to the scouts only, and staff outside the review team
-    see none.
   - **Badge:** the nav badge counts what's waiting on you (the lead's Decisions, a scout's open assignments).
   - **Player page:** has Watch / Send to Ray / Assign for review buttons.
   - **Activity:** entries appear there, except watch lists, which are private.
